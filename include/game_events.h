@@ -1,0 +1,39 @@
+#ifndef GAME_EVENTS_H
+#define GAME_EVENTS_H
+
+#include "card_instance.h"
+#include "card_type.h"
+
+struct GameState;
+
+enum class GameEvent
+{
+    HAND_CHANGED,
+    GRAVEYARD_CHANGED,
+};
+
+int hand_scheduled_count(const GameState& state, bool include_in_flight_draw);
+
+bool hand_add_card(GameState& state, CardRef card, bool from_deck_draw = false);
+bool hand_add_card(GameState& state, CardType type, bool from_deck_draw = false);
+void hand_swap_cards(GameState& state, int first_card, int second_card);
+void hand_remove_at_to_graveyard(GameState& state, int index, int& selected_card);
+void hand_remove_at_to_graveyard_played(GameState& state, int index, int& selected_card);
+void hand_remove_at_exiled(GameState& state, int index, int& selected_card);
+void hand_remove_at_to_deck_top(GameState& state, int index, int& selected_card);
+void trigger_discard_effect_if_any(GameState& state, CardType type);
+
+void graveyard_push(GameState& state, CardRef card);
+void graveyard_push(GameState& state, CardType type);
+void graveyard_remove_at(GameState& state, int index);
+void graveyard_swap_at(GameState& state, int first_index, int second_index);
+void graveyard_clear(GameState& state);
+void graveyard_apply_gravity(GameState& state);
+
+void exile_push(GameState& state, CardRef card);
+void exile_push(GameState& state, CardType type);
+
+void necromancy_shuffle_graveyard_to_deck(GameState& state);
+void game_events_dispatch(GameState& state, GameEvent event);
+
+#endif

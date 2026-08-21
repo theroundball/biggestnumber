@@ -1,0 +1,66 @@
+#ifndef CARD_TYPE_H
+#define CARD_TYPE_H
+
+// Card identity. This is the only thing the Deck, graveyard and future-round
+// bookkeeping ever need to store, so it lives in its own tiny header to keep the
+// card <-> game_state include graph acyclic.
+//
+// To add a card: add an entry here (before COUNT) and a matching row in the
+// table inside card_data.cpp (entries must stay in this same order).
+enum class CardType
+{
+    SIPS,
+    LONGBOARD,
+    HEELYS,
+    SCOOTER,
+    SKATEBOARD,
+    ROLLER_BLADES,
+    WAGON,
+    STOLLER,
+    RIP_STICK,
+    BIKE,
+    CLOVER,
+    BIG_KUROSAWA_BURGER,
+    ROCK,
+    PAPER,
+    SCISSORS,
+    SHOOT,
+    PEANUT_BUTTER,
+    JELLY,
+    STRAW,
+    STICKS,
+    BRICKS,
+    LIFELINE,
+    SNAIL_MAIL,
+    WISHES,
+    BUSTED,
+    SWIVEL,
+    ROUNDUP,
+    HACKER,
+    LIBRARIAN,
+    PILOT,
+    TURTLE_MODE,
+    TIME_IS_TOO_EXPENSIVE,
+    BIRDS_OF_A_FEATHER,
+    NECROMANCY,
+    MIRACLE,
+    RAGS_TO_RICHES,
+    JACKS,
+    FISHING_POLE,
+    CUPS,
+    SWAP,
+    CATNIP,
+    JOURNAL,
+    TRIPTYCH,
+    SEEDS,
+    DILLA,
+    SEMAPHORE,
+    BONES,
+    THRESHOLD,
+    TOMBSTONES,
+    ROLL_OVER,
+    TOPPINGS,
+    COUNT
+};
+
+#endif
