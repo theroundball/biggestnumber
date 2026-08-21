@@ -1,0 +1,26 @@
+1) Birds of a Feather is not functioning. It seems sometimes when I play one it doesn't take a place in the graveyard it's as if it disappears. And when there are consecutive birds of a feather in the graveyard they should return to your hand. So play 1, stays in graveyard, play a second - if it is consecutive adjacent to another BoF then both are returned to hand, then for them to return back to hand next 3 will need to be consecutively adjacent in the graveyard and incrementing by 1 each time they return to hand and so on. 
+
+2) let's make a card with 'flashback' when this card is in graveyard at any time you can exile it from the graveyard to play it. In the UI cards with flashback will show in the hand with a visual effect on them, perhaps they are sort of fuzzy, or have a bit of a glow around them, when played from the hand, the card will zoom from the graveyard to the middle, similar to the animation from when they are played form hand, the visually different version of the card in hand, will essentualy fizzle out of existence. At first let's make this card a +1 card when played from hand and +6 when flashbacked. 
+
+3) let's make a card called cycle, which adds 2 when played, and also has the ability to discard it in order to draw a card. this card is discarded from hand when you press the down button. LEt's remove generally the abilityt o see the description of the card when pressing down. Cards which have a discard ability can press down, others will do nothing when down is pressed and hte card is the selected in hand. Let;s say anytime you are discarding a card from hand for the effect of another card, you can also press down to do the discard. 
+
+4) let's make a card called get me outa here, this card will add 3 when played, plus 3 when discarded, and plus 3 when exiled from the graveyard
+
+5) Let's make a card that will add 4
+6) Let's make a card that will add 5 this card adds 5 and then doubles the number on the next card. This doubling affects any add number on a card, so that if it said add 3 before now it will say add 6, this also apllies to cards like tryptch, or sips.
+7) Let's make a card that will add 6 this card functions like the flashback card from before, it adds 6 when played and 1 when flashbacked
+8) Let's make a card that will add 7 this card functions like the cycled card it adds 7 when played and does the same thing for as cycle for the discard and draw effect. 
+9) Let's make a card that will add 8
+10) Let's make a card that will add 9
+
+
+11) let's make a card, which will require some new UI things, maybe sprites. Build a number. This card will display 3 rectangles a size that could contain a digit the will then change as you play addition cards. so at first the 3 rectangles will show 000 then you can play a heelys card for example which has a +2 that then 2 will show up on the right most of the 3 rectangles then it will raise following our selection paradigm, the user can them move the number left or right in any of the 3 digit places when they press a the number will replace the selected digit, this will happy for the rest of the round until all cards have been played. Honestly this needs a lot more planning, but hte idea is there. 
+
+12) one more thing, draw a card if there are no other cards in your hand
+
+13) draw a card if it can make the number bigger draw 1 more
+
+14) Flex - Name add or multiply mill cards from the top of your deck until you find a card that can add or multiply and play that card. 
+
+
+
