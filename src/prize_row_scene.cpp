@@ -67,33 +67,59 @@ namespace
         }
     }
 
-    void build_eligible_deck_refs(const SaveData& save, int deck_index, InstanceEligibleFn eligible,
-                                  bn::vector<CardRef, 50>& out_refs,
-                                  bn::vector<uint8_t, 50>& out_instance_ids)
+    // Upgrades target a single owned copy, and the instance pool holds one entry per copy in
+    // the collection, so the pool is the full candidate set — decks only reference it.
+    void build_eligible_collection_refs(const SaveData& save, InstanceEligibleFn eligible,
+                                        bn::vector<CardRef, InstancePool::CAPACITY>& out_refs)
     {
         out_refs.clear();
-        out_instance_ids.clear();
+
+        // Grouped by type so copies of the same card sit together; the pool itself is in
+        // acquisition order, which reads as arbitrary once the collection grows.
+        for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+        {
+            const CardType type = CardType(type_index);
+
+            for(uint8_t id = 0; id < save.instance_pool.count; ++id)
+            {
+                const CardInstance& instance = save.instance_pool.entries[id];
+
+                if(instance.base != type)
+                {
+                    continue;
+                }
+
+                if(eligible && !eligible(instance))
+                {
+                    continue;
+                }
+
+                out_refs.push_back(CardRef{type, id});
+            }
+        }
+    }
+
+    void mark_active_deck_instances(const SaveData& save, bool (&out_in_deck)[InstancePool::CAPACITY])
+    {
+        for(int index = 0; index < InstancePool::CAPACITY; ++index)
+        {
+            out_in_deck[index] = false;
+        }
+
+        if(save.deck_count <= 0)
+        {
+            return;
+        }
 
         bn::vector<CardRef, 50> deck_refs;
-        campaign_flatten_deck(save, deck_index, deck_refs);
+        campaign_flatten_deck(save, save.active_deck_index, deck_refs);
 
-        for(int index = 0; index < deck_refs.size(); ++index)
+        for(const CardRef& ref : deck_refs)
         {
-            const CardRef& ref = deck_refs[index];
-            const CardInstance* instance = instance_at(save.instance_pool, ref.instance_id);
-
-            if(!instance)
+            if(ref.instance_id < InstancePool::CAPACITY)
             {
-                continue;
+                out_in_deck[ref.instance_id] = true;
             }
-
-            if(eligible && !eligible(*instance))
-            {
-                continue;
-            }
-
-            out_refs.push_back(ref);
-            out_instance_ids.push_back(ref.instance_id);
         }
     }
 
@@ -261,22 +287,18 @@ bool run_upgrade_target_scene(SaveData& save, PrizeOfferKind upgrade_kind, bn::s
 
     out_instance_id = NO_INSTANCE;
 
-    if(save.deck_count <= 0)
-    {
-        return false;
-    }
-
-    const int deck_index = save.active_deck_index;
     InstanceEligibleFn eligible = eligibility_for_upgrade(upgrade_kind);
 
-    bn::vector<CardRef, 50> refs;
-    bn::vector<uint8_t, 50> instance_ids;
-    build_eligible_deck_refs(save, deck_index, eligible, refs, instance_ids);
+    bn::vector<CardRef, InstancePool::CAPACITY> refs;
+    build_eligible_collection_refs(save, eligible, refs);
 
     if(refs.empty())
     {
         return false;
     }
+
+    bool in_active_deck[InstancePool::CAPACITY];
+    mark_active_deck_instances(save, in_active_deck);
 
     constexpr int WINDOW = game_layout::CARD_CAROUSEL_VISIBLE;
     constexpr int POOL = game_layout::CARD_CAROUSEL_POOL;
@@ -285,7 +307,7 @@ bool run_upgrade_target_scene(SaveData& save, PrizeOfferKind upgrade_kind, bn::s
     constexpr int RAISE = game_layout::GRAVE_SELECTED_RAISE;
 
     bn::array<Card, POOL> card_pool;
-    bn::array<int, 50> raise_offsets{};
+    bn::array<int, InstancePool::CAPACITY> raise_offsets{};
 
     bn::sprite_text_generator title_generator(common::variable_8x16_sprite_font);
     bn::sprite_text_generator body_generator(common::variable_8x8_sprite_font);
@@ -344,6 +366,17 @@ bool run_upgrade_target_scene(SaveData& save, PrizeOfferKind upgrade_kind, bn::s
                             target_scroll_x, 0, bn::span<const int>(raise_offsets.data(), count),
                             &save.instance_pool, &body_generator, WINDOW);
 
+            // The row spans the whole collection now, so call out deck membership and
+            // position — otherwise there is no way to tell the two apart while scrolling.
+            const uint8_t cursor_id = refs[cursor].instance_id;
+            bn::string<32> status = (cursor_id < InstancePool::CAPACITY && in_active_deck[cursor_id])
+                                        ? "In deck  "
+                                        : "Collection  ";
+            status.append(bn::to_string<4>(cursor + 1));
+            status.append("/");
+            status.append(bn::to_string<4>(count));
+            scene_text.draw_centered_line(32, status);
+
             scene_text.draw_centered_line(52, "A upgrade  Select info");
         }
 
@@ -386,7 +419,7 @@ bool run_upgrade_target_scene(SaveData& save, PrizeOfferKind upgrade_kind, bn::s
         {
             release_card_pool(bn::span<Card>(card_pool.data(), card_pool.size()));
             battle_backdrop_set_visible(true);
-            out_instance_id = instance_ids[cursor];
+            out_instance_id = refs[cursor].instance_id;
             return true;
         }
 

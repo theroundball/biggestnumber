@@ -56,6 +56,12 @@ namespace
         campaign_load_trinkets(deck, launch.trinkets);
 
         const GameSceneResult game = run_game_scene(battle_deck, launch);
+
+        if(game.exited_early)
+        {
+            return;
+        }
+
         const bool won =
             campaign_evaluate_win(save, mode, game, setup.peak_before, setup.same_number_target,
                                   setup.number_now_round_peak, setup.number_now_scoring_round);

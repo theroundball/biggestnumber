@@ -4,6 +4,7 @@
 #include "card_data.h"
 #include "card_type.h"
 #include "game_events.h"
+#include "game_helpers.h"
 #include "game_state.h"
 
 namespace
@@ -81,6 +82,11 @@ PostPlayDestination route_played_card(const GameState& state, CardType type, Pla
         return PostPlayDestination::NONE;
     }
 
+    if(source == PlaySource::FLASHBACK)
+    {
+        return PostPlayDestination::EXILE;
+    }
+
     if(data.exiles_self_on_play)
     {
         return source == PlaySource::HAND ? PostPlayDestination::EXILE : PostPlayDestination::NONE;
@@ -104,6 +110,15 @@ void apply_post_play_destination(GameState& state, CardRef card, PlaySource sour
         if(source == PlaySource::HAND)
         {
             hand_remove(state, hand_index, selected_card, false, false);
+        }
+        else if(source == PlaySource::FLASHBACK)
+        {
+            if(hand_index >= 0 && hand_index < state.graveyard.size())
+            {
+                const CardRef removed = state.graveyard[hand_index];
+                graveyard_remove_at(state, hand_index);
+                exile_push(state, removed, true);
+            }
         }
 
         break;
@@ -145,7 +160,8 @@ PlayResolutionResult resolve_played_card(GameState& state, CardRef card,
                                     context.selected_card, false);
     }
 
-    apply_card_play(state, card);
+    apply_card_relocated_from_play(state, card.type, context.source);
+    apply_card_play(state, card, context.source);
 
     if(result.dest == PostPlayDestination::GRAVEYARD && card.type == CardType::TOMBSTONES &&
        context.source != PlaySource::ECHO)
@@ -156,12 +172,9 @@ PlayResolutionResult resolve_played_card(GameState& state, CardRef card,
     if(result.increment_cards_played)
     {
         ++state.cards_played_this_round;
-
-        if(card.type == CardType::BIRDS_OF_A_FEATHER)
-        {
-            ++state.birds_played_count;
-        }
     }
+
+    maybe_draw_if_solo(state, card.type);
 
     return result;
 }

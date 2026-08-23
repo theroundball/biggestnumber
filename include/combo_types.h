@@ -35,8 +35,20 @@ struct ComboCinematicState
     int card_count = 0;
 };
 
+// Camera choreography for graveyard combos: the view slides to the graveyard row,
+// holds on the matched cards, plays the cinematic there, then slides back.
+enum class ComboFocusPhase : uint8_t
+{
+    NONE,
+    PAN_IN,
+    REVEAL,
+    PLAYING,
+    PAN_OUT,
+};
+
 constexpr int COMBO_GATHER_FRAMES = 24;
 constexpr int COMBO_EXIT_FRAMES = 20;
 constexpr int COMBO_TOTAL_FRAMES = COMBO_GATHER_FRAMES + COMBO_EXIT_FRAMES;
+constexpr int COMBO_FOCUS_REVEAL_FRAMES = 26;
 
 #endif

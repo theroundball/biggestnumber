@@ -60,6 +60,18 @@ enum class CardType
     TOMBSTONES,
     ROLL_OVER,
     TOPPINGS,
+    CYCLE,
+    CYCLE_SEVEN,
+    GET_ME_OUTA_HERE,
+    COMEBACK,
+    ENCORE,
+    DOUBLE_TIME,
+    THE_FOURTH,
+    PALINDROME,
+    THE_FIFTH,
+    SOLO,
+    SPECULATIVE,
+    FLEX,
     COUNT
 };
 

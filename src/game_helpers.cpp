@@ -116,6 +116,232 @@ bool card_has_discard_effect(CardType type)
     return card_data(type).on_discard != nullptr;
 }
 
+bool card_has_cycle(CardType type)
+{
+    return card_data(type).has_cycle;
+}
+
+bool card_has_flashback(CardType type)
+{
+    return card_data(type).has_flashback;
+}
+
+bool card_numeric_play_override(CardType type)
+{
+    switch(type)
+    {
+    case CardType::MIRACLE:
+    case CardType::JOURNAL:
+    case CardType::TIME_IS_TOO_EXPENSIVE:
+    case CardType::DILLA:
+    case CardType::SEMAPHORE:
+    case CardType::THRESHOLD:
+    case CardType::TOMBSTONES:
+    case CardType::BIRDS_OF_A_FEATHER:
+    case CardType::ROUNDUP:
+    case CardType::CLOVER:
+    case CardType::BIG_KUROSAWA_BURGER:
+    case CardType::RAGS_TO_RICHES:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool card_increases_current_number(CardType type)
+{
+    const CardData& data = card_data(type);
+
+    if(data.immediate_plus > 0 || data.immediate_multiply > 1)
+    {
+        return true;
+    }
+
+    return card_numeric_play_override(type);
+}
+
+bool card_increases_current_number(const GameState& state, CardRef card)
+{
+    if(card_preview_plus(state, card, false) > 0)
+    {
+        return true;
+    }
+
+    const CardData& data = card_data(card.type);
+
+    if(data.immediate_multiply > 1)
+    {
+        return true;
+    }
+
+    return card_numeric_play_override(card.type);
+}
+
+bool card_can_add_or_multiply(CardType type)
+{
+    if(card_increases_current_number(type))
+    {
+        return true;
+    }
+
+    const CardData& data = card_data(type);
+
+    for(int index = 0; index < 3; ++index)
+    {
+        if(data.future[index].positive > 0 || data.future[index].multiply > 1)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool card_can_add_or_multiply(const GameState& state, CardRef card)
+{
+    if(card_increases_current_number(state, card))
+    {
+        return true;
+    }
+
+    return card_can_add_or_multiply(card.type);
+}
+
+int card_preview_plus(const GameState& state, CardRef card, bool flashback)
+{
+    const CardData& data = card_data(card.type);
+    int plus = (flashback && data.has_flashback) ? data.flashback_plus : data.immediate_plus;
+
+    if(!flashback)
+    {
+        if(const CardInstance* instance = instance_at(state.instance_pool, card.instance_id))
+        {
+            plus = effective_immediate_plus(*instance);
+        }
+    }
+
+    if(state.pending_double_adds && plus > 0)
+    {
+        plus *= 2;
+    }
+
+    return plus;
+}
+
+int flashback_ghost_count(const GameState& state)
+{
+    int count = 0;
+
+    for(int index = 0; index < state.graveyard.size(); ++index)
+    {
+        if(card_has_flashback(state.graveyard[index].type))
+        {
+            ++count;
+        }
+    }
+
+    return count;
+}
+
+int playable_slot_count(const GameState& state)
+{
+    // Flashback is optional and does not keep an empty live hand in the round.
+    if(state.hand.empty())
+    {
+        return 0;
+    }
+
+    return state.hand.size() + flashback_ghost_count(state);
+}
+
+bool playable_slot_is_flashback(const GameState& state, int visual_index)
+{
+    return visual_index >= state.hand.size();
+}
+
+int playable_slot_hand_index(const GameState& state, int visual_index)
+{
+    if(visual_index < 0 || visual_index >= state.hand.size())
+    {
+        return -1;
+    }
+
+    return visual_index;
+}
+
+int playable_slot_graveyard_index(const GameState& state, int visual_index)
+{
+    const int ghost_ordinal = visual_index - state.hand.size();
+
+    if(ghost_ordinal < 0)
+    {
+        return -1;
+    }
+
+    int seen = 0;
+
+    for(int index = 0; index < state.graveyard.size(); ++index)
+    {
+        if(!card_has_flashback(state.graveyard[index].type))
+        {
+            continue;
+        }
+
+        if(seen == ghost_ordinal)
+        {
+            return index;
+        }
+
+        ++seen;
+    }
+
+    return -1;
+}
+
+CardRef playable_slot_card(const GameState& state, int visual_index)
+{
+    if(visual_index < 0)
+    {
+        return CardRef{};
+    }
+
+    if(visual_index < state.hand.size())
+    {
+        return state.hand[visual_index];
+    }
+
+    const int gy_index = playable_slot_graveyard_index(state, visual_index);
+
+    if(gy_index < 0)
+    {
+        return CardRef{};
+    }
+
+    return state.graveyard[gy_index];
+}
+
+bool try_draw_one_to_hand(GameState& state)
+{
+    CardRef drawn;
+
+    if(!state.deck.draw(drawn))
+    {
+        return false;
+    }
+
+    return hand_add_card(state, drawn, true);
+}
+
+void maybe_draw_if_solo(GameState& state, CardType type)
+{
+    if(type != CardType::SOLO || !state.hand.empty())
+    {
+        return;
+    }
+
+    try_draw_one_to_hand(state);
+}
+
 void play_miracle_bonus(GameState& state, int amount)
 {
     state.add_from_card(amount);

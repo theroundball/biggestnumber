@@ -1,16 +1,65 @@
 #include "game_scene.h"
 
 #include "bn_core.h"
+#include "bn_keypad.h"
+#include "bn_sprite_text_generator.h"
 
 #include "battle_backdrop.h"
 #include "card_instance.h"
+#include "common_variable_8x16_sprite_font.h"
 #include "game_context.h"
 #include "score_count_system.h"
 #include "score_pop_system.h"
 #include "score_swap_system.h"
 #include "trinket_system.h"
+#include "ui_common.h"
 
 #include "save_data.h"
+
+namespace
+{
+    bool run_game_pause_menu()
+    {
+        wait_for_keypad_clear();
+
+        bn::sprite_text_generator generator(common::variable_8x16_sprite_font);
+        SceneText text(generator);
+        text.set_z_order(-32767);
+        text.set_bg_priority(0);
+        int cursor = 0;
+
+        while(true)
+        {
+            text.clear();
+            text.draw_centered_line(-32, "Paused");
+            text.draw_centered_line(-8, cursor == 0 ? "> Continue" : "  Continue");
+            text.draw_centered_line(8, cursor == 1 ? "> Exit Game" : "  Exit Game");
+
+            if(bn::keypad::up_pressed() || bn::keypad::down_pressed())
+            {
+                cursor = 1 - cursor;
+            }
+
+            if(bn::keypad::a_pressed())
+            {
+                const bool exit_game = cursor == 1;
+                text.clear();
+                wait_for_keypad_clear();
+                return exit_game;
+            }
+
+            if(bn::keypad::b_pressed() || bn::keypad::start_pressed())
+            {
+                text.clear();
+                wait_for_keypad_clear();
+                return false;
+            }
+
+            battle_backdrop_tick();
+            bn::core::update();
+        }
+    }
+}
 
 GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const BattleLaunch& launch)
 {
@@ -18,6 +67,16 @@ GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const 
 
     while(! ctx.run_finished)
     {
+        if(bn::keypad::start_pressed())
+        {
+            if(run_game_pause_menu())
+            {
+                ctx.scene_result.exited_early = true;
+                ctx.run_finished = true;
+                break;
+            }
+        }
+
         ctx.tick_combo();
         ctx.tick_panel();
 

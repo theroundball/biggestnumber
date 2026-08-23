@@ -29,9 +29,13 @@ struct CardData
 
     void (*on_play)(GameState&) = nullptr;
     void (*on_discard)(GameState&) = nullptr;
+    void (*on_exile)(GameState&) = nullptr;
 
     bool defer_graveyard_until_pending = false;   // e.g. Clover: exile picks before this hits GY
     bool exiles_self_on_play = false;             // e.g. Necromancy: leaves the game on play
+    bool has_cycle = false;
+    bool has_flashback = false;
+    int flashback_plus = 0;
 };
 
 // Look up the definition for a card type (indexed into the static table).

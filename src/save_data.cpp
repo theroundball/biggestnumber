@@ -12,6 +12,8 @@ namespace
     SaveData _save_data;
 
     constexpr int SAVE_DATA_VERSION_V8 = 8;
+    constexpr int SAVE_DATA_VERSION_V9 = 9;
+    constexpr int SAVE_DATA_CARD_COUNT_V9 = 51;
     constexpr int SAVE_DATA_CARD_COUNT_V5 = 53;
     constexpr int SAVE_DATA_REMOVED_CARD_INDEX_V5 = 36;
     constexpr int SAVE_DATA_VERSION_V5 = 5;
@@ -248,7 +250,7 @@ namespace
     struct SavedDeckV8
     {
         char name[16] = {};
-        uint8_t counts[int(CardType::COUNT)] = {};
+        uint8_t counts[SAVE_DATA_CARD_COUNT_V9] = {};
         int32_t highest_score = 0;
         uint8_t trinkets[CAMPAIGN_TRINKET_SLOTS] = {
             uint8_t(TrinketType::NONE),
@@ -272,10 +274,44 @@ namespace
         uint8_t reserved = 0;
         int16_t same_number_used_targets[SAME_NUMBER_USED_CAPACITY] = {};
         int32_t number_now_round_best[CAMPAIGN_NUMBER_NOW_ROUNDS] = {};
-        uint8_t library_counts[int(CardType::COUNT)] = {};
+        uint8_t library_counts[SAVE_DATA_CARD_COUNT_V9] = {};
         uint8_t trinket_owned[int(TrinketType::COUNT)] = {};
         InstancePool instance_pool{};
         SavedDeckV8 decks[MAX_SAVED_DECKS] = {};
+    };
+
+    struct SavedDeckV9
+    {
+        char name[16] = {};
+        uint8_t counts[SAVE_DATA_CARD_COUNT_V9] = {};
+        int32_t highest_score = 0;
+        uint8_t trinkets[CAMPAIGN_TRINKET_SLOTS] = {
+            uint8_t(TrinketType::NONE),
+            uint8_t(TrinketType::NONE),
+        };
+        uint8_t unrestricted_build = 0;
+    };
+
+    struct SaveDataV9
+    {
+        uint32_t magic = 0;
+        uint16_t version = 0;
+        uint8_t deck_count = 0;
+        uint8_t active_deck_index = 0;
+        uint8_t campaign_ready = 0;
+        uint8_t reserved_pad = 0;
+        int32_t biggest_number_record = 0;
+        int32_t total_wins = 0;
+        int32_t same_number_wins = 0;
+        int16_t same_number_target = 0;
+        uint8_t same_number_used_count = 0;
+        uint8_t reserved = 0;
+        int16_t same_number_used_targets[SAME_NUMBER_USED_CAPACITY] = {};
+        int32_t number_now_round_best[CAMPAIGN_NUMBER_NOW_ROUNDS] = {};
+        uint8_t library_counts[SAVE_DATA_CARD_COUNT_V9] = {};
+        uint8_t trinket_owned[int(TrinketType::COUNT)] = {};
+        InstancePool instance_pool{};
+        SavedDeckV9 decks[MAX_SAVED_DECKS] = {};
     };
 
     void save_data_migrate_deck_v8_to_v9(SavedDeck& deck, const SavedDeckV8& old_deck)
@@ -294,9 +330,14 @@ namespace
 
         deck.unrestricted_build = 0;
 
-        for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+        for(int type_index = 0; type_index < SAVE_DATA_CARD_COUNT_V9; ++type_index)
         {
             deck.counts[type_index] = old_deck.counts[type_index];
+        }
+
+        for(int type_index = SAVE_DATA_CARD_COUNT_V9; type_index < int(CardType::COUNT); ++type_index)
+        {
+            deck.counts[type_index] = 0;
         }
     }
 
@@ -325,9 +366,14 @@ namespace
             data.number_now_round_best[round_index] = old_data.number_now_round_best[round_index];
         }
 
-        for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+        for(int type_index = 0; type_index < SAVE_DATA_CARD_COUNT_V9; ++type_index)
         {
             data.library_counts[type_index] = old_data.library_counts[type_index];
+        }
+
+        for(int type_index = SAVE_DATA_CARD_COUNT_V9; type_index < int(CardType::COUNT); ++type_index)
+        {
+            data.library_counts[type_index] = 0;
         }
 
         for(int trinket_index = 0; trinket_index < int(TrinketType::COUNT); ++trinket_index)
@@ -340,6 +386,81 @@ namespace
         for(int deck_index = 0; deck_index < data.deck_count; ++deck_index)
         {
             save_data_migrate_deck_v8_to_v9(data.decks[deck_index], old_data.decks[deck_index]);
+        }
+    }
+
+    void save_data_migrate_deck_v9_to_v10(SavedDeck& deck, const SavedDeckV9& old_deck)
+    {
+        for(int index = 0; index < 16; ++index)
+        {
+            deck.name[index] = old_deck.name[index];
+        }
+
+        deck.highest_score = old_deck.highest_score;
+
+        for(int slot = 0; slot < CAMPAIGN_TRINKET_SLOTS; ++slot)
+        {
+            deck.trinkets[slot] = old_deck.trinkets[slot];
+        }
+
+        deck.unrestricted_build = old_deck.unrestricted_build;
+
+        for(int type_index = 0; type_index < SAVE_DATA_CARD_COUNT_V9; ++type_index)
+        {
+            deck.counts[type_index] = old_deck.counts[type_index];
+        }
+
+        for(int type_index = SAVE_DATA_CARD_COUNT_V9; type_index < int(CardType::COUNT); ++type_index)
+        {
+            deck.counts[type_index] = 0;
+        }
+    }
+
+    void save_data_migrate_v9_to_v10(SaveData& data, const SaveDataV9& old_data)
+    {
+        data.magic = old_data.magic;
+        data.version = SAVE_DATA_VERSION;
+        data.deck_count = old_data.deck_count;
+        data.active_deck_index = old_data.active_deck_index;
+        data.campaign_ready = old_data.campaign_ready;
+        data.reserved_pad = old_data.reserved_pad;
+        data.biggest_number_record = old_data.biggest_number_record;
+        data.total_wins = old_data.total_wins;
+        data.same_number_wins = old_data.same_number_wins;
+        data.same_number_target = old_data.same_number_target;
+        data.same_number_used_count = old_data.same_number_used_count;
+        data.reserved = old_data.reserved;
+
+        for(int index = 0; index < SAME_NUMBER_USED_CAPACITY; ++index)
+        {
+            data.same_number_used_targets[index] = old_data.same_number_used_targets[index];
+        }
+
+        for(int round_index = 0; round_index < CAMPAIGN_NUMBER_NOW_ROUNDS; ++round_index)
+        {
+            data.number_now_round_best[round_index] = old_data.number_now_round_best[round_index];
+        }
+
+        for(int type_index = 0; type_index < SAVE_DATA_CARD_COUNT_V9; ++type_index)
+        {
+            data.library_counts[type_index] = old_data.library_counts[type_index];
+        }
+
+        for(int type_index = SAVE_DATA_CARD_COUNT_V9; type_index < int(CardType::COUNT); ++type_index)
+        {
+            data.library_counts[type_index] = 0;
+        }
+
+        for(int trinket_index = 0; trinket_index < int(TrinketType::COUNT); ++trinket_index)
+        {
+            data.trinket_owned[trinket_index] = old_data.trinket_owned[trinket_index];
+        }
+
+        data.instance_pool = old_data.instance_pool;
+
+        for(int deck_index = 0; deck_index < data.deck_count; ++deck_index)
+        {
+            save_data_migrate_deck_v9_to_v10(data.decks[deck_index], old_data.decks[deck_index]);
         }
     }
 
@@ -447,7 +568,7 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
             const SavedDeck& deck = data.decks[deck_index];
             const int total = saved_deck_total_cards(deck);
 
-            if(total < DECK_MIN_CARDS || total > DECK_MAX_CARDS)
+            if(total < DECK_MIN_CARDS || total > DECK_LEGACY_MAX_CARDS)
             {
                 return false;
             }
@@ -484,7 +605,7 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
     {
         int total = 0;
 
-        for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+        for(int type_index = 0; type_index < SAVE_DATA_CARD_COUNT_V9; ++type_index)
         {
             total += deck.counts[type_index];
         }
@@ -513,12 +634,12 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
         {
             const int total = saved_deck_v8_total_cards(data.decks[deck_index]);
 
-            if(total < DECK_MIN_CARDS || total > DECK_MAX_CARDS)
+            if(total < DECK_MIN_CARDS || total > DECK_LEGACY_MAX_CARDS)
             {
                 return false;
             }
 
-            for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+            for(int type_index = 0; type_index < SAVE_DATA_CARD_COUNT_V9; ++type_index)
             {
                 const int in_deck = data.decks[deck_index].counts[type_index];
                 const int in_library = data.library_counts[type_index];
@@ -530,7 +651,68 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
             }
         }
 
-        for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+        for(int type_index = 0; type_index < SAVE_DATA_CARD_COUNT_V9; ++type_index)
+        {
+            if(data.library_counts[type_index] > LIBRARY_COPY_LIMIT)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    int saved_deck_v9_total_cards(const SavedDeckV9& deck)
+    {
+        int total = 0;
+
+        for(int type_index = 0; type_index < SAVE_DATA_CARD_COUNT_V9; ++type_index)
+        {
+            total += deck.counts[type_index];
+        }
+
+        return total;
+    }
+
+    bool save_data_valid_v9(const SaveDataV9& data)
+    {
+        if(data.magic != SAVE_DATA_MAGIC || data.version != SAVE_DATA_VERSION_V9)
+        {
+            return false;
+        }
+
+        if(data.deck_count > MAX_SAVED_DECKS)
+        {
+            return false;
+        }
+
+        if(data.active_deck_index >= data.deck_count && data.deck_count > 0)
+        {
+            return false;
+        }
+
+        for(int deck_index = 0; deck_index < data.deck_count; ++deck_index)
+        {
+            const int total = saved_deck_v9_total_cards(data.decks[deck_index]);
+
+            if(total < DECK_MIN_CARDS || total > DECK_LEGACY_MAX_CARDS)
+            {
+                return false;
+            }
+
+            for(int type_index = 0; type_index < SAVE_DATA_CARD_COUNT_V9; ++type_index)
+            {
+                const int in_deck = data.decks[deck_index].counts[type_index];
+                const int in_library = data.library_counts[type_index];
+
+                if(in_deck > in_library || in_deck > LIBRARY_COPY_LIMIT)
+                {
+                    return false;
+                }
+            }
+        }
+
+        for(int type_index = 0; type_index < SAVE_DATA_CARD_COUNT_V9; ++type_index)
         {
             if(data.library_counts[type_index] > LIBRARY_COPY_LIMIT)
             {
@@ -575,7 +757,7 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
                 total += in_deck;
             }
 
-            if(total < DECK_MIN_CARDS || total > DECK_MAX_CARDS)
+            if(total < DECK_MIN_CARDS || total > DECK_LEGACY_MAX_CARDS)
             {
                 return false;
             }
@@ -796,7 +978,7 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
         {
             const int total = saved_deck_v6_total_cards(data.decks[deck_index]);
 
-            if(total < DECK_MIN_CARDS || total > DECK_MAX_CARDS)
+            if(total < DECK_MIN_CARDS || total > DECK_LEGACY_MAX_CARDS)
             {
                 return false;
             }
@@ -826,7 +1008,7 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
         {
             const int total = saved_deck_v7_total_cards(data.decks[deck_index]);
 
-            if(total < DECK_MIN_CARDS || total > DECK_MAX_CARDS)
+            if(total < DECK_MIN_CARDS || total > DECK_LEGACY_MAX_CARDS)
             {
                 return false;
             }
@@ -946,7 +1128,7 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
                 total += data.decks[deck_index].counts[type_index];
             }
 
-            if(total < DECK_MIN_CARDS || total > DECK_MAX_CARDS)
+            if(total < DECK_MIN_CARDS || total > DECK_LEGACY_MAX_CARDS)
             {
                 return false;
             }
@@ -1051,7 +1233,7 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
         {
             const int total = saved_deck_total_cards(data.decks[deck_index]);
 
-            if(total < DECK_MIN_CARDS || total > DECK_MAX_CARDS)
+            if(total < DECK_MIN_CARDS || total > DECK_LEGACY_MAX_CARDS)
             {
                 return false;
             }
@@ -1089,7 +1271,7 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
                 total += data.decks[deck_index].counts[type_index];
             }
 
-            if(total < DECK_MIN_CARDS || total > DECK_MAX_CARDS)
+            if(total < DECK_MIN_CARDS || total > DECK_LEGACY_MAX_CARDS)
             {
                 return false;
             }
@@ -1151,6 +1333,20 @@ void save_data_init()
     }
     else
     {
+        SaveDataV9 loaded_v9;
+        bn::sram::read(loaded_v9);
+
+        if(save_data_valid_v9(loaded_v9))
+        {
+            save_data_migrate_v9_to_v10(_save_data, loaded_v9);
+
+            for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
+            {
+                saved_deck_sanitize_name(_save_data.decks[deck_index]);
+            }
+        }
+        else
+        {
         SaveDataV8 loaded_v8;
         bn::sram::read(loaded_v8);
 
@@ -1286,6 +1482,7 @@ void save_data_init()
                     save_data_reset();
                 }
             }
+        }
         }
         }
         }

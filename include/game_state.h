@@ -15,6 +15,7 @@
 #include "card_type.h"
 #include "card_instance.h"
 #include "deck.h"
+#include "play_resolution.h"
 
 enum class TrinketScoreField : uint8_t
 {
@@ -105,9 +106,12 @@ enum class PendingActionType
     MIRACLE_AUTO_PLAY,
     COMBO_CINEMATIC,
     SWAP_TOTAL_SCORE_DIGITS,
+    MOVE_FOUR_TOTAL_DIGIT,
+    REPLACE_TOTAL_DIGIT_WITH_FIVE,
     // Lifeline: shuffle GY→deck after the played card has entered the GY.
     RECLAIM_GRAVEYARD,
     NECROMANCY_SHUFFLE,
+    MILL_REVEAL,
 };
 
 struct PendingAction
@@ -168,7 +172,10 @@ struct GameState
     // (try_drain_echo_replay) — not via second-pass removal or card-specific flags.
     bool echo_pending_replay = false;
     CardType echo_replay_card = CardType::COUNT;
-    int birds_played_count = 0;
+    PlaySource echo_replay_scoring_source = PlaySource::HAND;
+    int birds_return_threshold = 2;
+    bool pending_double_adds = false;
+    bool applying_double_adds = false;
     bool first_deck_draw_this_round = true;
     int prime_time_total_procs = 0;
     int prime_time_round_procs = 0;

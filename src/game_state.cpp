@@ -18,6 +18,11 @@ int GameState::add_from_card(int amount)
         return 0;
     }
 
+    if(applying_double_adds)
+    {
+        amount *= 2;
+    }
+
     const int before = round.running;
 
     round.add(amount);

@@ -8,7 +8,7 @@ Spec for `resolve_played_card` / `route_played_card`. Preserve these invariants 
 2. Apply zone placement **before** `apply_card_play` (GY / exile). Play routing does **not** fire `on_discard`.
 3. `apply_card_play` (scoring + `on_play`, which may queue pending actions).
 4. Tombstones: after play into GY, multiply round by unique GY types (including self).
-5. Increment `cards_played_this_round` (and `birds_played_count` for Birds) unless `PlaySource::ECHO`.
+5. Increment `cards_played_this_round` unless `PlaySource::ECHO`.
 6. Swivel follow-up (`DECK_TOP`) is applied by presentation after effects when `apply_destination = false`.
 
 Discard effects (`on_discard`) fire only on **cost discards** via `hand_remove_at_to_graveyard`, not on play routing.
@@ -20,8 +20,9 @@ Discard effects (`on_discard`) fire only on **cost discards** via `hand_remove_a
 | `HAND` | Yes (via hand_index) | Normal play after removal anim |
 | `SCRY` | No | Pilot / Librarian confirm |
 | `DECK_SEARCH` | No | Hacker pick |
-| `DECK_TOP` | No | Toppings deck-top play |
+| `DECK_TOP` | No | Toppings deck-top play / mill-reveal |
 | `ECHO` | No (card already left) | Idle-gate replay after first play |
+| `FLASHBACK` | No (GY exile) | Ghost play from graveyard |
 
 ## 3. PostPlayDestination (first match wins)
 
@@ -30,9 +31,10 @@ Discard effects (`on_discard`) fire only on **cost discards** via `hand_remove_a
 | Priority | Condition | Dest |
 |----------|-----------|------|
 | 1 | `PlaySource::ECHO` | `NONE` |
-| 2 | `exiles_self_on_play` | `EXILE` (hand) or `NONE` (scry/search/deck-top) |
-| 3 | pre-play `swivel_follow` | `DECK_TOP` (presentation owns move when `apply_destination = false`) |
-| 4 | else | `GRAVEYARD` |
+| 2 | `PlaySource::FLASHBACK` | `EXILE` (from GY) |
+| 3 | `exiles_self_on_play` | `EXILE` (hand) or `NONE` (scry/search/deck-top) |
+| 4 | pre-play `swivel_follow` | `DECK_TOP` (presentation owns move when `apply_destination = false`) |
+| 5 | else | `GRAVEYARD` |
 
 ## 4. Manual test checklist
 
@@ -53,5 +55,10 @@ Discard effects (`on_discard`) fire only on **cost discards** via `hand_remove_a
 | 13 | Lifeline + cards in GY | Play Lifeline | GY empty after; Lifeline shuffled into deck (not stranded in GY) |
 | 14 | Tombstones | Play | +3 then × unique GY types (self counts) |
 | 15 | Roll Over | Play | +3 then 3× GY pair swap UI |
-| 16 | Swap | Play | Pick digits from round or total; total must increase |
+| 16 | Swap | Play | Pick digits from round or total; total cannot decrease |
 | 17 | Birds ×2 | Play twice | 2nd play needs 2 consecutive birds in GY to return |
+| 18 | The Fourth + total containing 4 | Play | Pick a 4 and destination; digits slide and total is reordered |
+| 19 | The Fourth + no movable 4 | Play | No picker; +4 fallback |
+| 20 | The Fifth | Play | Pick one total-score digit; it becomes 5 |
+| 21 | Palindrome + palindromic round | Play | Add digit 1 to both ends (single digits included) |
+| 22 | Necromancy as final hand/deck card | Play | Shuffle fully resolves before empty-hand/deck end check |

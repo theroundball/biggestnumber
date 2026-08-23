@@ -10,8 +10,9 @@ namespace
 {
     void check_birds_of_a_feather(GameState& state)
     {
-        const int threshold = 1 + state.birds_played_count;
-        bn::vector<int, 50> return_indices;
+        const int threshold = state.birds_return_threshold;
+        int return_start = -1;
+        int return_end = -1;
 
         for(int start = 0; start < state.graveyard.size(); )
         {
@@ -33,31 +34,36 @@ namespace
 
             if(run_length >= threshold)
             {
-                for(int index = start; index < end; ++index)
-                {
-                    return_indices.push_back(index);
-                }
+                return_start = start;
+                return_end = end;
+                break;
             }
 
             start = end;
         }
 
-        if(return_indices.empty())
+        if(return_start < 0)
         {
             return;
         }
 
-        for(int reverse_index = return_indices.size() - 1; reverse_index >= 0; --reverse_index)
+        const int return_count = return_end - return_start;
+
+        // GY_CHANGED fires before the played/discarded Bird is erased from hand.
+        // If that temporary occupancy leaves too little room, wait for the following
+        // HAND_CHANGED event instead of returning only part of the run.
+        if(state.hand.size() + return_count > 60)
         {
-            const int index = return_indices[reverse_index];
+            return;
+        }
 
-            if(!state.hand.full())
-            {
-                state.hand.push_back(state.graveyard[index]);
-            }
-
+        for(int index = return_end - 1; index >= return_start; --index)
+        {
+            state.hand.push_back(state.graveyard[index]);
             state.graveyard.erase(state.graveyard.begin() + index);
         }
+
+        ++state.birds_return_threshold;
 
         combo_check_zone(state, ComboZone::HAND);
         combo_check_zone(state, ComboZone::GRAVEYARD);
@@ -282,7 +288,7 @@ void graveyard_clear(GameState& state)
     game_events_dispatch(state, GameEvent::GRAVEYARD_CHANGED);
 }
 
-void exile_push(GameState& state, CardRef card)
+void exile_push(GameState& state, CardRef card, bool from_graveyard)
 {
     if(state.exile.full())
     {
@@ -290,11 +296,21 @@ void exile_push(GameState& state, CardRef card)
     }
 
     state.exile.push_back(card);
+
+    if(from_graveyard)
+    {
+        const CardData& data = card_data(card.type);
+
+        if(data.on_exile)
+        {
+            data.on_exile(state);
+        }
+    }
 }
 
-void exile_push(GameState& state, CardType type)
+void exile_push(GameState& state, CardType type, bool from_graveyard)
 {
-    exile_push(state, CardRef{type, NO_INSTANCE});
+    exile_push(state, CardRef{type, NO_INSTANCE}, from_graveyard);
 }
 
 void graveyard_apply_gravity(GameState& state)
@@ -368,6 +384,7 @@ void necromancy_shuffle_graveyard_to_deck(GameState& state)
 
     for(CardRef card : cards)
     {
+        apply_card_relocated(state, card.type);
         state.deck.add_card(card);
     }
 
@@ -383,6 +400,7 @@ void game_events_dispatch(GameState& state, GameEvent event)
     if(event == GameEvent::HAND_CHANGED)
     {
         combo_check_zone(state, ComboZone::HAND);
+        check_birds_of_a_feather(state);
     }
     else
     {

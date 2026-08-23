@@ -10,7 +10,7 @@
 
 ## 1. Product summary
 
-**Biggest Number** is a GBA card game built with [Butano](https://butano.readthedocs.io/). The player builds a deck (1–50 cards), runs a single battle against a shuffled copy of that deck, plays cards from hand to maximize **total score**, and compares against a per-deck high score.
+**Biggest Number** is a GBA card game built with [Butano](https://butano.readthedocs.io/). The player builds a deck (1–25 cards), runs a single battle against a shuffled copy of that deck, plays cards from hand to maximize **total score**, and compares against a per-deck high score.
 
 There is **no opponent** and **no lose state** in the current build — only run completion when the draw pile is exhausted.
 
@@ -54,7 +54,7 @@ stateDiagram-v2
 | Run end | **Draw pile empty** at round boundary | `game_over` / `run_finished`; `final_score = total_score` |
 | Hand size cap | 60 | `bn::vector` limit |
 | Graveyard cap | 50 | |
-| Deck size cap | 50 | |
+| Deck size cap | 25 | |
 
 ### 3.3 Round counter
 
@@ -545,7 +545,7 @@ Rock, Paper, Scissors, Shoot, Peanut Butter, Jelly, Straw, Sticks, Bricks — se
 |------|-------|
 | Save format | SRAM, magic `BNUM`, version **3** |
 | Saved decks | Up to **8** |
-| Deck size | 1–50 cards |
+| Deck size | 1–25 cards |
 | Copy limit | 5 per card type |
 | Per-deck high score | Stored with deck |
 

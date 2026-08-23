@@ -1,5 +1,6 @@
 #include "card_data.h"
 
+#include "card.h"
 #include "game_events.h"
 #include "game_state.h"
 #include "score_pop_system.h"
@@ -402,7 +403,13 @@ namespace
         }
 
         state.deck.compact();
+        const int exile_begin = state.exile.size();
         state.deck.exile_random_undrawn(3, state.rng, state.exile);
+
+        for(int index = exile_begin; index < state.exile.size(); ++index)
+        {
+            apply_card_relocated(state, state.exile[index].type);
+        }
 
         PendingAction action;
         action.type = PendingActionType::GRAVEYARD_PICK_TO_TOP;
@@ -531,6 +538,83 @@ namespace
         state.pending_actions.push_back(action);
     }
 
+    void effect_get_me_outa_here(GameState& state)
+    {
+        state.add_from_card(card_data(CardType::GET_ME_OUTA_HERE).immediate_plus);
+    }
+
+    void effect_double_time(GameState& state)
+    {
+        state.pending_double_adds = true;
+    }
+
+    void effect_palindrome(GameState& state)
+    {
+        const int before = state.round.running;
+        const bn::string<12> digits = bn::to_string<12>(before);
+
+        // 1 + up to eight digits + 1 fits in the signed score type.
+        if(digits.size() > 8)
+        {
+            return;
+        }
+
+        for(int left = 0, right = digits.size() - 1; left < right; ++left, --right)
+        {
+            if(digits[left] != digits[right])
+            {
+                return;
+            }
+        }
+
+        int outer_place = 10;
+
+        for(int index = 0; index < digits.size(); ++index)
+        {
+            outer_place *= 10;
+        }
+
+        state.round.running = outer_place + before * 10 + 1;
+        score_count_queue(state, TrinketScoreField::ROUND, before, state.round.running);
+        trinket_queue_score_check(state, TrinketScoreField::ROUND, before, state.round.running);
+    }
+
+    void effect_the_fourth(GameState& state)
+    {
+        state.pending_actions.push_back(PendingAction{PendingActionType::MOVE_FOUR_TOTAL_DIGIT});
+    }
+
+    void effect_the_fifth(GameState& state)
+    {
+        state.pending_actions.push_back(PendingAction{PendingActionType::REPLACE_TOTAL_DIGIT_WITH_FIVE});
+    }
+
+    void effect_speculative(GameState& state)
+    {
+        if(state.deck.remaining() == 0)
+        {
+            return;
+        }
+
+        PendingAction action;
+        action.type = PendingActionType::MILL_REVEAL;
+        action.count = 0;
+        state.pending_actions.push_back(action);
+    }
+
+    void effect_flex(GameState& state)
+    {
+        if(state.deck.remaining() == 0)
+        {
+            return;
+        }
+
+        PendingAction action;
+        action.type = PendingActionType::MILL_REVEAL;
+        action.count = 1;
+        state.pending_actions.push_back(action);
+    }
+
     CardData make_card(const char* name, const char* description,
                        int immediate_plus = 0, int immediate_multiply = 0,
                        RoundModifier future_0 = {}, RoundModifier future_1 = {},
@@ -541,7 +625,11 @@ namespace
                        bool exiles_self_on_play = false,
                        const bn::sprite_item* body_item = nullptr,
                        const bn::sprite_item* accent_top_item = nullptr,
-                       const bn::sprite_item* accent_bottom_item = nullptr)
+                       const bn::sprite_item* accent_bottom_item = nullptr,
+                       bool has_cycle = false,
+                       bool has_flashback = false,
+                       int flashback_plus = 0,
+                       void (*on_exile)(GameState&) = nullptr)
     {
         return CardData{
             .name = name,
@@ -554,8 +642,12 @@ namespace
             .future = { future_0, future_1, future_2 },
             .on_play = on_play,
             .on_discard = on_discard,
+            .on_exile = on_exile,
             .defer_graveyard_until_pending = defer_graveyard_until_pending,
             .exiles_self_on_play = exiles_self_on_play,
+            .has_cycle = has_cycle,
+            .has_flashback = has_flashback,
+            .flashback_plus = flashback_plus,
         };
     }
 }
@@ -631,7 +723,7 @@ const CardData& card_data(CardType type)
         make_card("Time is Too Expensive", "Add 2 times the current round number to this round's score.",
                   0, 0, {}, {}, {}, effect_time_is_too_expensive, nullptr, false, false,
                   CARD_SPRITES(time_is_too_expensive)),
-        make_card("Birds of a Feather", "+5 Return birds of a feather to you hand when there are n consecutive cards named Birds of a feather in your graveyard, where n = 1 + the number of times a card named birds of a feather has been played this game.",
+        make_card("Birds of a Feather", "+5. Return consecutive Birds of a Feather from your graveyard to hand when the run is long enough. Needs 2 the first time, then 3, then 4, and so on.",
                   0, 0, {}, {}, {}, effect_birds_of_a_feather_play, nullptr, false, false,
                   CARD_SPRITES(birds_of_a_feather)),
         make_card("Necromancy", "Exile this Necromancy, shuffle your graveyard and add it to the bottom of your deck.",
@@ -671,6 +763,30 @@ const CardData& card_data(CardType type)
                   CARD_SPRITES(roll_over)),
         make_card("Toppings", "Multiply this round by 2, then play the top card in your deck.",
                   0, 2, {}, {}, {}, effect_toppings, nullptr, false, false, CARD_SPRITES(toppings)),
+        make_card("Cycle", "+2. Press Down to discard this from hand and draw 1.",
+                  2, 0, {}, {}, {}, nullptr, nullptr, false, false, nullptr, nullptr, nullptr, true),
+        make_card("Cycle Seven", "+7. Press Down to discard this from hand and draw 1.",
+                  7, 0, {}, {}, {}, nullptr, nullptr, false, false, nullptr, nullptr, nullptr, true),
+        make_card("Get Me Outa Here", "+9 when played, discarded, or whenever another card moves this.",
+                  9, 0, {}, {}, {}, nullptr, effect_get_me_outa_here, false, false,
+                  nullptr, nullptr, nullptr, false, false, 0, effect_get_me_outa_here),
+        make_card("Comeback", "+3. Flashback: exile from graveyard to play for +3.",
+                  3, 0, {}, {}, {}, nullptr, nullptr, false, false, nullptr, nullptr, nullptr, false, true, 3),
+        make_card("Encore", "+6. Flashback: exile from graveyard to play for +6.",
+                  6, 0, {}, {}, {}, nullptr, nullptr, false, false, nullptr, nullptr, nullptr, false, true, 6),
+        make_card("Double Time", "+8. The next card's add amounts are doubled.",
+                  8, 0, {}, {}, {}, effect_double_time),
+        make_card("The Fourth", "Move any 4 in your total score to another digit position. If there is no 4 to move, +4.",
+                  0, 0, {}, {}, {}, effect_the_fourth),
+        make_card("Palindrome", "If the current round score is a palindrome, add a 1 to both ends.",
+                  0, 0, {}, {}, {}, effect_palindrome),
+        make_card("The Fifth", "Replace any digit in your total score with a 5.",
+                  0, 0, {}, {}, {}, effect_the_fifth),
+        make_card("Solo", "+11. Draw 1 if no other cards remain in your hand after this is played.", 11),
+        make_card("Speculative", "Reveal the top card. Play it if it would make the current number bigger and then draw 1. Otherwise mill it.",
+                  0, 0, {}, {}, {}, effect_speculative),
+        make_card("Flex", "Mill cards from the top of your deck until you find one that can add or multiply, then play it.",
+                  0, 0, {}, {}, {}, effect_flex),
     };
 
     static_assert(sizeof(table) / sizeof(table[0]) == int(CardType::COUNT),
@@ -704,8 +820,10 @@ void reclaim_graveyard_into_deck(GameState& state)
 
     while(!state.graveyard.empty())
     {
-        state.deck.add_card(state.graveyard.back());
+        const CardRef card = state.graveyard.back();
         state.graveyard.pop_back();
+        apply_card_relocated(state, card.type);
+        state.deck.add_card(card);
     }
 
     if(had_graveyard)
@@ -715,5 +833,11 @@ void reclaim_graveyard_into_deck(GameState& state)
 
     state.deck.shuffle(state.rng);
     state.deck.apply_gravity(state.instance_pool);
+    const int exile_begin = state.exile.size();
     state.deck.exile_undrawn_end(LIFELINE_EXILE_COUNT, state.exile);
+
+    for(int index = exile_begin; index < state.exile.size(); ++index)
+    {
+        apply_card_relocated(state, state.exile[index].type);
+    }
 }

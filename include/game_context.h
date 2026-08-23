@@ -53,6 +53,11 @@ public:
     bool removal_play_resolved = false;
     bool removal_is_miracle_bonus = false;
     bool removal_swivel_follow = false;
+    bool removal_cycle_draw = false;
+    bool removal_mill_without_play = false;
+    bool mill_reveal_flex_continue = false;
+    bool mill_reveal_draw_on_hit = false;
+    PlaySource removal_scoring_source = PlaySource::HAND;
     bool pending_opening_hand_deal = false;
     RemovalStyle removal_style = RemovalStyle::TO_GRAVEYARD;
     bool echo_play_badge_active = false;
@@ -116,6 +121,14 @@ public:
     bn::array<Card, game_layout::VISIBLE_CARD_COUNT> grave_row_display;
     bn::array<Card, game_layout::SCRY_VISIBLE> scry_display;
     bn::array<Card, 4> combo_display;
+    ComboFocusPhase combo_focus = ComboFocusPhase::NONE;
+    // True only when the cinematic itself opened the graveyard panel, so the same
+    // code owns closing it again.
+    bool combo_focus_panel_opened = false;
+    int combo_focus_frame = 0;
+    int combo_focus_anchor_x = 0;
+    GameMode combo_interrupted_mode = GameMode::NORMAL;
+    PendingActionType combo_resume_type = PendingActionType::NONE;
     bn::array<Card, 2> swivel_display;
     Card inspect_card;
     SwivelFxState swivel_fx;
@@ -162,6 +175,7 @@ public:
 
     bn::array<ScoreCountFxState, 2> score_count_fx{};
     ScoreSwapFxState score_swap_fx;
+    bn::vector<bn::sprite_ptr, 4> score_swap_marker_sprites;
 
     bool inspecting = false;
     int inspect_shown_index = -1;
@@ -220,6 +234,7 @@ public:
     void finish_deck_search_resolve();
     bool deck_search_resolve_active() const;
     bool hand_draw_fx_blocking() const;
+    bool card_resolution_blocking_round_end() const;
     int scheduled_hand_count() const;
     void try_start_hand_draw_fx();
     void tick_hand_draw_fx();
@@ -273,7 +288,17 @@ public:
 
     void tick_combo();
     void finish_combo_cinematic();
+    void resume_after_combo();
     bool try_start_pending_combo();
+    void enter_combo_mode();
+    void begin_combo_focus();
+    void begin_combo_focus_return();
+    bool combo_focus_active() const;
+    bool combo_focus_highlights_graveyard_card(int graveyard_index) const;
+    int combo_focus_graveyard_index(int card_index) const;
+    void combo_focus_slot_position(int card_index, int panel_x, int& out_x, int& out_y) const;
+    void hide_combo_focus_row_cards();
+    void render_combo_focus_frame(int score_target_x, int score_target_y);
     bool poll_direction(int& current_direction, bool scrolling, bool& direction_triggered,
                         int& direction_steps);
     void handle_input();

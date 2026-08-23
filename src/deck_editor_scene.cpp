@@ -446,9 +446,11 @@ namespace
         }
         else if(save.deck_count < MAX_SAVED_DECKS)
         {
-            save.decks[save.deck_count] = working;
-            campaign_set_active_deck(save, save.deck_count);
+            const int new_index = save.deck_count;
+            save.decks[new_index] = working;
+            // Count first: campaign_set_active_deck rejects indices past deck_count.
             ++save.deck_count;
+            campaign_set_active_deck(save, new_index);
         }
         else
         {

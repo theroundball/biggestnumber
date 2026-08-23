@@ -2,6 +2,7 @@
 
 #include "combo_system.h"
 #include "game_context.h"
+#include "game_helpers.h"
 
 bool swivel_is_waiting(const GameContext& ctx)
 {
@@ -83,7 +84,7 @@ void swivel_complete_follow(GameContext& ctx)
     // no card-specific echo_swivel_pending path.
     if(try_start_combo_cinematic(ctx.state))
     {
-        ctx.mode = GameMode::COMBO;
+        ctx.enter_combo_mode();
         return;
     }
 

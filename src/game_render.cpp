@@ -1,6 +1,7 @@
 #include "game_context.h"
 
 #include "bn_blending.h"
+#include "bn_string.h"
 
 #include "combo_system.h"
 #include "game_helpers.h"
@@ -33,6 +34,25 @@ namespace
         return spacing * eased / game_layout::SWAP_EASE_SCALE;
     }
 
+    // Ease-in-out on a 0..256 scale, matching the card flight helpers.
+    int combo_lift_progress(int frame, int total_frames)
+    {
+        if(total_frames <= 1)
+        {
+            return 256;
+        }
+
+        int progress = frame * 256 / (total_frames - 1);
+
+        if(progress > 256)
+        {
+            progress = 256;
+        }
+
+        return progress < 128 ? 2 * progress * progress / 256
+                              : 256 - 2 * (256 - progress) * (256 - progress) / 256;
+    }
+
     void position_fade_bands(bn::array<GameFadeBand, 4>& bands, int panel_x)
     {
         for(int band_index = 0; band_index < bands.size(); ++band_index)
@@ -63,14 +83,21 @@ namespace
         for(int visual_index = 0; visual_index < visual_count; ++visual_index)
         {
             const int hand_index = ctx.hand_index_for_visual_slot(visual_index);
+            const bool flashback_slot = playable_slot_is_flashback(ctx.state, visual_index);
 
-            if(hand_index < 0 || hand_index >= ctx.state.hand.size())
+            if(!flashback_slot && (hand_index < 0 || hand_index >= ctx.state.hand.size()))
             {
                 continue;
             }
 
             if(ctx.removing_card && ctx.removal_center_beat && ctx.removal_origin == PlayPresentOrigin::HAND &&
                ctx.removal_hand_index >= 0 && hand_index == ctx.removal_hand_index)
+            {
+                continue;
+            }
+
+            if(ctx.removing_card && ctx.removal_center_beat &&
+               ctx.removal_origin == PlayPresentOrigin::GRAVEYARD && visual_index == ctx.selected_card)
             {
                 continue;
             }
@@ -149,7 +176,13 @@ void GameContext::tick_card_raise()
         cursor = browse_cursor;
         selected_raise = game_layout::GRAVEYARD_BROWSE_SELECTED_RAISE;
     }
-    else if(mode == GameMode::NORMAL || mode == GameMode::DISCARD_TARGET)
+    else if(mode == GameMode::NORMAL)
+    {
+        count = playable_slot_count(state);
+        cursor = selected_card;
+        selected_raise = game_layout::SELECTED_RAISE;
+    }
+    else if(mode == GameMode::DISCARD_TARGET)
     {
         count = state.hand.size();
         cursor = selected_card;
@@ -178,6 +211,11 @@ void GameContext::tick_card_raise()
         return;
     }
 
+    if(count > card_raise_offset.size())
+    {
+        count = card_raise_offset.size();
+    }
+
     for(int card_index = 0; card_index < count; ++card_index)
     {
         int target = card_index == cursor ? selected_raise : 0;
@@ -187,6 +225,12 @@ void GameContext::tick_card_raise()
            state.selection.type == PendingActionType::GRAVEYARD_PAIR_SWAP &&
            state.selection.graveyard_swap_first >= 0 &&
            card_index == state.selection.graveyard_swap_first)
+        {
+            target = selected_raise;
+        }
+
+        // Combo focus: raise the whole matched run so the player reads it before it lifts out.
+        if(combo_focus_highlights_graveyard_card(card_index))
         {
             target = selected_raise;
         }
@@ -202,12 +246,23 @@ void GameContext::render_combo_frame(int main_x)
                 fade_bands[fade_index].set_visible(false);
             }
 
+            if (!state.combo_cinematic.active)
+            {
+                return;
+            }
+
             const int frame = state.combo_cinematic.frame;
             const int count = state.combo_cinematic.card_count;
             const int spacing = 36;
             const int row_start = -(count * spacing) / 2;
             const int score_target_x = card_target_x_for_score_center(main_x);
             const int score_target_y = card_target_y_for_score_center();
+
+            if (combo_focus_active())
+            {
+                render_combo_focus_frame(score_target_x, score_target_y);
+                return;
+            }
 
             for (int card_index = 0; card_index < count; ++card_index)
             {
@@ -248,6 +303,66 @@ void GameContext::render_combo_frame(int main_x)
                 combo_display[card_index].set_type(state.combo_cinematic.cards[card_index]);
                 combo_display[card_index].set_visible(true);
             }
+}
+
+// Graveyard combos play over the browse row: matched cards lift out of their slots,
+// line up in the middle, then fly to the score while the view slides back.
+void GameContext::render_combo_focus_frame(int score_target_x, int score_target_y)
+{
+    // Before the gather the cards are still drawn by the graveyard row itself.
+    if(combo_focus != ComboFocusPhase::PLAYING)
+    {
+        return;
+    }
+
+    const int frame = state.combo_cinematic.frame;
+    const int count = state.combo_cinematic.card_count;
+    const int spacing = 36;
+    const int row_start = -(count * spacing) / 2 + spacing / 2;
+    const int line_y = game_layout::GRAVEYARD_BROWSE_Y;
+
+    for(int card_index = 0; card_index < count; ++card_index)
+    {
+        const int line_x = row_start + card_index * spacing + combo_focus_anchor_x;
+
+        if(frame < COMBO_GATHER_FRAMES)
+        {
+            int slot_x = line_x;
+            int slot_y = line_y;
+            combo_focus_slot_position(card_index, combo_focus_anchor_x, slot_x, slot_y);
+
+            const int lift = combo_lift_progress(frame, COMBO_GATHER_FRAMES);
+            const int card_x = slot_x + (line_x - slot_x) * lift / 256;
+            const int card_y = slot_y + (line_y - slot_y) * lift / 256;
+
+            combo_display[card_index].set_position(card_x, card_y);
+            combo_display[card_index].clear_visual();
+            combo_display[card_index].set_blending_enabled(false);
+        }
+        else
+        {
+            const CardFlightSample flight = sample_card_exile_dissipate(
+                line_x, line_y, score_target_x, score_target_y,
+                frame - COMBO_GATHER_FRAMES, COMBO_EXIT_FRAMES);
+
+            combo_display[card_index].set_position(flight.x, flight.y);
+            combo_display[card_index].set_visual(flight.scale, 0);
+
+            if(flight.alpha < 1)
+            {
+                bn::blending::set_transparency_alpha(
+                    flight.alpha < bn::fixed(0.05) ? bn::fixed(0.05) : flight.alpha);
+                combo_display[card_index].set_blending_enabled(true);
+            }
+            else
+            {
+                combo_display[card_index].set_blending_enabled(false);
+            }
+        }
+
+        combo_display[card_index].set_type(state.combo_cinematic.cards[card_index]);
+        combo_display[card_index].set_visible(true);
+    }
 }
 
 void GameContext::sync_pair_swap_prompt()
@@ -436,15 +551,23 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
 
             for(int visual_index = 0; visual_index < visual_count; ++visual_index)
             {
-                const int hand_index = hand_index_for_visual_slot(visual_index);
+                const bool is_flashback = playable_slot_is_flashback(state, visual_index);
+                const int hand_index = playable_slot_hand_index(state, visual_index);
+                const CardRef slot_card = playable_slot_card(state, visual_index);
 
-                if(hand_index < 0 || hand_index >= state.hand.size())
+                if(slot_card.type == CardType::COUNT)
                 {
                     continue;
                 }
 
                 if(removing_card && removal_center_beat && removal_origin == PlayPresentOrigin::HAND &&
                    removal_hand_index >= 0 && hand_index == removal_hand_index)
+                {
+                    continue;
+                }
+
+                if(removing_card && removal_center_beat && removal_origin == PlayPresentOrigin::GRAVEYARD &&
+                   visual_index == selected_card)
                 {
                     continue;
                 }
@@ -474,7 +597,7 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                 }
 
                 Card& card = hand_display[pool_slot];
-                card.set_type(state.hand[hand_index].type);
+                card.set_type(slot_card.type);
 
                 const int selection_raise = visual_index < int(card_raise_offset.size())
                                                 ? card_raise_offset[visual_index]
@@ -487,7 +610,8 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                 int card_y = game_layout::HAND_Y - selection_raise - wave_raise;
 
                 if(removing_card && !removal_center_beat && !removal_play_resolved &&
-                   hand_index == selected_card)
+                   removal_origin == PlayPresentOrigin::HAND &&
+                   !is_flashback && hand_index == selected_card)
                 {
                     const int deck_target_x = card_target_x_for_hud_icon(game_layout::HUD_DECK_X, main_x);
                     const int deck_target_y = card_target_y_for_hud_icon(game_layout::HUD_DECK_Y);
@@ -523,25 +647,48 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                 {
                     card.set_position(card_x, card_y);
                     card.clear_visual();
-                    card.set_blending_enabled(false);
+
+                    if(is_flashback)
+                    {
+                        bn::blending::set_transparency_alpha(bn::fixed(0.45));
+                        card.set_blending_enabled(true);
+                    }
+                    else
+                    {
+                        card.set_blending_enabled(false);
+                    }
                 }
 
                 card.set_draw_on_top(false);
                 card.set_visible(true);
 
-                if(state.hand[hand_index].has_instance())
+                if(slot_card.has_instance())
                 {
                     card.set_upgrade_pips(&hud_count_generator,
-                                          instance_at(state.instance_pool, state.hand[hand_index].instance_id));
+                                          instance_at(state.instance_pool, slot_card.instance_id));
                 }
                 else
                 {
                     card.clear_upgrade_pips();
                 }
 
+                const int preview_plus = card_preview_plus(state, slot_card, is_flashback);
+                const bool show_overlay = state.pending_double_adds || is_flashback;
+
+                if(show_overlay && preview_plus > 0)
+                {
+                    bn::string<8> amount_text = "+";
+                    amount_text += bn::to_string<4>(preview_plus);
+                    card.set_amount_overlay(&hud_count_generator, amount_text);
+                }
+                else
+                {
+                    card.clear_amount_overlay();
+                }
+
                 ++pool_slot;
 
-                if(hand_index == selected_card && !(removing_card && removal_center_beat))
+                if(visual_index == selected_card && !(removing_card && removal_center_beat))
                 {
                     if(echo_play_badge_active && removing_card)
                     {
@@ -569,6 +716,11 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
             bn::blending::set_transparency_alpha(game_layout::EDGE_FADE_ALPHA);
             apply_row_fade_bands(fade_bands, game_layout::HAND_Y, has_left_fade, has_right_fade);
             position_fade_bands(fade_bands, main_x);
+
+            if(mode != GameMode::DISCARD_TARGET && flashback_ghost_count(state) > 0)
+            {
+                bn::blending::set_transparency_alpha(bn::fixed(0.45));
+            }
 
             // Red X over the hand card chosen for a discard cost.
             if(mode == GameMode::DISCARD_TARGET && selected_card >= 0 && selected_card < state.hand.size())
@@ -631,7 +783,8 @@ void GameContext::render_play_presentation_overlay(int main_x)
         return;
     }
 
-    if(!removing_card || !removal_center_beat || removal_phase == PlayRemovalPhase::WAIT_PRESENTATION)
+    if(!removing_card || removal_phase == PlayRemovalPhase::WAIT_PRESENTATION ||
+       (!removal_center_beat && !removal_mill_without_play))
     {
         release_card_display_tiles(removal_fx_card);
         return;
@@ -789,6 +942,39 @@ void GameContext::render_frame()
         {
             action_prompt_sprites.clear();
             render_scry_frame(main_x);
+        }
+        else if(mode == GameMode::SCORE_SWAP)
+        {
+            action_prompt_sprites.clear();
+            // Keep the hand completely out of the digit rows. The round score is
+            // centered at y=0, which was previously hidden behind the card row.
+            hide_fade_bands(fade_bands);
+            bn::string<32> prompt;
+
+            switch(score_swap_fx.edit_mode)
+            {
+            case ScoreDigitEditMode::MOVE_FOUR:
+                prompt = "Move 4  B+LR changes 4";
+                break;
+            case ScoreDigitEditMode::REPLACE_WITH_FIVE:
+                prompt = "Pick a digit for 5";
+                break;
+            case ScoreDigitEditMode::SWAP:
+            default:
+                prompt = score_swap_fx.selected_count == 0 ? "Pick first digit" : "Pick second digit";
+                break;
+            }
+
+            hud_mod_generator.set_left_alignment();
+            hud_mod_generator.generate(-112, -48, "Total", action_prompt_sprites);
+
+            if(score_swap_fx.edit_mode == ScoreDigitEditMode::SWAP)
+            {
+                hud_mod_generator.generate(-112, 0, "Round", action_prompt_sprites);
+            }
+
+            hud_mod_generator.set_center_alignment();
+            hud_mod_generator.generate(0, 64, prompt, action_prompt_sprites);
         }
         else
         {

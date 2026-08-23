@@ -11,11 +11,14 @@
 #include "game_state.h"
 
 constexpr int SAVE_DATA_MAGIC = 0x424E554D; // 'BNUM'
-constexpr int SAVE_DATA_VERSION = 9;
+constexpr int SAVE_DATA_VERSION = 10;
 constexpr int MAX_SAVED_DECKS = 6;
 constexpr int LIBRARY_COPY_LIMIT = 5;
 constexpr int DECK_MIN_CARDS = 1;
-constexpr int DECK_MAX_CARDS = 50;
+constexpr int DECK_MAX_CARDS = 25;
+// Saves written before the 25-card cap may hold larger decks. Loaders accept up to this
+// many so the save still parses; save_data_validate then trims them to DECK_MAX_CARDS.
+constexpr int DECK_LEGACY_MAX_CARDS = 50;
 constexpr int CAMPAIGN_TRINKET_SLOTS = 2;
 constexpr int CAMPAIGN_NUMBER_NOW_ROUNDS = 10;
 constexpr int SAME_NUMBER_BRACKET_SIZE = 50;
@@ -30,7 +33,7 @@ struct SavedDeck
         uint8_t(TrinketType::NONE),
         uint8_t(TrinketType::NONE),
     };
-    // 1 = sandbox deck: full catalog, no library/per-type limits (still max 50 cards).
+    // 1 = sandbox deck: full catalog, no library/per-type limits (still max DECK_MAX_CARDS).
     uint8_t unrestricted_build = 0;
 };
 

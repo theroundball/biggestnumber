@@ -61,6 +61,7 @@ enum class PlayPresentOrigin : uint8_t
     SCRY,
     DECK_SEARCH,
     ECHO,
+    GRAVEYARD,
 };
 
 enum class GraveyardExilePickKind : uint8_t
@@ -152,6 +153,7 @@ struct GameSceneResult
     int final_score = 0;
     int last_round_score = 0;
     int last_round_number = 0;
+    bool exited_early = false;
 };
 
 struct CardRowResult

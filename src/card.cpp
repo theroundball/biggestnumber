@@ -13,6 +13,7 @@
 #include "game_types.h"
 #include "card_meta.h"
 #include "game_state.h"
+#include "scoring.h"
 
 namespace
 {
@@ -129,19 +130,35 @@ Card::Card(CardType type, bn::fixed x, bn::fixed y) :
 
 void apply_card_play(GameState& state, CardType type)
 {
-    apply_card_play(state, CardRef{type, NO_INSTANCE});
+    apply_card_play(state, CardRef{type, NO_INSTANCE}, PlaySource::HAND);
 }
 
 void apply_card_play(GameState& state, CardRef card)
 {
+    apply_card_play(state, card, PlaySource::HAND);
+}
+
+void apply_card_play(GameState& state, CardRef card, PlaySource source)
+{
     const CardData& d = card_data(card.type);
-    int plus = d.immediate_plus;
+    const bool consume_double = state.pending_double_adds;
+    state.applying_double_adds = consume_double;
+
+    if(consume_double)
+    {
+        state.pending_double_adds = false;
+    }
+
+    int plus = (source == PlaySource::FLASHBACK && d.has_flashback) ? d.flashback_plus : d.immediate_plus;
     int multiply = d.immediate_multiply;
 
-    if(const CardInstance* instance = instance_at(state.instance_pool, card.instance_id))
+    if(source != PlaySource::FLASHBACK)
     {
-        plus = effective_immediate_plus(*instance);
-        multiply = effective_immediate_multiply(*instance);
+        if(const CardInstance* instance = instance_at(state.instance_pool, card.instance_id))
+        {
+            plus = effective_immediate_plus(*instance);
+            multiply = effective_immediate_multiply(*instance);
+        }
     }
 
     if(plus)
@@ -154,14 +171,35 @@ void apply_card_play(GameState& state, CardRef card)
         state.mul_from_card(multiply);
     }
 
-    state.mod_next().accumulate(d.future[0]);
-    state.mod_after_next().accumulate(d.future[1]);
-    state.mod_third().accumulate(d.future[2]);
+    for(int index = 0; index < 3; ++index)
+    {
+        RoundModifier future = d.future[index];
+
+        if(state.applying_double_adds && future.positive)
+        {
+            future.positive *= 2;
+        }
+
+        if(index == 0)
+        {
+            state.mod_next().accumulate(future);
+        }
+        else if(index == 1)
+        {
+            state.mod_after_next().accumulate(future);
+        }
+        else
+        {
+            state.mod_third().accumulate(future);
+        }
+    }
 
     if(d.on_play)
     {
         d.on_play(state);
     }
+
+    state.applying_double_adds = false;
 }
 
 void apply_card_discard(GameState& state, CardType type)
@@ -171,6 +209,31 @@ void apply_card_discard(GameState& state, CardType type)
     if(data.on_discard)
     {
         data.on_discard(state);
+    }
+}
+
+void apply_card_relocated(GameState& state, CardType type)
+{
+    if(type != CardType::GET_ME_OUTA_HERE)
+    {
+        return;
+    }
+
+    state.add_from_card(card_data(type).immediate_plus);
+}
+
+void apply_card_relocated_from_play(GameState& state, CardType type, PlaySource source)
+{
+    switch(source)
+    {
+    case PlaySource::DECK_TOP:
+    case PlaySource::SCRY:
+    case PlaySource::DECK_SEARCH:
+        apply_card_relocated(state, type);
+        break;
+
+    default:
+        break;
     }
 }
 
@@ -206,6 +269,7 @@ void Card::sync_part_visibility()
     _accent_top.set_visible(_visible);
     _accent_bottom.set_visible(_visible);
     sync_upgrade_pip_visibility();
+    sync_amount_overlay_visibility();
 }
 
 void Card::reposition_parts()
@@ -215,6 +279,7 @@ void Card::reposition_parts()
     _accent_bottom.set_position(_x + BODY_W + ACCENT_W / 2,
                                 _y + BODY_H - ACCENT_H / 2);
     reposition_upgrade_pips();
+    reposition_amount_overlay();
 }
 
 void Card::sync_upgrade_pip_visibility()
@@ -249,6 +314,80 @@ void Card::reposition_upgrade_pips()
         _pip_anchor_x = new_anchor_x;
         _pip_anchor_y = new_anchor_y;
     }
+}
+
+void Card::sync_amount_overlay_visibility()
+{
+    const bool show = _visible && !_visual_active;
+
+    for(bn::sprite_ptr& sprite : _amount_overlay)
+    {
+        sprite.set_visible(show);
+    }
+}
+
+void Card::reposition_amount_overlay()
+{
+    if(_amount_overlay.empty())
+    {
+        return;
+    }
+
+    const bn::fixed new_anchor_x = _x + 4;
+    const bn::fixed new_anchor_y = _y + 48;
+    const bn::fixed dx = new_anchor_x - _amount_anchor_x;
+    const bn::fixed dy = new_anchor_y - _amount_anchor_y;
+
+    if(dx != 0 || dy != 0)
+    {
+        for(bn::sprite_ptr& sprite : _amount_overlay)
+        {
+            sprite.set_position(sprite.x() + dx, sprite.y() + dy);
+        }
+
+        _amount_anchor_x = new_anchor_x;
+        _amount_anchor_y = new_anchor_y;
+    }
+}
+
+void Card::clear_amount_overlay()
+{
+    _amount_overlay.clear();
+    _amount_overlay_text.clear();
+    _amount_overlay_generator = nullptr;
+    _amount_anchor_x = 0;
+    _amount_anchor_y = 0;
+}
+
+void Card::set_amount_overlay(bn::sprite_text_generator* generator, const bn::string<8>& text)
+{
+    if(!generator || text.empty())
+    {
+        clear_amount_overlay();
+        return;
+    }
+
+    if(generator == _amount_overlay_generator && text == _amount_overlay_text && !_amount_overlay.empty())
+    {
+        reposition_amount_overlay();
+        sync_amount_overlay_visibility();
+        return;
+    }
+
+    _amount_overlay.clear();
+    _amount_overlay_text = text;
+    _amount_overlay_generator = generator;
+    _amount_anchor_x = _x + 4;
+    _amount_anchor_y = _y + 48;
+    generator->set_left_alignment();
+    generator->generate(_amount_anchor_x.integer(), _amount_anchor_y.integer(), text, _amount_overlay);
+
+    for(bn::sprite_ptr& sprite : _amount_overlay)
+    {
+        sprite.set_z_order(game_layout::HAND_CARD_Z);
+    }
+
+    sync_amount_overlay_visibility();
 }
 
 void Card::clear_upgrade_pips()
@@ -338,6 +477,16 @@ void Card::set_blending_enabled(bool blending_enabled)
     _body.set_blending_enabled(blending_enabled);
     _accent_top.set_blending_enabled(blending_enabled);
     _accent_bottom.set_blending_enabled(blending_enabled);
+
+    for(bn::sprite_ptr& sprite : _upgrade_pips)
+    {
+        sprite.set_blending_enabled(blending_enabled);
+    }
+
+    for(bn::sprite_ptr& sprite : _amount_overlay)
+    {
+        sprite.set_blending_enabled(blending_enabled);
+    }
 }
 
 void Card::set_draw_on_top(bool on_top)
@@ -353,6 +502,12 @@ void Card::set_draw_on_top(bool on_top)
     _accent_bottom.set_bg_priority(bg_priority);
 
     for(bn::sprite_ptr& sprite : _upgrade_pips)
+    {
+        sprite.set_z_order(on_top ? game_layout::PLAY_PRESENTATION_CARD_Z - 1 : game_layout::HAND_CARD_Z);
+        sprite.set_bg_priority(bg_priority);
+    }
+
+    for(bn::sprite_ptr& sprite : _amount_overlay)
     {
         sprite.set_z_order(on_top ? game_layout::PLAY_PRESENTATION_CARD_Z - 1 : game_layout::HAND_CARD_Z);
         sprite.set_bg_priority(bg_priority);
@@ -458,6 +613,7 @@ void Card::clear_visual()
 void release_card_display_tiles(Card& card)
 {
     card.clear_upgrade_pips();
+    card.clear_amount_overlay();
     card.set_visible(false);
     card.clear_visual();
     card.set_blending_enabled(false);

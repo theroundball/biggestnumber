@@ -47,7 +47,7 @@ namespace
     {
         if(combo_start_cinematic_if_valid(ctx.state))
         {
-            ctx.mode = GameMode::COMBO;
+            ctx.enter_combo_mode();
             return PendingStartResult::ENTERED_MODE;
         }
 
@@ -83,6 +83,52 @@ namespace
             context,
             removal_style_for_hand_play(top.type),
             miracle);
+
+        return PendingStartResult::ENTERED_MODE;
+    }
+
+    PendingStartResult start_mill_reveal(GameContext& ctx, const PendingAction& action)
+    {
+        CardRef top;
+
+        if(!ctx.state.deck.draw(top))
+        {
+            return PendingStartResult::FIZZLE;
+        }
+
+        const bool flex = action.count > 0;
+        const bool hit = flex ? card_can_add_or_multiply(ctx.state, top)
+                              : card_increases_current_number(ctx.state, top);
+        const int main_x = ctx.main_panel_offset_x();
+
+        PlayResolutionContext context;
+        context.source = PlaySource::DECK_TOP;
+        context.apply_destination = false;
+
+        const bool miracle = hit && top.type == CardType::MIRACLE;
+
+        if(miracle)
+        {
+            ctx.state.first_deck_draw_this_round = false;
+        }
+
+        ctx.begin_play_presentation(
+            top,
+            card_target_x_for_hud_icon(game_layout::HUD_DECK_X, main_x),
+            card_target_y_for_hud_icon(game_layout::HUD_DECK_Y),
+            PlayPresentOrigin::DECK,
+            context,
+            hit ? removal_style_for_hand_play(top.type) : RemovalStyle::TO_GRAVEYARD,
+            miracle);
+
+        ctx.removal_mill_without_play = !hit;
+        ctx.mill_reveal_flex_continue = flex && !hit;
+        ctx.mill_reveal_draw_on_hit = !flex && hit;
+
+        if(!hit)
+        {
+            ctx.removal_center_beat = false;
+        }
 
         return PendingStartResult::ENTERED_MODE;
     }
@@ -229,7 +275,7 @@ namespace
 
         if(combo_try_start_pending(ctx.state))
         {
-            ctx.mode = GameMode::COMBO;
+            ctx.enter_combo_mode();
             return PendingStartResult::ENTERED_MODE;
         }
 
@@ -266,7 +312,7 @@ namespace
 
         if(combo_try_start_pending(ctx.state))
         {
-            ctx.mode = GameMode::COMBO;
+            ctx.enter_combo_mode();
             return PendingStartResult::ENTERED_MODE;
         }
 
@@ -278,6 +324,31 @@ namespace
     PendingStartResult start_swap_total_score_digits(GameContext& ctx, const PendingAction&)
     {
         if(score_swap_try_begin(ctx))
+        {
+            ctx.mode = GameMode::SCORE_SWAP;
+            return PendingStartResult::ENTERED_MODE;
+        }
+
+        return PendingStartResult::FIZZLE;
+    }
+
+    PendingStartResult start_move_four_total_digit(GameContext& ctx, const PendingAction&)
+    {
+        if(score_fourth_try_begin(ctx))
+        {
+            ctx.mode = GameMode::SCORE_SWAP;
+            return PendingStartResult::ENTERED_MODE;
+        }
+
+        // No movable 4: The Fourth falls back to +4.
+        ctx.state.add_from_card(4);
+        ctx.draw_round_score();
+        return PendingStartResult::INSTANT_DONE;
+    }
+
+    PendingStartResult start_replace_total_digit_with_five(GameContext& ctx, const PendingAction&)
+    {
+        if(score_fifth_try_begin(ctx))
         {
             ctx.mode = GameMode::SCORE_SWAP;
             return PendingStartResult::ENTERED_MODE;
@@ -334,10 +405,16 @@ namespace
             return start_deck_search(ctx, action);
         case PendingActionType::PLAY_DECK_TOP:
             return start_play_deck_top(ctx, action);
+        case PendingActionType::MILL_REVEAL:
+            return start_mill_reveal(ctx, action);
         case PendingActionType::SCRY:
             return start_scry(ctx, action);
         case PendingActionType::SWAP_TOTAL_SCORE_DIGITS:
             return start_swap_total_score_digits(ctx, action);
+        case PendingActionType::MOVE_FOUR_TOTAL_DIGIT:
+            return start_move_four_total_digit(ctx, action);
+        case PendingActionType::REPLACE_TOTAL_DIGIT_WITH_FIVE:
+            return start_replace_total_digit_with_five(ctx, action);
         case PendingActionType::RECLAIM_GRAVEYARD:
             return start_reclaim_graveyard(ctx, action);
         case PendingActionType::NECROMANCY_SHUFFLE:
@@ -427,7 +504,7 @@ namespace
         ctx.target_row_scroll_x = 0;
         ctx.target_row_scroll_index = 0;
 
-        if(ctx.state.hand.size() == 0)
+        if(ctx.state.hand.empty())
         {
             swivel_clear_wait_if_hand_empty(ctx);
 

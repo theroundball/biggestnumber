@@ -10,6 +10,7 @@
 #include "bn_vector.h"
 #include "card_instance.h"
 #include "card_type.h"
+#include "play_resolution.h"
 
 // Forward declare GameState so a card can act on it without an include cycle.
 struct GameState;
@@ -17,7 +18,10 @@ struct GameState;
 // Resolve card effects without allocating display sprites (safe to call every play).
 void apply_card_play(GameState& state, CardType type);
 void apply_card_play(GameState& state, CardRef card);
+void apply_card_play(GameState& state, CardRef card, PlaySource source);
 void apply_card_discard(GameState& state, CardType type);
+void apply_card_relocated(GameState& state, CardType type);
+void apply_card_relocated_from_play(GameState& state, CardType type, PlaySource source);
 
 // A rendered card instance living in the hand: its identity (CardType) plus the
 // sprites used to draw it. All gameplay data (name, effect) lives in CardData;
@@ -52,11 +56,15 @@ public:
     // Corner pips for run upgrades (+ / x / L / Y). Pass nullptr to clear.
     void set_upgrade_pips(bn::sprite_text_generator* generator, const CardInstance* instance);
     void clear_upgrade_pips();
+    void set_amount_overlay(bn::sprite_text_generator* generator, const bn::string<8>& text);
+    void clear_amount_overlay();
 
 private:
     void apply_visual_transform();
     void sync_upgrade_pip_visibility();
     void reposition_upgrade_pips();
+    void sync_amount_overlay_visibility();
+    void reposition_amount_overlay();
 
     CardType _type;
     bn::fixed _x;
@@ -74,6 +82,11 @@ private:
     bn::sprite_text_generator* _upgrade_pip_generator = nullptr;
     bn::fixed _pip_anchor_x = 0;
     bn::fixed _pip_anchor_y = 0;
+    bn::vector<bn::sprite_ptr, 4> _amount_overlay;
+    bn::string<8> _amount_overlay_text;
+    bn::sprite_text_generator* _amount_overlay_generator = nullptr;
+    bn::fixed _amount_anchor_x = 0;
+    bn::fixed _amount_anchor_y = 0;
 
     void sync_part_visibility();
     void reposition_parts();

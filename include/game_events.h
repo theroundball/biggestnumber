@@ -30,8 +30,8 @@ void graveyard_swap_at(GameState& state, int first_index, int second_index);
 void graveyard_clear(GameState& state);
 void graveyard_apply_gravity(GameState& state);
 
-void exile_push(GameState& state, CardRef card);
-void exile_push(GameState& state, CardType type);
+void exile_push(GameState& state, CardRef card, bool from_graveyard = false);
+void exile_push(GameState& state, CardType type, bool from_graveyard = false);
 
 void necromancy_shuffle_graveyard_to_deck(GameState& state);
 void game_events_dispatch(GameState& state, GameEvent event);

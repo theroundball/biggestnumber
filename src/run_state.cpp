@@ -1,5 +1,7 @@
 #include "run_state.h"
 
+#include "save_data.h"
+
 namespace
 {
     constexpr CardType VANILLA_PLUS[] = {
@@ -64,7 +66,7 @@ bool run_is_over(const RunState& run)
 
 uint8_t run_add_card(RunState& run, CardType type)
 {
-    if(run.deck_ids.full())
+    if(run.deck_ids.full() || run.deck_ids.size() >= DECK_MAX_CARDS)
     {
         return NO_INSTANCE;
     }

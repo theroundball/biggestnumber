@@ -68,17 +68,14 @@ namespace
 
     void increment_play_counters(GameState& state, CardType type, PlaySource source)
     {
+        (void)type;
+
         if(source == PlaySource::ECHO)
         {
             return;
         }
 
         ++state.cards_played_this_round;
-
-        if(type == CardType::BIRDS_OF_A_FEATHER)
-        {
-            ++state.birds_played_count;
-        }
     }
 
     void finish_hand_play_destination(GameState& state, CardRef card, PlayResolutionContext& context,
@@ -109,6 +106,7 @@ namespace
         }
 
         increment_play_counters(state, card.type, context.source);
+        maybe_draw_if_solo(state, card.type);
     }
 }
 
@@ -518,8 +516,8 @@ int GameContext::current_highlight_type() const
         return -1;
     }
 
-    return state.hand.empty() || selected_card < 0 || selected_card >= state.hand.size() ? -1
-                                                                                         : int(state.hand[selected_card].type);
+    return selected_card < 0 || selected_card >= playable_slot_count(state) ? -1
+           : int(playable_slot_card(state, selected_card).type);
 };
 
 int GameContext::current_highlight_index() const
@@ -561,15 +559,17 @@ void GameContext::snap_active_scroll()
 
 void GameContext::clamp_hand_cursor()
 {
-    if(state.hand.empty())
+    const int count = (mode == GameMode::DISCARD_TARGET) ? state.hand.size() : playable_slot_count(state);
+
+    if(count <= 0)
     {
         selected_card = 0;
         return;
     }
 
-    if(selected_card < 0 || selected_card >= state.hand.size())
+    if(selected_card < 0 || selected_card >= count)
     {
-        selected_card = 0;
+        selected_card = count - 1;
     }
 }
 
@@ -596,6 +596,11 @@ void GameContext::reset_card_animation_state()
     removal_hand_index = -1;
     removal_is_miracle_bonus = false;
     removal_swivel_follow = false;
+    removal_cycle_draw = false;
+    removal_mill_without_play = false;
+    mill_reveal_flex_continue = false;
+    mill_reveal_draw_on_hit = false;
+    removal_scoring_source = PlaySource::HAND;
     pending_opening_hand_deal = false;
     removal_frame = 0;
     graveyard_card_fx_active = false;
@@ -650,16 +655,26 @@ void GameContext::begin_play_presentation(CardRef card, int start_x, int start_y
     removal_is_discard = false;
     removal_is_miracle_bonus = miracle_bonus;
     removal_play_resolved = false;
+    removal_mill_without_play = false;
+    mill_reveal_flex_continue = false;
+    mill_reveal_draw_on_hit = false;
+    removal_cycle_draw = false;
     removal_start_x = start_x;
     removal_start_y = start_y;
     removal_frame = 0;
     removal_phase = PlayRemovalPhase::APPROACH;
     removal_center_beat = miracle_bonus || card_has_play_effect(state, card);
     removing_card = true;
+    removal_scoring_source = context.source == PlaySource::ECHO ? state.echo_replay_scoring_source
+                                                               : context.source;
 
     if(origin == PlayPresentOrigin::HAND)
     {
         selected_card = context.hand_index;
+        removal_hand_index = context.hand_index;
+    }
+    else if(origin == PlayPresentOrigin::GRAVEYARD)
+    {
         removal_hand_index = context.hand_index;
     }
     else
@@ -734,7 +749,8 @@ CardFlightSample GameContext::sample_removal_flight(int main_x, int dest_x, int 
                                              : card_target_y_for_score_center();
     const bn::fixed min_scale = bn::fixed(game_layout::REMOVAL_MIN_SCALE) /
                                 bn::fixed(game_layout::REMOVAL_MIN_SCALE_DIVISOR);
-    const bool deck_zoom_origin = removal_origin == PlayPresentOrigin::DECK;
+    const bool deck_zoom_origin = removal_origin == PlayPresentOrigin::DECK ||
+                                 removal_origin == PlayPresentOrigin::GRAVEYARD;
 
     if(!removal_center_beat)
     {
@@ -822,7 +838,7 @@ int GameContext::hand_removal_shift() const
 
     if(!removal_center_beat)
     {
-        if(game_layout::REMOVAL_FRAMES <= 1)
+        if(removal_origin != PlayPresentOrigin::HAND || game_layout::REMOVAL_FRAMES <= 1)
         {
             return 0;
         }
@@ -865,10 +881,15 @@ int GameContext::visual_hand_slot_count() const
 {
     if(hand_removal_gap_layout())
     {
-        return state.hand.size() + 1;
+        return playable_slot_count(state) + 1;
     }
 
-    return state.hand.size();
+    if(mode == GameMode::DISCARD_TARGET)
+    {
+        return state.hand.size();
+    }
+
+    return playable_slot_count(state);
 }
 
 int GameContext::hand_index_for_visual_slot(int visual_index) const
@@ -904,9 +925,10 @@ int GameContext::active_removal_slot_index() const
 
 int GameContext::layout_hand_count() const
 {
-    int count = state.hand.size();
+    int count = visual_hand_slot_count();
 
-    if(removing_card && removal_center_beat && removal_origin == PlayPresentOrigin::HAND &&
+    if(removing_card && removal_center_beat &&
+       (removal_origin == PlayPresentOrigin::HAND || removal_origin == PlayPresentOrigin::GRAVEYARD) &&
        removal_hand_index >= 0 && count > 0)
     {
         --count;
@@ -949,10 +971,16 @@ void GameContext::resolve_removal_play_effects()
         graveyard_push(state, removal_played_ref);
         draw_round_score();
     }
+    else if(removal_mill_without_play)
+    {
+        apply_card_relocated(state, removal_played_ref.type);
+        draw_round_score();
+    }
     else
     {
+        apply_card_relocated_from_play(state, removal_played_ref.type, removal_scoring_source);
         state.swivel_waiting = removal_swivel_follow;
-        apply_card_play(state, removal_played_ref);
+        apply_card_play(state, removal_played_ref, removal_scoring_source);
         state.swivel_waiting = false;
         draw_round_score();
     }
@@ -967,11 +995,21 @@ void GameContext::complete_removal_fx()
     if(removal_is_discard && removal_play_resolved && removal_origin == PlayPresentOrigin::HAND)
     {
         shift_card_raise_after_remove(removal_hand_index >= 0 ? removal_hand_index : selected_card);
+
+        if(removal_cycle_draw)
+        {
+            try_draw_one_to_hand(state);
+            removal_cycle_draw = false;
+        }
     }
 
     if(!removal_is_discard && !removal_is_miracle_bonus && removal_play_resolved)
     {
-        if(removal_origin == PlayPresentOrigin::HAND)
+        if(removal_mill_without_play)
+        {
+            graveyard_push(state, removal_played_ref);
+        }
+        else if(removal_origin == PlayPresentOrigin::HAND)
         {
             const int removed_index = removal_hand_index >= 0 ? removal_hand_index : selected_card;
 
@@ -1023,7 +1061,27 @@ void GameContext::complete_removal_fx()
             apply_post_play_destination(state, removal_played_ref, removal_play_context.source, dest,
                                         removal_play_context.hand_index,
                                         removal_play_context.selected_card);
+            increment_play_counters(state, removal_played_ref.type, removal_play_context.source);
+            maybe_draw_if_solo(state, removal_played_ref.type);
+
+            if(removal_play_context.source != PlaySource::ECHO)
+            {
+                arm_echo_replay(removal_played_ref);
+            }
         }
+    }
+
+    if(mill_reveal_draw_on_hit && !removal_mill_without_play)
+    {
+        try_draw_one_to_hand(state);
+    }
+
+    if(mill_reveal_flex_continue && removal_mill_without_play && state.deck.remaining() > 0)
+    {
+        PendingAction action;
+        action.type = PendingActionType::MILL_REVEAL;
+        action.count = 1;
+        state.pending_actions.push_back(action);
     }
 
     if(pending_opening_hand_deal)
@@ -1085,6 +1143,13 @@ bool GameContext::tick_removal_fx()
     {
         if(removal_frame >= game_layout::REMOVAL_FRAMES)
         {
+            if(removal_origin != PlayPresentOrigin::HAND)
+            {
+                resolve_removal_play_effects();
+                complete_removal_fx();
+                return true;
+            }
+
             if(removal_is_discard)
             {
                 const int removed_index = removal_hand_index >= 0 ? removal_hand_index : selected_card;
@@ -1096,6 +1161,12 @@ bool GameContext::tick_removal_fx()
                 {
                     state.mul_from_card(state.selection.multiply_factor);
                     draw_round_score();
+                }
+
+                if(removal_cycle_draw)
+                {
+                    try_draw_one_to_hand(state);
+                    removal_cycle_draw = false;
                 }
             }
             else if(removal_style == RemovalStyle::TO_DECK_TOP && !removal_swivel_follow &&
@@ -1109,7 +1180,7 @@ bool GameContext::tick_removal_fx()
             {
                 const int removed_index = removal_hand_index >= 0 ? removal_hand_index : selected_card;
                 const CardRef played_ref = state.hand[selected_card];
-                apply_card_play(state, played_ref);
+                apply_card_play(state, played_ref, PlaySource::HAND);
                 draw_round_score();
 
                 PlayResolutionContext context;
@@ -1376,23 +1447,28 @@ void GameContext::complete_graveyard_card_fx()
 
     if(kind == GraveyardExilePickKind::TO_HAND)
     {
+        apply_card_relocated(state, card.type);
+
         if(!state.hand.full())
         {
             hand_add_card(state, card);
         }
 
+        draw_round_score();
         begin_next_pending_or_finish();
         return;
     }
 
     if(kind == GraveyardExilePickKind::TO_DECK_TOP)
     {
+        apply_card_relocated(state, card.type);
         state.deck.insert_top(card);
+        draw_round_score();
         begin_next_pending_or_finish();
         return;
     }
 
-    exile_push(state, card);
+    exile_push(state, card, true);
     ++state.selection.exiled_count;
 
     if(state.graveyard.empty())
@@ -1411,7 +1487,7 @@ void GameContext::complete_graveyard_card_fx()
     {
         if(combo_try_start_pending(state))
         {
-            mode = GameMode::COMBO;
+            enter_combo_mode();
             return;
         }
     }
@@ -1559,6 +1635,19 @@ bool GameContext::presentation_fx_blocking() const
     return false;
 }
 
+bool GameContext::card_resolution_blocking_round_end() const
+{
+    return mode != GameMode::NORMAL ||
+           removing_card ||
+           graveyard_card_fx_active ||
+           deck_search_resolve_active() ||
+           hand_draw_fx_blocking() ||
+           presentation_fx_blocking() ||
+           !state.pending_actions.empty() ||
+           state.echo_pending_replay ||
+           state.swivel_waiting;
+}
+
 void GameContext::arm_echo_replay(CardRef played)
 {
     if(!state.echo_first_play_active() || !card_has_play_effect(state, played))
@@ -1569,6 +1658,7 @@ void GameContext::arm_echo_replay(CardRef played)
 
     state.echo_pending_replay = true;
     state.echo_replay_card = played.type;
+    state.echo_replay_scoring_source = removal_scoring_source;
     echo_play_badge_active = true;
 }
 
@@ -1637,7 +1727,7 @@ void GameContext::tick_echo_pending()
         return;
     }
 
-    if(state.hand.size() == 0)
+    if(state.hand.empty())
     {
         if(block_round_end_for_combo())
         {
@@ -1826,10 +1916,10 @@ void GameContext::draw_inspect(CardType type)
             have_ref = true;
         }
     }
-    else if(mode != GameMode::COMBO && !state.hand.empty() && selected_card >= 0 &&
-            selected_card < state.hand.size())
+    else if(mode != GameMode::COMBO && selected_card >= 0 &&
+            selected_card < playable_slot_count(state))
     {
-        ref = state.hand[selected_card];
+        ref = playable_slot_card(state, selected_card);
         have_ref = true;
     }
 
@@ -1842,6 +1932,14 @@ void GameContext::draw_inspect(CardType type)
     show_inspect_card(inspect_card, type, instance, &hud_count_generator);
     draw_card_inspect(type, round_text_generator, inspect_text_generator, inspect_sprites,
                       inspect_layout::TITLE_Y, instance);
+
+    if(state.pending_double_adds)
+    {
+        inspect_text_generator.set_left_alignment();
+        inspect_text_generator.generate(inspect_layout::TEXT_X, inspect_layout::TITLE_Y + 72,
+                                        "Adds are doubled.", inspect_sprites);
+        elevate_inspect_sprites(inspect_sprites);
+    }
 }
 
 bool GameContext::panel_transition_active() const
@@ -2416,12 +2514,13 @@ void GameContext::render_graveyard_browse(int panel_x)
 {
     hide_hand_display();
     render_graveyard_view(panel_x, browse_cursor);
+    hide_combo_focus_row_cards();
 }
 
 void GameContext::update_target_scroll()
 {
     const int hand_count = hand_layout_center_count();
-    const int scroll_count = state.hand.size();
+    const int scroll_count = visual_hand_slot_count();
     const int max_start = scroll_count > game_layout::VISIBLE_CARD_COUNT
                               ? scroll_count - game_layout::VISIBLE_CARD_COUNT
                               : 0;
@@ -2542,6 +2641,149 @@ namespace
     }
 }
 
+void GameContext::enter_combo_mode()
+{
+    // Chained combos re-enter from COMBO itself; keep the mode the first one interrupted.
+    if(mode != GameMode::COMBO)
+    {
+        combo_interrupted_mode = mode;
+    }
+
+    mode = GameMode::COMBO;
+    begin_combo_focus();
+}
+
+void GameContext::begin_combo_focus()
+{
+    combo_focus = ComboFocusPhase::NONE;
+    combo_focus_panel_opened = false;
+    combo_focus_frame = 0;
+    combo_focus_anchor_x = 0;
+
+    if(state.pending_combo.zone != ComboZone::GRAVEYARD || state.pending_combo.length <= 0)
+    {
+        return;
+    }
+
+    // Modes that already show a card row in the main view telegraph the match on
+    // their own, and a live selection owns row_scroll_x, which the pan would clobber.
+    if(combo_interrupted_mode != GameMode::NORMAL || inspecting ||
+       state.selection.type != PendingActionType::NONE)
+    {
+        return;
+    }
+
+    if(side_panel != SidePanel::NONE || panel_transition_active())
+    {
+        return;
+    }
+
+    browse_open_target = SidePanel::GRAVEYARD;
+    begin_panel_transition(PanelTransition::OPEN_GRAVEYARD);
+
+    if(panel_transition != PanelTransition::OPEN_GRAVEYARD)
+    {
+        return;
+    }
+
+    // begin_panel_transition parks the cursor on the newest card; scroll to the match instead.
+    const int match_center = state.pending_combo.start_index + state.pending_combo.length / 2;
+    browse_cursor = clamp_graveyard_cursor(match_center, state.graveyard.size());
+    sync_row_scroll_for_mode(browse_cursor, state.graveyard.size(), game_layout::GRAVE_SPACING);
+
+    combo_focus = ComboFocusPhase::PAN_IN;
+    combo_focus_panel_opened = true;
+}
+
+void GameContext::begin_combo_focus_return()
+{
+    if(!combo_focus_panel_opened || panel_transition_active())
+    {
+        return;
+    }
+
+    if(side_panel != SidePanel::GRAVEYARD && side_panel != SidePanel::EXILE)
+    {
+        return;
+    }
+
+    begin_panel_transition(PanelTransition::CLOSE_GRAVEYARD);
+}
+
+bool GameContext::combo_focus_active() const
+{
+    return combo_focus != ComboFocusPhase::NONE;
+}
+
+int GameContext::combo_focus_graveyard_index(int card_index) const
+{
+    return state.pending_combo.use_match_indices ? state.pending_combo.match_indices[card_index]
+                                                 : state.pending_combo.start_index + card_index;
+}
+
+bool GameContext::combo_focus_highlights_graveyard_card(int graveyard_index) const
+{
+    if(mode != GameMode::COMBO || !combo_focus_active())
+    {
+        return false;
+    }
+
+    if(state.pending_combo.zone != ComboZone::GRAVEYARD)
+    {
+        return false;
+    }
+
+    for(int index = 0; index < state.pending_combo.length; ++index)
+    {
+        if(combo_focus_graveyard_index(index) == graveyard_index)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void GameContext::combo_focus_slot_position(int card_index, int panel_x, int& out_x, int& out_y) const
+{
+    // Mirrors render_card_row so the cinematic cards start exactly on their row slots.
+    const int count = state.graveyard.size();
+    const int window = game_layout::VISIBLE_CARD_COUNT;
+    const int visible_count = count < window ? count : window;
+    const int row_start_x = -(visible_count * game_layout::GRAVE_SPACING) / 2;
+    const int first_visible = row_scroll_x / game_layout::GRAVE_SPACING;
+    const int scroll_sub = row_scroll_x - first_visible * game_layout::GRAVE_SPACING;
+    const int slot = combo_focus_graveyard_index(card_index) - first_visible;
+
+    out_x = row_start_x + slot * game_layout::GRAVE_SPACING - scroll_sub + panel_x;
+    out_y = game_layout::GRAVEYARD_BROWSE_Y - game_layout::GRAVEYARD_BROWSE_SELECTED_RAISE;
+}
+
+void GameContext::hide_combo_focus_row_cards()
+{
+    if(mode != GameMode::COMBO || combo_focus != ComboFocusPhase::PLAYING)
+    {
+        return;
+    }
+
+    if(state.pending_combo.zone != ComboZone::GRAVEYARD)
+    {
+        return;
+    }
+
+    const int first_visible = row_scroll_x / game_layout::GRAVE_SPACING;
+
+    for(int index = 0; index < state.pending_combo.length; ++index)
+    {
+        const int slot = combo_focus_graveyard_index(index) - first_visible;
+
+        if(slot >= 0 && slot < grave_row_display.size())
+        {
+            release_card_display_tiles(grave_row_display[slot]);
+        }
+    }
+}
+
 bool GameContext::try_start_pending_combo()
 {
     if(state.combo_cinematic.active)
@@ -2555,7 +2797,7 @@ bool GameContext::try_start_pending_combo()
         return false;
     }
 
-    mode = GameMode::COMBO;
+    enter_combo_mode();
     return true;
 }
 
@@ -2589,7 +2831,7 @@ bool GameContext::block_round_end_for_combo()
 
 void GameContext::finish_combo_cinematic()
 {
-    const PendingActionType resume_type = state.selection.type;
+    combo_resume_type = state.selection.type;
 
     // Clear active before removing cards so GRAVEYARD_CHANGED can queue the next match.
     // (combo_check_zone no-ops while a cinematic is marked active.)
@@ -2604,15 +2846,40 @@ void GameContext::finish_combo_cinematic()
         combo_check_zone(state, ComboZone::HAND);
         combo_check_zone(state, ComboZone::GRAVEYARD);
 
-        if(resume_type == PendingActionType::SCRY || resume_type == PendingActionType::DECK_SEARCH)
+        if(combo_resume_type == PendingActionType::SCRY ||
+           combo_resume_type == PendingActionType::DECK_SEARCH)
         {
             combo_check_zone(state, ComboZone::REVEALED);
         }
     }
 
+    // Hold the resume until the camera is back on the main view, otherwise the player
+    // could act on a hand they cannot see yet.
+    if(combo_focus_panel_opened)
+    {
+        begin_combo_focus_return();
+
+        if(panel_transition_active() || side_panel != SidePanel::NONE)
+        {
+            combo_focus = ComboFocusPhase::PAN_OUT;
+            draw_round_score();
+            return;
+        }
+    }
+
+    combo_focus = ComboFocusPhase::NONE;
+    combo_focus_panel_opened = false;
+    resume_after_combo();
+}
+
+void GameContext::resume_after_combo()
+{
+    const PendingActionType resume_type = combo_resume_type;
+    combo_resume_type = PendingActionType::NONE;
+
     if(combo_try_start_pending(state))
     {
-        mode = GameMode::COMBO;
+        enter_combo_mode();
         draw_round_score();
         return;
     }
@@ -2675,12 +2942,28 @@ void GameContext::release_idle_card_pools()
 
 void GameContext::finish_empty_hand_round()
 {
-    // Combos resolve before round/run end — e.g. last-card PB&J must cinematic first.
+    if(!state.hand.empty())
+    {
+        round_end_pending = false;
+        return;
+    }
+
+    // Empty hand/deck is only meaningful after the played card has completely
+    // resolved. A deferred round-end can otherwise race an action started on the
+    // final removal frame (Necromancy's GY shuffle is the clearest example).
+    if(card_resolution_blocking_round_end())
+    {
+        round_end_pending = true;
+        return;
+    }
+
+    // Combos resolve after the card's full effect but before round/run end.
     if(block_round_end_for_combo())
     {
         return;
     }
 
+    round_end_pending = false;
     swivel_clear_wait_if_hand_empty(*this);
 
     release_idle_card_pools();
@@ -2750,12 +3033,18 @@ void GameContext::finish_empty_hand_round()
 
 void GameContext::tick_round_end_pending()
 {
-    if(!round_end_pending || presentation_fx_blocking() || hand_draw_fx_blocking() || removing_card)
+    if(!round_end_pending)
     {
         return;
     }
 
-    if(block_round_end_for_combo())
+    if(!state.hand.empty())
+    {
+        round_end_pending = false;
+        return;
+    }
+
+    if(card_resolution_blocking_round_end())
     {
         return;
     }

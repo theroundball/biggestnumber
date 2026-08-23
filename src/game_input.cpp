@@ -6,6 +6,7 @@
 #include "combo_system.h"
 #include "game_events.h"
 #include "game_helpers.h"
+#include "game_ui.h"
 #include "play_resolution.h"
 #include "score_swap_system.h"
 #include "swivel_system.h"
@@ -42,20 +43,68 @@ namespace
 
 void GameContext::tick_combo()
 {
-    if(mode == GameMode::COMBO && state.combo_cinematic.active)
+    if(mode != GameMode::COMBO)
     {
-        ++state.combo_cinematic.frame;
+        return;
+    }
 
-        if(state.combo_cinematic.frame == COMBO_GATHER_FRAMES)
+    switch(combo_focus)
+    {
+    case ComboFocusPhase::PAN_IN:
+        if(panel_transition_active())
         {
-            combo_apply_score_bonus(state);
-            draw_round_score();
+            return;
         }
 
-        if(state.combo_cinematic.frame >= COMBO_TOTAL_FRAMES)
+        combo_focus = ComboFocusPhase::REVEAL;
+        combo_focus_frame = 0;
+        return;
+
+    case ComboFocusPhase::REVEAL:
+        ++combo_focus_frame;
+
+        if(combo_focus_frame < COMBO_FOCUS_REVEAL_FRAMES)
         {
-            finish_combo_cinematic();
+            return;
         }
+
+        combo_focus = ComboFocusPhase::PLAYING;
+        combo_focus_anchor_x = graveyard_panel_offset_x();
+        break;
+
+    case ComboFocusPhase::PAN_OUT:
+        if(panel_transition_active())
+        {
+            return;
+        }
+
+        combo_focus = ComboFocusPhase::NONE;
+        combo_focus_panel_opened = false;
+        resume_after_combo();
+        return;
+
+    default:
+        break;
+    }
+
+    if(!state.combo_cinematic.active)
+    {
+        return;
+    }
+
+    ++state.combo_cinematic.frame;
+
+    if(state.combo_cinematic.frame == COMBO_GATHER_FRAMES)
+    {
+        combo_apply_score_bonus(state);
+        draw_round_score();
+        // Slide back now so the cards land on a score that is on screen again.
+        begin_combo_focus_return();
+    }
+
+    if(state.combo_cinematic.frame >= COMBO_TOTAL_FRAMES)
+    {
+        finish_combo_cinematic();
     }
 }
 
@@ -92,7 +141,13 @@ void GameContext::handle_input()
 
     handle_input_inspect_toggle();
 
-    if(!panel_transition_active() && side_panel != SidePanel::NONE)
+    // A graveyard combo holds the browse panel open while it plays: swallow panel input
+    // so the player cannot scroll or close the view mid-cinematic.
+    if(mode == GameMode::COMBO)
+    {
+        handle_input_presentation();
+    }
+    else if(!panel_transition_active() && side_panel != SidePanel::NONE)
     {
         handle_input_side_panel(current_direction, direction_triggered, direction_steps, row_scrolling);
     }
@@ -141,8 +196,7 @@ void GameContext::handle_input()
 
 void GameContext::handle_input_inspect_toggle()
 {
-    const bool inspect_toggle_pressed = bn::keypad::select_pressed() ||
-                                        (bn::keypad::down_pressed() && side_panel == SidePanel::NONE);
+    const bool inspect_toggle_pressed = bn::keypad::select_pressed();
 
     // Select / Down toggles the inspect view for the highlighted card (in any card
     // view: hand, discard target, or graveyard picker).
@@ -354,11 +408,14 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
 {
     const bool score_wait_locks_hand_actions =
         removing_card && removal_phase == PlayRemovalPhase::WAIT_PRESENTATION;
+    const int slot_count = playable_slot_count(state);
+    const bool live_selected = selected_card >= 0 && selected_card < state.hand.size();
+    const bool flashback_selected = selected_card >= state.hand.size() && selected_card < slot_count;
 
     if(!game_over && !scrolling && !inspecting &&
        side_panel == SidePanel::NONE && !panel_transition_active() && state.hand.size() && bn::keypad::b_held() &&
        !score_wait_locks_hand_actions &&
-       bn::keypad::right_pressed() && selected_card < state.hand.size() - 1)
+       bn::keypad::right_pressed() && live_selected && selected_card < state.hand.size() - 1)
     {
         swapping_card = true;
         swap_frame = 0;
@@ -368,7 +425,7 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
     else if(!game_over && !scrolling && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() && state.hand.size() && bn::keypad::b_held() &&
             !score_wait_locks_hand_actions &&
-            bn::keypad::left_pressed() && selected_card > 0)
+            bn::keypad::left_pressed() && live_selected && selected_card > 0)
     {
         swapping_card = true;
         swap_frame = 0;
@@ -386,21 +443,62 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
         cycle_side_panel(-1);
     }
     else if(!game_over && !scrolling && side_panel == SidePanel::NONE &&
-            !panel_transition_active() && state.hand.size() && !bn::keypad::b_held() && direction_triggered)
+            !panel_transition_active() && slot_count && !bn::keypad::b_held() && direction_triggered)
     {
-        nudge_cursor(selected_card, current_direction, direction_steps, 0, state.hand.size() - 1);
+        nudge_cursor(selected_card, current_direction, direction_steps, 0, slot_count - 1);
         update_target_scroll();
     }
     else if(!game_over && !scrolling && !inspecting &&
-            side_panel == SidePanel::NONE && !panel_transition_active() && state.hand.size() &&
+            side_panel == SidePanel::NONE && !panel_transition_active() && live_selected &&
+            !score_wait_locks_hand_actions && bn::keypad::down_pressed() &&
+            card_has_cycle(state.hand[selected_card].type))
+    {
+        removal_cycle_draw = true;
+
+        if(card_has_discard_effect(state.hand[selected_card].type))
+        {
+            begin_discard_presentation(selected_card);
+        }
+        else
+        {
+            capture_removal_start();
+            begin_direct_removal(removal_start_x, removal_start_y, RemovalStyle::TO_GRAVEYARD, true);
+        }
+    }
+    else if(!game_over && !scrolling && !inspecting &&
+            side_panel == SidePanel::NONE && !panel_transition_active() && slot_count &&
             !score_wait_locks_hand_actions && confirm_pressed())
     {
         if(inspecting)
         {
             clear_inspect();
         }
+        else if(flashback_selected)
+        {
+            const int gy_index = playable_slot_graveyard_index(state, selected_card);
+            const CardRef played_ref = playable_slot_card(state, selected_card);
 
-        else if(swivel_is_waiting(*this))
+            if(gy_index < 0)
+            {
+                return;
+            }
+
+            const int main_x = main_panel_offset_x();
+            PlayResolutionContext context;
+            context.source = PlaySource::FLASHBACK;
+            context.hand_index = gy_index;
+            context.selected_card = &selected_card;
+            context.apply_destination = false;
+
+            echo_play_badge_active = state.echo_first_play_active() &&
+                                     card_has_play_effect(state, played_ref);
+            begin_play_presentation(
+                played_ref,
+                card_target_x_for_hud_icon(game_layout::HUD_GRAVEYARD_X, main_x),
+                card_target_y_for_hud_icon(game_layout::HUD_GRAVEYARD_Y),
+                PlayPresentOrigin::GRAVEYARD, context, RemovalStyle::EXILE_DISSIPATE);
+        }
+        else if(swivel_is_waiting(*this) && live_selected)
         {
             const CardRef played_ref = state.hand[selected_card];
             capture_removal_start();
@@ -418,7 +516,7 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
             begin_play_presentation(played_ref, removal_start_x, removal_start_y, PlayPresentOrigin::HAND,
                                   context, RemovalStyle::TO_DECK_TOP);
         }
-        else
+        else if(live_selected)
         {
             const CardRef played_ref = state.hand[selected_card];
             echo_play_badge_active = state.echo_first_play_active() &&
@@ -463,7 +561,8 @@ void GameContext::handle_input_discard_target(int current_direction, bool direct
         nudge_cursor(selected_card, current_direction, direction_steps, 0, state.hand.size() - 1);
         update_target_scroll();
     }
-    else if(!scrolling && !inspecting && state.hand.size() && confirm_pressed())
+    else if(!scrolling && !inspecting && state.hand.size() &&
+            (confirm_pressed() || bn::keypad::down_pressed()))
     {
         if(state.selection.type == PendingActionType::PUT_HAND_ON_DECK_TOP)
         {
@@ -674,6 +773,7 @@ void GameContext::handle_input_graveyard_pick(int current_direction, bool direct
             {
                 for(CardRef card : state.selection.picked_ordered)
                 {
+                    apply_card_relocated(state, card.type);
                     state.deck.insert_top(card);
                 }
             }
@@ -683,9 +783,12 @@ void GameContext::handle_input_graveyard_pick(int current_direction, bool direct
                 // "first picked = shallowest of the batch, last picked = truly bottom."
                 for(CardRef card : state.selection.picked_ordered)
                 {
+                    apply_card_relocated(state, card.type);
                     state.deck.add_card(card);
                 }
             }
+
+            draw_round_score();
 
             state.selection.picked_ordered.clear();
             begin_next_pending_or_finish();
