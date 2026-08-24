@@ -317,13 +317,14 @@ Defined in `include/game_state.h`; resolved in `GameContext::begin_next_pending_
 
 | Type | Driven by | Player flow |
 |------|-----------|-------------|
+| `EXILE_FROM_GRAVEYARD` | Cups | Pick exactly 1 GY card to exile |
 | `EXILE_FROM_GRAVEYARD_THEN_MULTIPLY` | Clover | Pick exactly N GY cards to exile; ×N when done; B cancels partial |
 | `EXILE_GRAVEYARD_MULTIPLY_BY_COUNT` | Rags to Riches | Exile GY cards one-by-one; B when done → × exiled count |
 | `DISCARD_FROM_HAND_THEN_MULTIPLY` | Big Kurosawa Burger | Discard 1 hand → ×factor |
 | `DISCARD_FROM_HAND` | Jacks, Fishing Pole, Cups | Discard 1 hand card (cost) |
 | `PUT_HAND_ON_DECK_TOP` | (unused pending; was It's Comin' Up) | Put 1 hand card on deck top |
-| `RETRIEVE_FROM_GRAVEYARD` | Fishing Pole | GY card → hand |
-| `RETRIEVE_FROM_GRAVEYARD_TO_TOP` | Jacks, Cups | GY card → deck top |
+| `RETRIEVE_FROM_GRAVEYARD` | Jacks | GY card → hand |
+| `RETRIEVE_FROM_GRAVEYARD_TO_TOP` | Fishing Pole | GY card → deck top |
 | `GRAVEYARD_PICK_TO_BOTTOM` | *(none currently)* | Enum exists, no card uses |
 | `GRAVEYARD_PICK_TO_TOP` | Seeds | Pick 3 GY cards → deck top |
 | `GRAVEYARD_PAIR_SWAP` | Roll Over (discard) | Pick 2 GY cards to swap; repeat 3 times |
@@ -416,16 +417,16 @@ sequenceDiagram
 ### 9.4 Birds of a Feather
 
 - **On play:** +5.
-- **On graveyard change:** if a **consecutive run** of Birds in GY has length ≥ `birds_return_threshold` (starts at **2**), those Birds return to hand.
-- After each trigger, threshold **increases by 1** (next trigger needs longer run).
+- **On graveyard change:** if a **consecutive run** of Birds in GY reaches `birds_return_threshold` (starts at **2**), those Birds return to deck top.
+- Threshold advances 2→3→4→5, then disables for the rest of the battle.
 
 ### 9.5 Combos
 
 | Combo | Cards | Order | Bonus | Zones checked |
 |-------|-------|-------|-------|-----------------|
-| RPS+Shoot | Rock, Paper, Scissors, Shoot | **Any order** (multiset match) | +100 | Hand, GY, scry/search reveal |
-| PB&J | Peanut Butter, Jelly | **Strict order** | +25 | Same |
-| Straw/Sticks/Bricks | Straw, Sticks, Bricks | **Strict order** | +50 | Same |
+| RPS+Shoot | Rock, Paper, Scissors, Shoot | **Any order** (multiset match) | ×4 total score | Hand, GY, scry/search reveal |
+| PB&J | Peanut Butter, Jelly | **Any order** | ×2 total score | Same |
+| Straw/Sticks/Bricks | Straw, Sticks, Bricks | **Any order** | ×3 total score | Same |
 
 - One pending combo at a time; match can **interrupt** graveyard selection and resume after cinematic.
 - Reveal-mode combo during scry/search **fizzles** the peek (unplayed scry cards return to deck).
@@ -500,9 +501,9 @@ Cards are listed in `CardType` enum order (`include/card_type.h`). Copy counts i
 |------|--------|
 | Clover | If GY ≥ 3: exile exactly 3 GY → ×3; else fizzle (still goes to GY) |
 | Rags to Riches | Exile GY one-by-one; × exiled count when done |
-| Jacks | Discard 1 other → GY card to deck top |
-| Fishing Pole | Discard 1 → GY card to hand |
-| Cups | Draw 1, discard 1 → GY card to deck top |
+| Jacks | Discard 1 other → GY card to hand |
+| Fishing Pole | Discard 1 → GY card to deck top |
+| Cups | Draw 1, discard 1, exile 1 from GY; unavailable steps are skipped |
 | Roll Over (discard) | Swap two GY cards, 3 times |
 
 ### 11.5 Discard-only effects

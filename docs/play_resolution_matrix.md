@@ -56,9 +56,9 @@ Discard effects (`on_discard`) fire only on **cost discards** via `hand_remove_a
 | 14 | Tombstones | Play | +3 then × unique GY types (self counts) |
 | 15 | Roll Over | Play | +3 then 3× GY pair swap UI |
 | 16 | Swap | Play | Pick digits from round or total; total cannot decrease |
-| 17 | Birds ×2 | Play twice | 2nd play needs 2 consecutive birds in GY to return |
-| 18 | The Fourth + total containing 4 | Play | Pick a 4 and destination; digits slide and total is reordered |
-| 19 | The Fourth + no movable 4 | Play | No picker; +4 fallback |
+| 17 | Birds ×2 | Play twice | 2nd play needs 2 consecutive birds in GY; both return to deck top |
+| 18 | The Fourth + total containing 4 | Play | Pick a 4 and a non-decreasing destination; invalid destinations do nothing |
+| 19 | The Fourth + no valid 4 move | Play | No picker; card fizzles |
 | 20 | The Fifth | Play | Pick one total-score digit; it becomes 5 |
-| 21 | Palindrome + palindromic round | Play | Add digit 1 to both ends (single digits included) |
+| 21 | Palindrome + palindromic total | Play | Wrap total in 1s, or 2s after Double Time (single digits included) |
 | 22 | Necromancy as final hand/deck card | Play | Shuffle fully resolves before empty-hand/deck end check |

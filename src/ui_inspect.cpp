@@ -54,6 +54,8 @@ namespace
             return "Get With The Times";
         case TrinketType::PRIME_TIME:
             return "Prime Time";
+        case TrinketType::FIBONACCI:
+            return "Fibonacci";
         default:
             return "Trinket";
         }
@@ -73,6 +75,8 @@ namespace
             return "Card adds do nothing; gain +6 at the start of each round instead.";
         case TrinketType::PRIME_TIME:
             return "When round or total score are prime numbers, add n where n is the number of times your round or total score have been a prime number.";
+        case TrinketType::FIBONACCI:
+            return "At each round start, add the next value in 1, 1, 2, 3, 5, 8...";
         default:
             return "Global modifier for your active deck.";
         }
@@ -100,12 +104,13 @@ void elevate_inspect_sprites(bn::vector<bn::sprite_ptr, 64>& sprites)
 void show_inspect_card(Card& card, CardType type, const CardInstance* instance,
                        bn::sprite_text_generator* pip_generator)
 {
+    card.clear_visual();
     card.set_type(type);
     card.set_position(inspect_layout::CARD_X, inspect_layout::CARD_Y);
-    card.set_visible(true);
     card.set_blending_enabled(false);
-    card.clear_visual();
     card.set_upgrade_pips(pip_generator, instance);
+    card.set_inspect_visual(2);
+    card.set_visible(true);
 }
 
 void hide_inspect_card(Card& card)

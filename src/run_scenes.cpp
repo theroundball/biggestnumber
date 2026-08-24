@@ -37,6 +37,7 @@ namespace
         TrinketType::ECHO,
         TrinketType::GET_WITH_THE_TIMES,
         TrinketType::PRIME_TIME,
+        TrinketType::FIBONACCI,
     };
 
     constexpr int TRINKET_CATALOG_COUNT = sizeof(TRINKET_CATALOG) / sizeof(TRINKET_CATALOG[0]);
@@ -59,6 +60,8 @@ namespace
             return "Get With The Times";
         case TrinketType::PRIME_TIME:
             return "Prime Time";
+        case TrinketType::FIBONACCI:
+            return "Fibonacci";
         default:
             return "None";
         }
@@ -111,6 +114,8 @@ namespace
         case TrinketType::ECHO:
             return &bn::sprite_items::hud_trinket_echo;
         case TrinketType::LUCKY_SEVENS:
+            return &bn::sprite_items::hud_lucky7;
+        case TrinketType::FIBONACCI:
             return &bn::sprite_items::hud_lucky7;
         default:
             return nullptr;
@@ -415,7 +420,7 @@ MenuSceneResult run_trinket_pick_scene(bn::array<TrinketType, 3>& out_trinkets)
     wait_for_keypad_clear();
 
     // Default loadout matches classic battles.
-    bool enabled[TRINKET_CATALOG_COUNT] = {true, true, false, false, true};
+    bool enabled[TRINKET_CATALOG_COUNT] = {true, true, false, false, true, false};
 
     bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
     // Separate generator so SceneText redraws never disturb the cursor glyph.

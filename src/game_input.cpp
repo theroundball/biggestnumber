@@ -97,7 +97,7 @@ void GameContext::tick_combo()
     if(state.combo_cinematic.frame == COMBO_GATHER_FRAMES)
     {
         combo_apply_score_bonus(state);
-        draw_round_score();
+        draw_total_score();
         // Slide back now so the cards land on a score that is on screen again.
         begin_combo_focus_return();
     }
@@ -454,16 +454,9 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
             card_has_cycle(state.hand[selected_card].type))
     {
         removal_cycle_draw = true;
-
-        if(card_has_discard_effect(state.hand[selected_card].type))
-        {
-            begin_discard_presentation(selected_card);
-        }
-        else
-        {
-            capture_removal_start();
-            begin_direct_removal(removal_start_x, removal_start_y, RemovalStyle::TO_GRAVEYARD, true);
-        }
+        removal_cycle_exile = true;
+        capture_removal_start();
+        begin_direct_removal(removal_start_x, removal_start_y, RemovalStyle::EXILE_DISSIPATE, false);
     }
     else if(!game_over && !scrolling && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() && slot_count &&
@@ -620,7 +613,11 @@ void GameContext::handle_input_graveyard_target(int current_direction, bool dire
         const CardRef card = state.graveyard[state.selection.cursor];
         const CardType type = card.type;
 
-        if(state.selection.type == PendingActionType::EXILE_GRAVEYARD_MULTIPLY_BY_COUNT)
+        if(state.selection.type == PendingActionType::EXILE_FROM_GRAVEYARD)
+        {
+            begin_graveyard_card_fx(GraveyardExilePickKind::EXILE_ONE);
+        }
+        else if(state.selection.type == PendingActionType::EXILE_GRAVEYARD_MULTIPLY_BY_COUNT)
         {
             begin_graveyard_card_fx(GraveyardExilePickKind::MULTIPLY_BY_COUNT);
         }

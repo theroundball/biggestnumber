@@ -117,6 +117,51 @@ namespace
         return value;
     }
 
+    bool has_non_decreasing_four_move(const bn::string<12>& source_digits, int current_total)
+    {
+        for(int source = 0; source < source_digits.size(); ++source)
+        {
+            if(source_digits[source] != '4')
+            {
+                continue;
+            }
+
+            for(int destination = 0; destination < source_digits.size(); ++destination)
+            {
+                if(destination == source)
+                {
+                    continue;
+                }
+
+                bn::string<12> digits = source_digits;
+
+                if(source < destination)
+                {
+                    for(int index = source; index < destination; ++index)
+                    {
+                        digits[index] = digits[index + 1];
+                    }
+                }
+                else
+                {
+                    for(int index = source; index > destination; --index)
+                    {
+                        digits[index] = digits[index - 1];
+                    }
+                }
+
+                digits[destination] = '4';
+
+                if(parse_score_digits(digits) >= current_total)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     bn::sprite_ptr* sprite_for_slot(GameContext& ctx, const ScoreSwapDigitSlot& slot)
     {
         if(slot.field == SwapScoreField::ROUND)
@@ -426,6 +471,11 @@ namespace
         int new_total = 0;
 
         if(!compute_moved_four_total(ctx, source_slot, destination_slot, new_total))
+        {
+            return false;
+        }
+
+        if(new_total < ctx.state.total_score)
         {
             return false;
         }
@@ -931,7 +981,8 @@ namespace
                 }
             }
 
-            if(!found_four || total_digits.size() < 2)
+            if(!found_four || total_digits.size() < 2 ||
+               !has_non_decreasing_four_move(total_digits, ctx.state.total_score))
             {
                 return false;
             }

@@ -157,6 +157,17 @@ namespace
         return PendingStartResult::ENTERED_MODE;
     }
 
+    PendingStartResult start_exile_from_graveyard(GameContext& ctx, const PendingAction& action)
+    {
+        if(ctx.state.graveyard.empty())
+        {
+            return PendingStartResult::FIZZLE;
+        }
+
+        begin_graveyard_target(ctx, action, 1, 0);
+        return PendingStartResult::ENTERED_MODE;
+    }
+
     // Clover — exile exactly N, then ×N. Mode: GRAVEYARD_TARGET.
     PendingStartResult start_exile_from_graveyard_then_multiply(GameContext& ctx, const PendingAction& action)
     {
@@ -340,10 +351,7 @@ namespace
             return PendingStartResult::ENTERED_MODE;
         }
 
-        // No movable 4: The Fourth falls back to +4.
-        ctx.state.add_from_card(4);
-        ctx.draw_round_score();
-        return PendingStartResult::INSTANT_DONE;
+        return PendingStartResult::FIZZLE;
     }
 
     PendingStartResult start_replace_total_digit_with_five(GameContext& ctx, const PendingAction&)
@@ -376,6 +384,15 @@ namespace
         return PendingStartResult::INSTANT_DONE;
     }
 
+    PendingStartResult start_effect_deck_draw(GameContext& ctx, const PendingAction& action)
+    {
+        ctx.state.effect_draw_remaining = action.count;
+        ctx.state.effect_draw_miracle_first = action.hand_index != 0;
+        ctx.state.effect_draw_miracle_chaining = false;
+        ctx.advance_effect_draw();
+        return PendingStartResult::INSTANT_DONE;
+    }
+
     PendingStartResult start_pending_action(GameContext& ctx, const PendingAction& action)
     {
         switch(action.type)
@@ -384,6 +401,10 @@ namespace
             return start_combo_cinematic(ctx, action);
         case PendingActionType::MIRACLE_AUTO_PLAY:
             return start_miracle_auto_play(ctx, action);
+        case PendingActionType::EFFECT_DECK_DRAW:
+            return start_effect_deck_draw(ctx, action);
+        case PendingActionType::EXILE_FROM_GRAVEYARD:
+            return start_exile_from_graveyard(ctx, action);
         case PendingActionType::EXILE_GRAVEYARD_MULTIPLY_BY_COUNT:
             return start_exile_graveyard_multiply_by_count(ctx, action);
         case PendingActionType::EXILE_FROM_GRAVEYARD_THEN_MULTIPLY:
@@ -445,13 +466,7 @@ namespace
         // not ready, stay in NORMAL and do not end the round on an empty hand.
         if(ctx.state.echo_pending_replay)
         {
-            if(ctx.state.hand.empty())
-            {
-                ctx.state.echo_pending_replay = false;
-                ctx.state.echo_replay_card = CardType::COUNT;
-                ctx.echo_play_badge_active = false;
-            }
-            else if(ctx.try_drain_echo_replay())
+            if(ctx.try_drain_echo_replay())
             {
                 if(!ctx.state.pending_actions.empty())
                 {

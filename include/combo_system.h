@@ -12,7 +12,7 @@ struct ComboDef
 {
     const CardType* sequence;
     int length;
-    int total_score_bonus;
+    int total_score_multiplier;
     uint8_t id;
     bool order_independent = false;
 };

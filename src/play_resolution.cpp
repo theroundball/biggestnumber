@@ -152,7 +152,7 @@ PlayResolutionResult resolve_played_card(GameState& state, CardRef card,
 
     PlayResolutionResult result;
     result.dest = route_played_card(state, card.type, context.source, swivel_follow);
-    result.increment_cards_played = context.source != PlaySource::ECHO;
+    result.increment_cards_played = true;
 
     if(should_apply_play_zone(result.dest, context.source, context.apply_destination))
     {

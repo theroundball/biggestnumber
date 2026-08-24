@@ -3,6 +3,9 @@
 #include "card.h"
 #include "game_events.h"
 #include "game_state.h"
+#include "score_pop_system.h"
+#include "score_count_system.h"
+#include "trinket_system.h"
 
 #include "bn_span.h"
 
@@ -27,9 +30,9 @@ namespace
     };
 
     constexpr ComboDef kCombos[] = {
-        { kRpsShootSequence, 4, 100, 1, true },
-        { kPbJellySequence, 2, 25, 2, true },
-        { kStrawSticksBricksSequence, 3, 50, 3, true },
+        { kRpsShootSequence, 4, 4, 1, true },
+        { kPbJellySequence, 2, 2, 2, true },
+        { kStrawSticksBricksSequence, 3, 3, 3, true },
     };
 
     bool window_matches(bn::span<const CardRef> cards, int start, const ComboDef& combo)
@@ -526,7 +529,13 @@ void combo_apply_score_bonus(GameState& state)
         return;
     }
 
-    state.add_from_card(combo->total_score_bonus);
+    const int before = state.total_score;
+    const long long multiplied =
+        static_cast<long long>(before) * combo->total_score_multiplier;
+    state.total_score = multiplied > 2147483647 ? 2147483647 : int(multiplied);
+    score_pop_queue(state, combo->total_score_multiplier, false, TrinketScoreField::TOTAL, true);
+    score_count_queue(state, TrinketScoreField::TOTAL, before, state.total_score);
+    trinket_queue_score_check(state, TrinketScoreField::TOTAL, before, state.total_score);
 }
 
 void combo_remove_resolved_cards(GameState& state, int& selected_card)

@@ -36,4 +36,11 @@ void exile_push(GameState& state, CardType type, bool from_graveyard = false);
 void necromancy_shuffle_graveyard_to_deck(GameState& state);
 void game_events_dispatch(GameState& state, GameEvent event);
 
+void battle_stats_reset(GameState& state);
+void battle_stat_record_exile(GameState& state);
+void battle_stat_record_draw_to_hand(GameState& state);
+void battle_stat_record_keyword_discard(GameState& state);
+void battle_stat_record_cycle(GameState& state);
+void battle_stat_record_flashback(GameState& state);
+
 #endif

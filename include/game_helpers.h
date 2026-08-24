@@ -33,6 +33,7 @@ bool playable_slot_is_flashback(const GameState& state, int visual_index);
 int playable_slot_hand_index(const GameState& state, int visual_index);
 int playable_slot_graveyard_index(const GameState& state, int visual_index);
 CardRef playable_slot_card(const GameState& state, int visual_index);
+void queue_effect_draw(GameState& state, int count, bool miracle_on_first);
 bool try_draw_one_to_hand(GameState& state);
 void maybe_draw_if_solo(GameState& state, CardType type);
 void play_miracle_bonus(GameState& state, int amount);

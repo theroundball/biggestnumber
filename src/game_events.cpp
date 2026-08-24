@@ -11,6 +11,12 @@ namespace
     void check_birds_of_a_feather(GameState& state)
     {
         const int threshold = state.birds_return_threshold;
+
+        if(threshold > 5)
+        {
+            return;
+        }
+
         int return_start = -1;
         int return_end = -1;
 
@@ -47,25 +53,17 @@ namespace
             return;
         }
 
-        const int return_count = return_end - return_start;
-
-        // GY_CHANGED fires before the played/discarded Bird is erased from hand.
-        // If that temporary occupancy leaves too little room, wait for the following
-        // HAND_CHANGED event instead of returning only part of the run.
-        if(state.hand.size() + return_count > 60)
-        {
-            return;
-        }
+        state.deck.compact();
 
         for(int index = return_end - 1; index >= return_start; --index)
         {
-            state.hand.push_back(state.graveyard[index]);
+            state.deck.insert_top(state.graveyard[index]);
             state.graveyard.erase(state.graveyard.begin() + index);
         }
 
-        ++state.birds_return_threshold;
+        state.deck.apply_gravity(state.instance_pool);
+        state.birds_return_threshold = threshold == 5 ? 6 : threshold + 1;
 
-        combo_check_zone(state, ComboZone::HAND);
         combo_check_zone(state, ComboZone::GRAVEYARD);
     }
 
@@ -165,6 +163,7 @@ void hand_remove_at_to_graveyard(GameState& state, int index, int& selected_card
     const CardRef removed = state.hand[index];
     graveyard_push(state, removed);
     state.hand.erase(state.hand.begin() + index);
+    battle_stat_record_keyword_discard(state);
     trigger_discard_effect_if_any(state, removed.type);
 
     if(state.hand.empty())
@@ -297,6 +296,8 @@ void exile_push(GameState& state, CardRef card, bool from_graveyard)
 
     state.exile.push_back(card);
 
+    battle_stat_record_exile(state);
+
     if(from_graveyard)
     {
         const CardData& data = card_data(card.type);
@@ -394,6 +395,36 @@ void necromancy_shuffle_graveyard_to_deck(GameState& state)
     }
 }
 
+
+void battle_stats_reset(GameState& state)
+{
+    state.battle_stats = BattleStats{};
+}
+
+void battle_stat_record_exile(GameState& state)
+{
+    ++state.battle_stats.cards_exiled;
+}
+
+void battle_stat_record_draw_to_hand(GameState& state)
+{
+    ++state.battle_stats.cards_drawn_this_round;
+}
+
+void battle_stat_record_keyword_discard(GameState& state)
+{
+    ++state.battle_stats.keyword_discards;
+}
+
+void battle_stat_record_cycle(GameState& state)
+{
+    ++state.battle_stats.cycles;
+}
+
+void battle_stat_record_flashback(GameState& state)
+{
+    ++state.battle_stats.flashbacks;
+}
 
 void game_events_dispatch(GameState& state, GameEvent event)
 {

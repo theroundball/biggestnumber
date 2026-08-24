@@ -41,6 +41,7 @@ private:
         TRINKET_ECHO,
         TRINKET_GET_WITH_THE_TIMES,
         TRINKET_PRIME_TIME,
+        TRINKET_FIBONACCI,
         TURTLE_TIMER,
     };
 

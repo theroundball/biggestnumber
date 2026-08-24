@@ -67,6 +67,7 @@ enum class PlayPresentOrigin : uint8_t
 enum class GraveyardExilePickKind : uint8_t
 {
     NONE,
+    EXILE_ONE,
     MULTIPLY_BY_COUNT,
     FROM_GRAVEYARD_THEN_MULTIPLY,
     TO_DECK_TOP,

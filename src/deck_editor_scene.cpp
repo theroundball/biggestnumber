@@ -80,6 +80,8 @@ namespace
             return "Get w/ Times";
         case TrinketType::PRIME_TIME:
             return "Prime Time";
+        case TrinketType::FIBONACCI:
+            return "Fibonacci";
         default:
             return "none";
         }

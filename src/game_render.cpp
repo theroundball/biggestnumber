@@ -426,7 +426,8 @@ void GameContext::render_graveyard_selection_frame(int main_x)
                 const int marker_y = selected_card_top + 32;
 
                 if(mode == GameMode::GRAVEYARD_TARGET &&
-                   (state.selection.type == PendingActionType::EXILE_FROM_GRAVEYARD_THEN_MULTIPLY ||
+                   (state.selection.type == PendingActionType::EXILE_FROM_GRAVEYARD ||
+                    state.selection.type == PendingActionType::EXILE_FROM_GRAVEYARD_THEN_MULTIPLY ||
                     state.selection.type == PendingActionType::EXILE_GRAVEYARD_MULTIPLY_BY_COUNT))
                 {
                     x_marker.set_position(marker_x, marker_y);
@@ -455,6 +456,7 @@ void GameContext::render_graveyard_selection_frame(int main_x)
             }
 
             if(mode == GameMode::GRAVEYARD_TARGET &&
+               state.selection.type != PendingActionType::EXILE_FROM_GRAVEYARD &&
                state.selection.type != PendingActionType::EXILE_FROM_GRAVEYARD_THEN_MULTIPLY &&
                state.selection.type != PendingActionType::EXILE_GRAVEYARD_MULTIPLY_BY_COUNT)
             {
@@ -690,7 +692,10 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
 
                 if(visual_index == selected_card && !(removing_card && removal_center_beat))
                 {
-                    if(echo_play_badge_active && removing_card)
+                    const bool echo_preview = !is_flashback && state.echo_first_play_active() &&
+                                              card_has_play_effect(state, slot_card);
+
+                    if(echo_preview || (echo_play_badge_active && removing_card))
                     {
                         echo_badge.set_kind(CardEffectBadge::Kind::ECHO);
                         echo_badge.set_position_above_card(card_x, card_y);

@@ -31,6 +31,7 @@ enum class TrinketType : uint8_t
     ECHO,
     GET_WITH_THE_TIMES,
     PRIME_TIME,
+    FIBONACCI,
     COUNT,
 };
 
@@ -90,6 +91,7 @@ struct ScoreCountRequest
 enum class PendingActionType
 {
     NONE,
+    EXILE_FROM_GRAVEYARD,
     EXILE_FROM_GRAVEYARD_THEN_MULTIPLY,
     EXILE_GRAVEYARD_MULTIPLY_BY_COUNT,
     DISCARD_FROM_HAND_THEN_MULTIPLY,
@@ -104,6 +106,7 @@ enum class PendingActionType
     DECK_SEARCH,
     PLAY_DECK_TOP,
     MIRACLE_AUTO_PLAY,
+    EFFECT_DECK_DRAW,
     COMBO_CINEMATIC,
     SWAP_TOTAL_SCORE_DIGITS,
     MOVE_FOUR_TOTAL_DIGIT,
@@ -125,6 +128,15 @@ struct PendingAction
 struct PendingHandDraw
 {
     CardRef card;
+};
+
+struct BattleStats
+{
+    int cards_exiled = 0;
+    int cards_drawn_this_round = 0;
+    int keyword_discards = 0;
+    int cycles = 0;
+    int flashbacks = 0;
 };
 
 struct SelectionSession
@@ -154,6 +166,8 @@ struct GameState
     int round_start_extra_draws = 0;
 
     RoundModifier future_mods[3] = {};
+    uint8_t keep_going_returns[3] = {};
+    int keep_going_relocation_triggers = 0;
     int next_mod_index = 0;
 
     bn::vector<CardRef, 60> hand;
@@ -171,7 +185,7 @@ struct GameState
     // Armed on first play-effect while Echo is ready; drained by idle gate
     // (try_drain_echo_replay) — not via second-pass removal or card-specific flags.
     bool echo_pending_replay = false;
-    CardType echo_replay_card = CardType::COUNT;
+    CardRef echo_replay_card{};
     PlaySource echo_replay_scoring_source = PlaySource::HAND;
     int birds_return_threshold = 2;
     bool pending_double_adds = false;
@@ -179,6 +193,12 @@ struct GameState
     bool first_deck_draw_this_round = true;
     int prime_time_total_procs = 0;
     int prime_time_round_procs = 0;
+    int fibonacci_previous = 0;
+    int fibonacci_current = 1;
+    BattleStats battle_stats;
+    int effect_draw_remaining = 0;
+    bool effect_draw_miracle_first = false;
+    bool effect_draw_miracle_chaining = false;
 
     bn::array<TrinketType, 3> trinkets = {
         TrinketType::MOREL,
@@ -232,6 +252,9 @@ struct GameState
     RoundModifier& mod_next() { return future_mods[next_mod_index]; }
     RoundModifier& mod_after_next() { return future_mods[(next_mod_index + 1) % 3]; }
     RoundModifier& mod_third() { return future_mods[(next_mod_index + 2) % 3]; }
+    void schedule_keep_going();
+    void resolve_keep_going_round_start();
+    void finish_keep_going_round_start();
 
     void commit_round()
     {
@@ -271,8 +294,11 @@ struct GameState
         }
         round_start_extra_draws = seed.draw_at_start;
         cards_played_this_round = 0;
+        battle_stats.cards_drawn_this_round = 0;
         prime_time_round_procs = 0;
         echo_ready = has_trinket(TrinketType::ECHO);
+        echo_pending_replay = false;
+        echo_replay_card = CardRef{};
         first_deck_draw_this_round = true;
     }
 };

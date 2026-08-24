@@ -149,6 +149,9 @@ const bn::sprite_item* PersistentHud::HudIcon::sprite_item_for(IconKind kind)
     case IconKind::TRINKET_LUCKY_SEVENS:
         return &bn::sprite_items::hud_lucky7;
 
+    case IconKind::TRINKET_FIBONACCI:
+        return &bn::sprite_items::hud_lucky7;
+
     case IconKind::TRINKET_PRIME_TIME:
         return nullptr;
 
@@ -184,6 +187,9 @@ int PersistentHud::HudIcon::solid_color_index(IconKind kind)
 
     case IconKind::TRINKET_PRIME_TIME:
         return COLOR_TRINKET_PRIME_TIME;
+
+    case IconKind::TRINKET_FIBONACCI:
+        return COLOR_TRINKET_EQUIPPED;
 
     case IconKind::TURTLE_TIMER:
         return COLOR_TURTLE;
@@ -611,6 +617,10 @@ void PersistentHud::update(const GameState& state)
 
         case TrinketType::PRIME_TIME:
             kind = IconKind::TRINKET_PRIME_TIME;
+            break;
+
+        case TrinketType::FIBONACCI:
+            kind = IconKind::TRINKET_FIBONACCI;
             break;
 
         default:

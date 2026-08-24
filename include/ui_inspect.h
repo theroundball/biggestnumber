@@ -16,10 +16,10 @@ namespace inspect_layout
     // Card on the left, description column on the right.
     constexpr int CARD_X = -100;
     constexpr int CARD_Y = -28;
-    constexpr int TEXT_X = -44;
+    constexpr int TEXT_X = -34;
     constexpr int TITLE_Y = -48;
     constexpr int BODY_LINE_HEIGHT = 11;
-    constexpr int BODY_MAX_CHARS = 20;
+    constexpr int BODY_MAX_CHARS = 19;
 }
 
 const char* upgrade_inspect_title(PrizeOfferKind kind);

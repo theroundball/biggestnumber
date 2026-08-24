@@ -142,6 +142,16 @@ bool card_numeric_play_override(CardType type)
     case CardType::CLOVER:
     case CardType::BIG_KUROSAWA_BURGER:
     case CardType::RAGS_TO_RICHES:
+    case CardType::STAT_CYCLES_ADD:
+    case CardType::STAT_CYCLES_MUL:
+    case CardType::STAT_FLASH_ADD:
+    case CardType::STAT_FLASH_MUL:
+    case CardType::STAT_DRAWN_ADD:
+    case CardType::STAT_DRAWN_MUL:
+    case CardType::STAT_EXILE_ADD:
+    case CardType::STAT_EXILE_MUL:
+    case CardType::STAT_DISCARD_ADD:
+    case CardType::STAT_DISCARD_MUL:
         return true;
     default:
         return false;
@@ -322,14 +332,27 @@ CardRef playable_slot_card(const GameState& state, int visual_index)
 
 bool try_draw_one_to_hand(GameState& state)
 {
-    CardRef drawn;
-
-    if(!state.deck.draw(drawn))
+    if(state.deck.remaining() == 0)
     {
         return false;
     }
 
-    return hand_add_card(state, drawn, true);
+    queue_effect_draw(state, 1, true);
+    return true;
+}
+
+void queue_effect_draw(GameState& state, int count, bool miracle_on_first)
+{
+    if(count <= 0)
+    {
+        return;
+    }
+
+    PendingAction action;
+    action.type = PendingActionType::EFFECT_DECK_DRAW;
+    action.count = count;
+    action.hand_index = miracle_on_first ? 1 : 0;
+    state.pending_actions.push_back(action);
 }
 
 void maybe_draw_if_solo(GameState& state, CardType type)

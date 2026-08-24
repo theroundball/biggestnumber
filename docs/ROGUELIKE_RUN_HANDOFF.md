@@ -303,14 +303,14 @@ After every **5** completed battles (while the run continues): roll **2** random
 | 30  | `pilot` / PILOT                                 | Pilot                 | Scry 3, play 1                        | U     | [ ]    | [ ]      | [ ]  | 1                  |
 | 31  | `turtle_mode` / TURTLE_MODE                     | Turtle Mode           | Delay commit 3 rounds                 | R     | [ ]    | [ ]      | [ ]  | 1                  |
 | 32  | `time_is_too_expensive` / TIME_IS_TOO_EXPENSIVE | Time is Too Expensive | +current round #                      | U     | [ ]    | [ ]      | [ ]  | 2                  |
-| 33  | `birds_of_a_feather` / BIRDS_OF_A_FEATHER       | Birds of a Feather    | +5; GY birds return                   | U     | [ ]    | [ ]      | [ ]  | 5                  |
+| 33  | `birds_of_a_feather` / BIRDS_OF_A_FEATHER       | Birds of a Feather    | +5; GY birds return to deck top       | U     | [ ]    | [ ]      | [ ]  | 5                  |
 | 34  | `necromancy` / NECROMANCY                       | Necromancy            | Exile self; shuffle GY to deck bottom | R     | [ ]    | [ ]      | [ ]  | 1                  |
 | 35  | `miracle` / MIRACLE                             | Miracle               | +10 top draw/peek else +3             | U     | [ ]    | [ ]      | [ ]  | 5                  |
 | 36  | `rags_to_riches` / RAGS_TO_RICHES               | Rags to Riches        | Exile GY loop → × count               | R     | [ ]    | [ ]      | [ ]  | 1                  |
 | 37  | `one_more_time` / ONE_MORE_TIME                 | One More Time         | +1; draw if score has 1               | C     | [ ]    | [ ]      | [ ]  | 3                  |
-| 39  | `jacks` / JACKS                                 | Jacks                 | Discard; GY → deck top                | U     | [ ]    | [ ]      | [ ]  | 2                  |
-| 40  | `fishing_pole` / FISHING_POLE                     | Fishing Pole           | Discard; GY → hand                    | U     | [ ]    | [ ]      | [ ]  | 2                  |
-| 41  | `cups` / CUPS                                   | Cups                  | Draw, discard, GY → deck top          | U     | [ ]    | [ ]      | [ ]  | 2                  |
+| 39  | `jacks` / JACKS                                 | Jacks                 | Discard; GY → hand                    | R     | [ ]    | [ ]      | [ ]  | 1                  |
+| 40  | `fishing_pole` / FISHING_POLE                   | Fishing Pole          | Discard; GY → deck top                | R     | [ ]    | [ ]      | [ ]  | 1                  |
+| 41  | `cups` / CUPS                                   | Cups                  | Draw, discard, exile from GY          | R     | [ ]    | [ ]      | [ ]  | 1                  |
 | 42  | `swap` / SWAP                                   | Swap                  | Swap two total-score digits           | R     | [ ]    | [ ]      | [ ]  | 1                  |
 | 43  | `catnip` / CATNIP                               | Catnip                | +1; draw 1                            | C     | [ ]    | [ ]      | [ ]  | 3                  |
 | 44  | `journal` / JOURNAL                             | Journal               | +cards played this round              | U     | [ ]    | [ ]      | [ ]  | 5                  |

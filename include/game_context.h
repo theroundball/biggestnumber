@@ -54,6 +54,7 @@ public:
     bool removal_is_miracle_bonus = false;
     bool removal_swivel_follow = false;
     bool removal_cycle_draw = false;
+    bool removal_cycle_exile = false;
     bool removal_mill_without_play = false;
     bool mill_reveal_flex_continue = false;
     bool mill_reveal_draw_on_hit = false;
@@ -107,6 +108,10 @@ public:
     bn::array<GameMarker, game_layout::VISIBLE_CARD_COUNT> grave_exclude_markers;
     bn::array<Card, game_layout::HAND_DISPLAY_POOL> hand_display;
     Card removal_fx_card;
+    Card echo_ghost_card;
+    bool echo_ghost_active = false;
+    int echo_ghost_x = 0;
+    int echo_ghost_y = 0;
     bool graveyard_card_fx_active = false;
     int graveyard_card_fx_frame = 0;
     int graveyard_card_fx_start_x = 0;
@@ -283,6 +288,8 @@ public:
     void finish_empty_hand_round();
     void tick_round_end_pending();
     void arm_echo_replay(CardRef played);
+    void advance_effect_draw();
+    void continue_effect_draw_batch();
     // Re-scan hand/GY and start a pending combo if any. True = do not end the round yet.
     bool block_round_end_for_combo();
 

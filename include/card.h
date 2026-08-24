@@ -50,6 +50,7 @@ public:
     void set_visible(bool visible);
     void set_blending_enabled(bool blending_enabled);
     void set_visual(bn::fixed scale, bn::fixed rotation_degrees);
+    void set_inspect_visual(bn::fixed scale);
     void clear_visual();
     void set_draw_on_top(bool on_top);
 
@@ -72,6 +73,7 @@ private:
     bn::fixed _visual_scale = 1;
     bn::fixed _visual_rotation = 0;
     bool _visual_active = false;
+    bool _visual_overlays = false;
     bool _visible = false;
     bn::optional<bn::sprite_affine_mat_ptr> _affine_mat;
     bn::sprite_ptr _body;

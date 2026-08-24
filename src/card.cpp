@@ -10,6 +10,7 @@
 #include "bn_sprite_palette_ptr.h"
 #include "card_data.h"
 #include "card_instance.h"
+#include "game_events.h"
 #include "game_types.h"
 #include "card_meta.h"
 #include "game_state.h"
@@ -140,6 +141,11 @@ void apply_card_play(GameState& state, CardRef card)
 
 void apply_card_play(GameState& state, CardRef card, PlaySource source)
 {
+    if(source == PlaySource::FLASHBACK)
+    {
+        battle_stat_record_flashback(state);
+    }
+
     const CardData& d = card_data(card.type);
     const bool consume_double = state.pending_double_adds;
     state.applying_double_adds = consume_double;
@@ -284,7 +290,7 @@ void Card::reposition_parts()
 
 void Card::sync_upgrade_pip_visibility()
 {
-    const bool show = _visible && !_visual_active;
+    const bool show = _visible && (!_visual_active || _visual_overlays);
 
     for(bn::sprite_ptr& sprite : _upgrade_pips)
     {
@@ -318,7 +324,7 @@ void Card::reposition_upgrade_pips()
 
 void Card::sync_amount_overlay_visibility()
 {
-    const bool show = _visible && !_visual_active;
+    const bool show = _visible && (!_visual_active || _visual_overlays);
 
     for(bn::sprite_ptr& sprite : _amount_overlay)
     {
@@ -459,14 +465,8 @@ void Card::set_visible(bool visible)
 
     if(!visible && _visual_active)
     {
-        _visual_active = false;
-        _visual_scale = 1;
-        _visual_rotation = 0;
-        _affine_mat.reset();
-        _body.remove_affine_mat();
-        _accent_top.remove_affine_mat();
-        _accent_bottom.remove_affine_mat();
-        reposition_parts();
+        clear_visual();
+        return;
     }
 
     sync_part_visibility();
@@ -528,6 +528,12 @@ void Card::set_visual(bn::fixed scale, bn::fixed rotation_degrees)
     apply_visual_transform();
 }
 
+void Card::set_inspect_visual(bn::fixed scale)
+{
+    _visual_overlays = true;
+    set_visual(scale, 0);
+}
+
 void Card::apply_visual_transform()
 {
     if(!_visual_active)
@@ -562,6 +568,29 @@ void Card::apply_visual_transform()
         place_scaled(_body, body_ox, 0);
         place_scaled(_accent_top, accent_ox, accent_top_oy);
         place_scaled(_accent_bottom, accent_ox, accent_bottom_oy);
+
+        if(_visual_overlays)
+        {
+            auto place_overlay = [&](bn::sprite_ptr& sprite)
+            {
+                const bn::fixed offset_x = sprite.x() - pivot_x;
+                const bn::fixed offset_y = sprite.y() - pivot_y;
+                sprite.set_position(pivot_x + offset_x * _visual_scale,
+                                    pivot_y + offset_y * _visual_scale);
+                sprite.set_affine_mat(*_affine_mat);
+            };
+
+            for(bn::sprite_ptr& sprite : _upgrade_pips)
+            {
+                place_overlay(sprite);
+            }
+
+            for(bn::sprite_ptr& sprite : _amount_overlay)
+            {
+                place_overlay(sprite);
+            }
+        }
+
         sync_part_visibility();
         return;
     }
@@ -599,7 +628,35 @@ void Card::apply_visual_transform()
 
 void Card::clear_visual()
 {
+    const bn::fixed previous_scale = _visual_scale;
+    const bool restore_overlays = _visual_active && _visual_overlays &&
+                                  _visual_rotation == 0 && previous_scale != 0;
+    const bn::fixed pivot_x = _x + (BODY_W + ACCENT_W) / 2;
+    const bn::fixed pivot_y = _y + BODY_H / 2;
+
+    auto restore_overlay = [&](bn::sprite_ptr& sprite)
+    {
+        if(restore_overlays)
+        {
+            sprite.set_position(pivot_x + (sprite.x() - pivot_x) / previous_scale,
+                                pivot_y + (sprite.y() - pivot_y) / previous_scale);
+        }
+
+        sprite.remove_affine_mat();
+    };
+
+    for(bn::sprite_ptr& sprite : _upgrade_pips)
+    {
+        restore_overlay(sprite);
+    }
+
+    for(bn::sprite_ptr& sprite : _amount_overlay)
+    {
+        restore_overlay(sprite);
+    }
+
     _visual_active = false;
+    _visual_overlays = false;
     _visual_scale = 1;
     _visual_rotation = 0;
     _affine_mat.reset();

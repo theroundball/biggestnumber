@@ -90,9 +90,9 @@ namespace
         {CardRarity::RARE, 1},     // NECROMANCY
         {CardRarity::UNCOMMON, 5}, // MIRACLE
         {CardRarity::RARE, 1},     // RAGS_TO_RICHES
-        {CardRarity::UNCOMMON, 2}, // JACKS
-        {CardRarity::UNCOMMON, 2}, // FISHING_POLE
-        {CardRarity::UNCOMMON, 2}, // CUPS
+        {CardRarity::RARE, 1},     // JACKS
+        {CardRarity::RARE, 1},     // FISHING_POLE
+        {CardRarity::RARE, 1},     // CUPS
         {CardRarity::RARE, 1},     // SWAP
         {CardRarity::COMMON, 3},   // CATNIP
         {CardRarity::UNCOMMON, 5}, // JOURNAL
@@ -117,6 +117,17 @@ namespace
         {CardRarity::UNCOMMON, 3}, // SOLO
         {CardRarity::RARE, 1},     // SPECULATIVE
         {CardRarity::RARE, 1},     // FLEX
+        {CardRarity::UNCOMMON, 3}, // KEEP_GOING
+        {CardRarity::UNCOMMON, 5}, // STAT_CYCLES_ADD
+        {CardRarity::UNCOMMON, 5}, // STAT_CYCLES_MUL
+        {CardRarity::UNCOMMON, 5}, // STAT_FLASH_ADD
+        {CardRarity::UNCOMMON, 5}, // STAT_FLASH_MUL
+        {CardRarity::UNCOMMON, 5}, // STAT_DRAWN_ADD
+        {CardRarity::UNCOMMON, 5}, // STAT_DRAWN_MUL
+        {CardRarity::UNCOMMON, 5}, // STAT_EXILE_ADD
+        {CardRarity::UNCOMMON, 5}, // STAT_EXILE_MUL
+        {CardRarity::UNCOMMON, 5}, // STAT_DISCARD_ADD
+        {CardRarity::UNCOMMON, 5}, // STAT_DISCARD_MUL
     };
 
     static_assert(sizeof(META_TABLE) / sizeof(META_TABLE[0]) == int(CardType::COUNT),

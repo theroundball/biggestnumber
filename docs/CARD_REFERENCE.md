@@ -20,17 +20,17 @@ Legend:
 | Bike | +9 | On play: +9 immediate. | yes |
 | Clover | Exile 3 cards from your graveyard, multiply round score by 3. Nothing happens when played if you don't have enough cards in your graveyard. | Enters GY before `on_play`. If GY size ≥ 3 (including Clover), queues graveyard exile picker (exactly 3) then ×3. If GY < 3, fizzles. Can exile Clover from the picker. | yes |
 | Big Kurosawa Burger | Discard a hand card to multiply this round by 4. Nothing happens when played if this is your only card. | Enters GY before `on_play`. If hand still has a card to discard, queues discard-from-hand then ×4. If hand empty after routing, fizzles. Discard target shows red **X**. | yes |
-| Rock | Part of the Rock-Paper-Scissors-Shoot combo. | No own play effect. Combo with Paper + Scissors + Shoot (any order in window): +100 total score, cinematic removes combo cards from hand/GY/reveal. | yes |
+| Rock | Part of the Rock-Paper-Scissors-Shoot combo. | No own play effect. Combo with Paper + Scissors + Shoot (any order in window): ×4 total score, cinematic removes combo cards from hand/GY/reveal. | yes |
 | Paper | Part of the Rock-Paper-Scissors-Shoot combo. | Same as Rock (combo piece). | yes |
 | Scissors | Part of the Rock-Paper-Scissors-Shoot combo. | Same as Rock (combo piece). | yes |
-| Shoot | Complete Rock-Paper-Scissors-Shoot for +100. | Same as Rock (combo piece). | yes |
-| Peanut Butter | Part of the Peanut Butter and Jelly combo. | No own play effect. Combo with Jelly: +25. | yes |
-| Jelly | Complete Peanut Butter and Jelly for +25. | Combo with Peanut Butter: +25. | yes |
-| Straw | Part of the Straw, Sticks, and Bricks combo. | Combo piece for Straw + Sticks + Bricks: +50. | yes |
+| Shoot | Complete Rock-Paper-Scissors-Shoot to multiply total score by 4. | Same as Rock (combo piece). | yes |
+| Peanut Butter | Part of the Peanut Butter and Jelly combo. | No own play effect. Combo with Jelly: ×2 total score. | yes |
+| Jelly | Complete Peanut Butter and Jelly to multiply total score by 2. | Combo with Peanut Butter: ×2 total score. | yes |
+| Straw | Part of the Straw, Sticks, and Bricks combo. | Combo piece for Straw + Sticks + Bricks: ×3 total score. | yes |
 | Sticks | Part of the Straw, Sticks, and Bricks combo. | Combo piece. | yes |
-| Bricks | Complete Straw, Sticks, and Bricks for +50. | Combo piece. | yes |
+| Bricks | Complete Straw, Sticks, and Bricks to multiply total score by 3. | Combo piece. | yes |
 | Lifeline | Shuffle your graveyard into deck, then exile insert-number-here (1/4 of the starting deck size) cards from your deck. | On play: queues `RECLAIM_GRAVEYARD` (runs after Lifeline hits GY). Shuffles entire GY into deck, shuffles deck, exiles undrawn bottom quarter of starting deck size. | yes |
-| Snail Mail | Draw 1 an extra card next round, draw an extra card two rounds from now, add 5 to your end of round multiplier three rounds from now. | On play: no immediate/on_play callback. Sets future modifiers — next round +1 draw at start, following round +1 draw, third +×5 round multiplier (via `RoundModifier` fields). | yes |
+| Snail Mail | +5 next round, +5 two rounds from now, and ×5 three rounds from now. | Seeds +5, +5, and an end-of-round ×5 into the next three future modifier slots. | yes |
 | Wishes | Draw 3 cards. | On play: draws up to 3 cards from deck (`from_deck_draw=true`; deck→hand flight animation per card). | yes |
 | Busted | +3 when played. +10 when discarded | On play: +3 immediate. On discard/GY entry (`on_discard`): +10 to round. | yes |
 | Swivel | The next card played is put on top of your deck instead of in your graveyard. | On play: sets `swivel_waiting=true`. Next played card routes to deck top (animation) instead of GY unless Necromancy/exile rules override. | yes |
@@ -40,13 +40,13 @@ Legend:
 | Pilot | Look at the top 3 cards of your deck, reorder them, and choose and play one. Reorder, play 1. | Same as Librarian but peek count = min(3, deck size). | yes |
 | Turtle Mode | Delay round score evaluation for 3 rounds. | On play: sets `turtle_rounds_remaining=3`. Round end commits are deferred until counter hits 0; round score can accumulate across those rounds. | yes |
 | Time is Too Expensive | Add 2 times the current round number to this round's score. | On play: adds `current_round * 2` to round score. | yes |
-| Birds of a Feather | +5. Return consecutive Birds from your graveyard when the run is long enough (2, then 3, then 4, ...). | On play: +5. A contiguous Birds run ≥ `birds_return_threshold` (starts at 2) returns together to hand, then threshold +1. The check waits until the played card has left hand if the temporary occupied slot would split the return. | yes |
+| Birds of a Feather | +5. Consecutive runs of 2, then 3, 4, and 5 Birds in your graveyard return to deck top. After 5, this stops. | On play: +5. A qualifying contiguous run moves to deck top; threshold advances 2→3→4→5, then disables for the battle. | yes |
 | Necromancy | Exile this Necromancy, shuffle your graveyard and add it to the bottom of your deck. | On play: exiles self (hand play only), then GY→deck shuffle animation; on complete shuffles all GY cards into deck bottom (random order). | placeholder |
-| Miracle | Auto-plays for +10 if it is the first card drawn in a round or played from the top of your deck; else +3. | **Top/first-draw mode (+10):** center play presentation from deck icon, then +10 via `play_miracle_bonus` when: first card drawn at round start (then deal 5 more), scry play from peek top, deck-search pick at index 0, or Toppings `PLAY_DECK_TOP`. **Normal hand play:** center presentation, then `on_play` adds +3. | placeholder |
+| Miracle | Auto-plays for +10 if drawn as the first card of a card-effect draw (chains while Miracle remains on top), at round-start opening deal, or played from deck top; else +3. | **+10 paths:** opening deal first draw; scry/deck-search index 0; `PLAY_DECK_TOP`; first draw slot of `EFFECT_DECK_DRAW` (Catnip, Wishes draw 1, Cups, Cycle follow-up) with Miracle chain until non-Miracle. **Hand play:** +3 via `on_play`. | placeholder |
 | Rags to Riches | Exile n cards from your graveyard cards, then multiply your round total by the number of cards exiled this way. | On play: if GY non-empty, opens GY exile picker (optional picks); on confirm multiplies round by exiled count. B cancels. | placeholder |
 | Jacks | Discard another card, then put a card from your graveyard into your hand. Nothing happens if you have no other card to discard.  | Enters GY before `on_play`. If hand non-empty and GY non-empty, queues discard-from-hand then GY→hand retrieve. Discard target shows red **X**. | yes |
 | Fishing Pole | Discard a card, then put a card from your graveyard on top of your deck. Nothing happens if you have no other card to discard.  | Enters GY before `on_play`. If hand non-empty and GY non-empty, queues discard then GY→deck-top retrieve. Discard target shows red **X**. | yes |
-| Cups | Draw 1, discard 1, then put a card from your graveyard on top of your deck. Nothing happens if you have no cards to draw.  | Enters GY before `on_play`. Draws 1; queues discard; if GY non-empty, queues GY→deck-top. | yes |
+| Cups | Draw 1, discard a card, then exile a card from your graveyard. Skip unavailable steps. | Draws if possible, queues a discard if another hand card exists, then queues one graveyard exile. The newly discarded card is eligible. | yes |
 | Swap | Choose two digits in your total or round score and swap them. The resulting number cannot be smaller | On play: opens a per-digit picker across both score rows. The first pick stays raised with a green underline; an invalid second pick clears both selections. Total score may stay equal but cannot decrease. | placeholder |
 | Catnip | +1 to this round. Draw 1. | On play: +1 immediate, then draws 1 card (deck flight). | placeholder |
 | Journal | +n to this round, where n is cards played this round. | On play: adds `cards_played_this_round + 1` to round (includes itself after increment in pipeline). | placeholder |
@@ -59,18 +59,29 @@ Legend:
 | Tombstones | +3 when played. multiply your round score by n when discarded, where n is unique card names in your graveyard. | Enters GY before effects. On play: +3 then × unique GY types (including self). On cost discard: × unique GY types (no extra +3). | placeholder |
 | Roll Over | +3 when played. And swap two graveyard cards, 3 times. | Enters GY before `on_play`. On play: +3; if GY≥2, queues 3× GY pair swap UI. | yes |
 | Toppings | Multiply this round by 2, then play the top card in your deck. | On play: ×2 immediate, then queues `PLAY_DECK_TOP` — top card plays from deck HUD with center presentation (Miracle +10 if Miracle). Starter wheel card. | yes |
-| Cycle | +2. Press Down to discard this and draw 1. | Immediate +2. `has_cycle`: Down discards from hand (fires `on_discard` if any) then draws 1. Select still inspects. | placeholder |
-| Cycle Seven | +7. Press Down to discard this and draw 1. | Immediate +7 plus Cycle. | placeholder |
+| Cycle | +2. Press Down to exile this and draw 1. | Immediate +2. Down exiles it directly from hand without firing discard effects, then draws 1. | placeholder |
+| Cycle Seven | +7. Press Down to exile this and draw 1. | Immediate +7 plus Cycle. | placeholder |
 | Get Me Outa Here | +9 when played, discarded, or whenever another card moves this. | Immediate +9. Extra +9 on cost discard, GY→exile, and when another card relocates it. Own hand play and same-zone shuffles do not double. Draws do not count. | placeholder |
 | Comeback | +3. Flashback: exile from graveyard to play for +3. | Hand play +3 to GY. Its ghost is an optional play while cards remain in the live hand; playing it gives +3 and exiles it. Ghosts do not delay round or game end. | placeholder |
 | Encore | +6. Flashback: exile from graveyard to play for +6. | Hand play +6. Flashback +6 then exile. | placeholder |
 | Double Time | +8. The next card's add amounts are doubled. | Immediate +8, then `pending_double_adds` doubles the next play's `add_from_card` amounts and future add seeds. Multipliers are not doubled. | placeholder |
-| The Fourth | Move any 4 in your total score to another digit position. Otherwise, +4. | Select a 4 in total score, select its destination, then the 4 and intervening digits slide into their new positions. If no move is possible, adds +4. | placeholder |
-| Palindrome | If the current round score is a palindrome, add a 1 to both ends. | A palindromic round score `n` becomes `1n1`; single-digit scores count as palindromes. Otherwise no effect. | placeholder |
+| The Fourth | Move a 4 in your total score without making the score smaller. | Select a 4 and destination; invalid decreasing moves cannot be confirmed. Fizzles when no valid move exists. | placeholder |
+| Palindrome | If total score is a palindrome, wrap it in 1s. Double Time wraps it in 2s instead. | A palindromic total `n` becomes `1n1`, or `2n2` with Double Time. Single digits count; overflow fizzles. | placeholder |
 | The Fifth | Replace any digit in your total score with a 5. | Opens the total-score digit picker; selecting a digit replaces it with 5. | placeholder |
 | Solo | +11. Draw 1 if no other cards remain in your hand after this is played. | Immediate +11. After this card leaves the live hand (or if played from deck with an empty hand), draws 1. Flashback ghosts do not prevent the draw. | placeholder |
 | Speculative | Reveal the top card. Play it if it would make the current number bigger, then draw 1. Otherwise mill it. | Queues `MILL_REVEAL` once. If the revealed card would increase the number, it is played (Miracle +10 if Miracle) then draw 1. Otherwise it flies deck→GY with no play and no discard. | placeholder |
 | Flex | Mill until you find a card that can add or multiply, then play it. | `MILL_REVEAL` loop: mill misses to GY (including future-only adds like Sips counting as a hit). Play the first add-or-multiply card. | placeholder |
+| Keep Going | At the start of each of the next 3 rounds, put a random graveyard card on top of your deck. | Schedules three round-start returns. Empty graveyards still consume a charge; Keep Going itself is eligible. Resolves before the empty-deck game-over check. | placeholder |
+| Spokes | +n round, n = times cycled this battle. | On play: adds `battle_stats.cycles` to round (0 fizzles). | placeholder |
+| Wheel | ×n round, n = times cycled this battle. | On play: multiplies round by cycles when n > 1. | placeholder |
+| Ghost Light | +n round, n = times flashbacked this battle. | On play: adds flashback count to round. | placeholder |
+| Ghost Show | ×n round, n = times flashbacked this battle. | On play: multiplies when flashback count > 1. | placeholder |
+| Flood | +n round, n = cards drawn this round. | On play: adds drawn-this-round count. | placeholder |
+| Torrent | ×n round, n = cards drawn this round. | On play: multiplies when drawn count > 1. | placeholder |
+| Banish | +n round, n = cards exiled this battle. | On play: adds exile tally. | placeholder |
+| Oblivion | ×n round, n = cards exiled this battle. | On play: multiplies when exile tally > 1. | placeholder |
+| Shred | +n round, n = keyword discards this battle. | Counts discard-keyword paths (cost discards, `on_discard`, Cycle Down) — not normal play-to-GY. | placeholder |
+| Shredder | ×n round, n = keyword discards this battle. | Multiplies when keyword discard count > 1. | placeholder |
 
 ---
 
@@ -84,9 +95,10 @@ Edit the **UI description** column for player-facing text. **Code behavior** is 
 |------|---------------------------|---------------|---------|
 | Morel | When a card adds to round score, add +2 more after reactions settle. | Hooks `add_from_card` only (not trinket adds or multipliers). Each positive card add increments `deferred_morel_count`; after Lucky 7 / Prime Time / score-pop reaction stack is idle, applies +2 to round with trinket score-pop flight. Can chain multiple deferred +2s. | yes |
 | Lucky 7 | When score contains 7, roll 7–13 and add that amount. | After any score change check (`trinket_queue_score_check`): if round or total score **contains digit 7** and value changed, queues Lucky 7 roulette FX (~120 frames). Rolls 7–13, flies result to score, then applies add. Skips re-trigger if the added amount itself contains 7 (anti-loop). Separate checks for round vs total field. | yes |
-| Echo | Echoes the first card you play with a play effect each round. | Once per round while `echo_ready`: first played card with a play effect arms `echo_pending_replay`. When idle (no pending actions, presentation FX, deck search, removal, or draw FX), replays that card's **play effect only** via center presentation (`PlaySource::ECHO`); does not re-route to GY/deck. Consumes echo for the round on replay. Shows Echo badge during armed/replay. | yes |
+| Echo | Echoes the first card you play with a play effect each round. | The selected eligible card shows the Echo badge. Its first play resolves fully while a faded copy remains at the original hand position; after the pipeline becomes idle, the complete `CardRef` animates and resolves a full second play without another zone removal. Both plays increment the round play count. | yes |
 | Get With The Times | Card adds do nothing; gain +6 at the start of each round instead. | Blocks all positive `add_from_card` (shows empty pop, adds 0). At round start (`apply_round_start_trinkets`): +6 to round with trinket flight. | placeholder |
 | Prime Time | When round or total score are prime numbers, add n where n is the number of times your round or total score have been a prime number. | After score change: if round **committed** score or total score is prime, increments proc counter for that field and adds proc count to round (+1, then +2, then +3, …). Round procs reset each round; total procs persist for the run. Trinket score-pop flight. Can chain with Lucky 7 / Morel. | placeholder |
+| Fibonacci | At each round start, add the next value in 1, 1, 2, 3, 5, 8… | Sequence resets each battle and adds directly to round score as a trinket-sourced effect. | placeholder |
 
 ### Trinket reaction order (summary)
 
@@ -104,9 +116,9 @@ Trinket adds and multipliers do **not** trigger Morel. Get With The Times blocks
 | System | Behavior |
 |--------|----------|
 | Instance upgrades | Plus digit, ×2 upgrade, Lead/Yeast gravity modify effective +N/×N on play via `CardInstance` pool. |
-| Combos | RPS+Shoot +100; PB+Jelly +25; Straw+Sticks+Bricks +50. Detected in hand, GY, or reveal buffers. |
+| Combos | RPS+Shoot ×4 total; PB+Jelly ×2 total; Straw+Sticks+Bricks ×3 total. A zero total remains zero. Detected in hand, GY, or reveal buffers. |
 | Deck draws | Any `hand_add_card(..., from_deck_draw=true)` queues deck→hand flight: starts small at deck HUD, grows to full size (~8 frames/card), sequential if multiple. Opening hand deals exactly 5 using `scheduled_hand_count` (hand + pending queue + in-flight). |
-| Zone transfer FX | GY→hand (Jacks): small→full flight to hand slot. GY→deck top (Fishing Pole, Cups): grow, full in middle ~20%, shrink into deck. Necromancy shuffle: representative GY→deck flight then shuffles all GY to deck bottom. |
+| Zone transfer FX | Jacks, Fishing Pole, and Cups use interactive transfer presentations. Birds and Keep Going move qualifying cards to deck top immediately at their trigger points. Necromancy shuffles all GY to deck bottom. |
 | Play presentation | Cards with play/discard abilities: center beat ~16 approach / **15 hold** (~¼ s) / 24 depart frames; scoring resolves at hold→depart. Center Y sits above raised hand (`PLAY_PRESENTATION_CENTER_Y`). Card hidden when depart finishes if waiting on score pops (`WAIT_PRESENTATION`). |
 | Plain discards | No `on_play` / cost-only discards: fly straight to GY/deck with scale-down flight, no center hold. |
 | Discard targeting | `DISCARD_TARGET` mode shows red **X** on selected hand card (Jacks, Fishing Pole, Cups, Burger, etc.). |
