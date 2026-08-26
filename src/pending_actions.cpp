@@ -96,9 +96,9 @@ namespace
             return PendingStartResult::FIZZLE;
         }
 
-        const bool flex = action.count > 0;
-        const bool hit = flex ? card_can_add_or_multiply(ctx.state, top)
-                              : card_increases_current_number(ctx.state, top);
+        const bool flex = action.count == 1;
+        const bool waterfall = action.count == 2;
+        const bool hit = mill_reveal_card_hits(ctx.state, top, waterfall);
         const int main_x = ctx.main_panel_offset_x();
 
         PlayResolutionContext context;
@@ -121,14 +121,57 @@ namespace
             hit ? removal_style_for_hand_play(top.type) : RemovalStyle::TO_GRAVEYARD,
             miracle);
 
-        ctx.removal_mill_without_play = !hit;
-        ctx.mill_reveal_flex_continue = flex && !hit;
-        ctx.mill_reveal_draw_on_hit = !flex && hit;
-
-        if(!hit)
+        if(PlayFlight* flight = ctx.latest_play_flight())
         {
-            ctx.removal_center_beat = false;
+            flight->mill_without_play = !hit;
+            flight->mill_reveal_flex_continue = flex && !hit;
+            flight->mill_reveal_waterfall_continue = waterfall && hit;
+            flight->mill_reveal_draw_on_hit = (waterfall || !flex) && hit;
+
+            if(!hit)
+            {
+                flight->center_beat = false;
+            }
         }
+
+        return PendingStartResult::ENTERED_MODE;
+    }
+
+    PendingStartResult start_play_random_graveyard(GameContext& ctx, const PendingAction&)
+    {
+        if(ctx.state.graveyard.empty())
+        {
+            return PendingStartResult::FIZZLE;
+        }
+
+        const int index = ctx.state.rng.get_int(ctx.state.graveyard.size());
+        const CardRef card = ctx.state.graveyard[index];
+        graveyard_remove_at(ctx.state, index);
+
+        const int main_x = ctx.main_panel_offset_x();
+        int start_x = 0;
+        int start_y = 0;
+
+        if(!graveyard_cursor_screen_position(index, ctx.state.graveyard.size() + 1,
+                                             game_layout::GRAVE_SPACING,
+                                             game_layout::GRAVEYARD_BROWSE_Y, 0, ctx.row_scroll_x,
+                                             main_x, start_x, start_y))
+        {
+            start_x = card_target_x_for_hud_icon(game_layout::HUD_GRAVEYARD_X, main_x);
+            start_y = card_target_y_for_hud_icon(game_layout::HUD_GRAVEYARD_Y);
+        }
+
+        PlayResolutionContext context;
+        context.source = PlaySource::HAND;
+        context.apply_destination = false;
+
+        ctx.begin_play_presentation(
+            card,
+            start_x,
+            start_y,
+            PlayPresentOrigin::HAND,
+            context,
+            removal_style_for_hand_play(card.type));
 
         return PendingStartResult::ENTERED_MODE;
     }
@@ -351,7 +394,9 @@ namespace
             return PendingStartResult::ENTERED_MODE;
         }
 
-        return PendingStartResult::FIZZLE;
+        ctx.state.add_from_card(4);
+        ctx.draw_round_score();
+        return PendingStartResult::INSTANT_DONE;
     }
 
     PendingStartResult start_replace_total_digit_with_five(GameContext& ctx, const PendingAction&)
@@ -378,9 +423,39 @@ namespace
         return PendingStartResult::ENTERED_MODE;
     }
 
+    PendingStartResult start_birds_return(GameContext& ctx, const PendingAction&)
+    {
+        int return_start = -1;
+        int return_end = -1;
+
+        if(!birds_find_return_run(ctx.state, return_start, return_end))
+        {
+            ctx.state.birds_return_start = -1;
+            ctx.state.birds_return_count = 0;
+            return PendingStartResult::FIZZLE;
+        }
+
+        ctx.state.birds_return_start = return_start;
+        ctx.state.birds_return_count = return_end - return_start;
+        begin_selection(ctx, PendingActionType::BIRDS_RETURN);
+        ctx.state.selection.cursor = return_start;
+        ctx.sync_row_scroll_for_mode(ctx.state.selection.cursor, ctx.state.graveyard.size(),
+                                     game_layout::GRAVE_SPACING);
+        ctx.mode = GameMode::GRAVEYARD_TARGET;
+
+        if(ctx.try_begin_birds_return_fx())
+        {
+            return PendingStartResult::ENTERED_MODE;
+        }
+
+        ctx.resolve_birds_return_instantly();
+        return PendingStartResult::INSTANT_DONE;
+    }
+
     PendingStartResult start_reclaim_graveyard(GameContext& ctx, const PendingAction&)
     {
         reclaim_graveyard_into_deck(ctx.state);
+        combo_check_zone(ctx.state, ComboZone::DECK);
         return PendingStartResult::INSTANT_DONE;
     }
 
@@ -412,6 +487,7 @@ namespace
         case PendingActionType::DISCARD_FROM_HAND_THEN_MULTIPLY:
             return start_discard_from_hand_then_multiply(ctx, action);
         case PendingActionType::DISCARD_FROM_HAND:
+        case PendingActionType::EXILE_FROM_HAND:
         case PendingActionType::PUT_HAND_ON_DECK_TOP:
             return start_hand_card_select(ctx, action);
         case PendingActionType::RETRIEVE_FROM_GRAVEYARD:
@@ -426,6 +502,8 @@ namespace
             return start_deck_search(ctx, action);
         case PendingActionType::PLAY_DECK_TOP:
             return start_play_deck_top(ctx, action);
+        case PendingActionType::PLAY_RANDOM_GRAVEYARD:
+            return start_play_random_graveyard(ctx, action);
         case PendingActionType::MILL_REVEAL:
             return start_mill_reveal(ctx, action);
         case PendingActionType::SCRY:
@@ -436,6 +514,8 @@ namespace
             return start_move_four_total_digit(ctx, action);
         case PendingActionType::REPLACE_TOTAL_DIGIT_WITH_FIVE:
             return start_replace_total_digit_with_five(ctx, action);
+        case PendingActionType::BIRDS_RETURN:
+            return start_birds_return(ctx, action);
         case PendingActionType::RECLAIM_GRAVEYARD:
             return start_reclaim_graveyard(ctx, action);
         case PendingActionType::NECROMANCY_SHUFFLE:
@@ -454,6 +534,7 @@ namespace
         {
             combo_check_zone(ctx.state, ComboZone::HAND);
             combo_check_zone(ctx.state, ComboZone::GRAVEYARD);
+            combo_check_zone(ctx.state, ComboZone::DECK);
         }
 
         if(ctx.try_start_pending_combo())
@@ -490,7 +571,7 @@ namespace
 
                 swivel_clear_wait_if_hand_empty(ctx);
 
-                if(ctx.state.hand.empty())
+                if(empty_hand_triggers_round_end(ctx.state))
                 {
                     if(ctx.block_round_end_for_combo())
                     {
@@ -519,7 +600,7 @@ namespace
         ctx.target_row_scroll_x = 0;
         ctx.target_row_scroll_index = 0;
 
-        if(ctx.state.hand.empty())
+        if(empty_hand_triggers_round_end(ctx.state))
         {
             swivel_clear_wait_if_hand_empty(ctx);
 

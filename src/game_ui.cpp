@@ -1,59 +1,41 @@
 #include "game_ui.h"
 
 #include "bn_color.h"
+#include "bn_compression_type.h"
 #include "bn_optional.h"
-#include "bn_sprite_item.h"
-#include "bn_sprite_items_hud_trinket_echo.h"
 #include "bn_sprite_palette_item.h"
 #include "bn_sprite_shape_size.h"
 #include "bn_sprite_tiles_ptr.h"
 #include "bn_tile.h"
 #include "game_types.h"
 
+namespace ui_palette
+{
+    constexpr bn::array<bn::color, 16> COLORS = {
+        bn::color(0, 0, 0), bn::color(31, 0, 0), bn::color(6, 28, 12), bn::color(20, 20, 24),
+        bn::color(22, 10, 28), bn::color(18, 8, 24), bn::color(0, 16, 31), bn::color(12, 12, 16),
+        bn::color(20, 20, 24), bn::color(26, 18, 10), bn::color(28, 10, 22), bn::color(24, 18, 4),
+        bn::color(10, 22, 14), bn::color(8, 20, 10), bn::color(0, 0, 0), bn::color(31, 25, 5),
+    };
+
+    const bn::sprite_palette_ptr& shared()
+    {
+        static bn::optional<bn::sprite_palette_ptr> palette;
+
+        if(!palette.has_value())
+        {
+            const bn::sprite_palette_item item(
+                bn::span<const bn::color>(COLORS.data(), COLORS.size()), bn::bpp_mode::BPP_4,
+                bn::compression_type::NONE);
+            palette = bn::sprite_palette_ptr::create(item);
+        }
+
+        return *palette;
+    }
+}
+
 namespace
 {
-    constexpr bn::array<bn::color, 16> FADE_COLORS = {
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-    };
-
-    constexpr bn::sprite_palette_item FADE_PALETTE(
-        bn::span<const bn::color>(FADE_COLORS.data(), FADE_COLORS.size()), bn::bpp_mode::BPP_4);
-
-    constexpr bn::array<bn::color, 16> X_MARKER_COLORS = {
-        bn::color(0, 0, 0), bn::color(31, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-    };
-
-    constexpr bn::sprite_palette_item X_MARKER_PALETTE(
-        bn::span<const bn::color>(X_MARKER_COLORS.data(), X_MARKER_COLORS.size()), bn::bpp_mode::BPP_4);
-
-    constexpr bn::array<bn::color, 16> LOCK_MARKER_COLORS = {
-        bn::color(0, 0, 0), bn::color(6, 28, 12), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-    };
-
-    constexpr bn::sprite_palette_item LOCK_MARKER_PALETTE(
-        bn::span<const bn::color>(LOCK_MARKER_COLORS.data(), LOCK_MARKER_COLORS.size()),
-        bn::bpp_mode::BPP_4);
-
-    constexpr bn::array<bn::color, 16> PLACEHOLDER_COLORS = {
-        bn::color(0, 0, 0), bn::color(20, 20, 24), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-    };
-
-    constexpr bn::sprite_palette_item PLACEHOLDER_PALETTE(
-        bn::span<const bn::color>(PLACEHOLDER_COLORS.data(), PLACEHOLDER_COLORS.size()),
-        bn::bpp_mode::BPP_4);
-
     constexpr int PLACEHOLDER_TILES_PER_AXIS = 4;
     constexpr int PLACEHOLDER_TILE_COUNT =
         PLACEHOLDER_TILES_PER_AXIS * PLACEHOLDER_TILES_PER_AXIS;
@@ -68,6 +50,28 @@ namespace
         }
 
         return row;
+    }
+
+    void paint_score_bar_tile(bn::tile& tile, int color_index)
+    {
+        for(int row_index = 0; row_index < 8; ++row_index)
+        {
+            tile.data[row_index] =
+                row_index == 3 || row_index == 4 ? solid_tile_row(color_index) : 0;
+        }
+    }
+
+    int score_bar_px(int score, int goal)
+    {
+        if(goal <= 0 || score <= 0)
+        {
+            return 0;
+        }
+
+        const int width = game_layout::SCORE_BAR_WIDTH;
+        const int px = int((int64_t(score) * width) / goal);
+
+        return px > width ? width : px;
     }
 
     bool marker_x_pixel(int x, int y)
@@ -97,17 +101,6 @@ namespace
         return false;
     }
 
-    constexpr bn::array<bn::color, 16> SWIVEL_BADGE_COLORS = {
-        bn::color(0, 0, 0), bn::color(22, 10, 28), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-    };
-
-    constexpr bn::sprite_palette_item SWIVEL_BADGE_PALETTE(
-        bn::span<const bn::color>(SWIVEL_BADGE_COLORS.data(), SWIVEL_BADGE_COLORS.size()),
-        bn::bpp_mode::BPP_4);
-
     bool swivel_badge_pixel(int x, int y)
     {
         const int center_x = 7;
@@ -123,11 +116,20 @@ namespace
 
         return (x == 2 && y >= 5 && y <= 9) || (x == 13 && y >= 6 && y <= 10);
     }
+
+    bool echo_badge_pixel(int x, int y)
+    {
+        const int center_x = 7;
+        const int center_y = 7;
+        const int dx = x - center_x;
+        const int dy = y - center_y;
+        return dx * dx + dy * dy <= 36;
+    }
 }
 
 GameFadeBand::GameFadeBand(int x, int color_index, int card_y) :
     _tiles(bn::sprite_tiles_ptr::allocate(4, bn::bpp_mode::BPP_4)),
-    _palette(bn::sprite_palette_ptr::create(FADE_PALETTE)),
+    _palette(ui_palette::shared()),
     _top_sprite(bn::sprite_ptr::create(x, card_y + 16, bn::sprite_shape_size(8, 32), _tiles, _palette)),
     _bottom_sprite(bn::sprite_ptr::create(x, card_y + 48, bn::sprite_shape_size(8, 32), _tiles, _palette))
 {
@@ -184,7 +186,7 @@ void GameFadeBand::set_position_x(int x)
 GameMarker::GameMarker(Style style) :
     _style(style),
     _tiles(bn::sprite_tiles_ptr::allocate(4, bn::bpp_mode::BPP_4)),
-    _palette(bn::sprite_palette_ptr::create(style == Style::LOCK ? LOCK_MARKER_PALETTE : X_MARKER_PALETTE)),
+    _palette(ui_palette::shared()),
     _sprite(bn::sprite_ptr::create(0, 0, bn::sprite_shape_size(16, 16), _tiles, _palette))
 {
     _sprite.set_z_order(game_layout::MARKER_Z_ORDER);
@@ -228,7 +230,10 @@ void GameMarker::paint()
                 const int x = tile_col * 8 + px;
                 const int y = tile_row * 8 + py;
                 const bool on = _style == Style::LOCK ? marker_lock_pixel(x, y) : marker_x_pixel(x, y);
-                row |= uint32_t(on ? 1 : 0) << (px * 4);
+                const int color_index =
+                    on ? (_style == Style::LOCK ? ui_palette::MARKER_LOCK : ui_palette::MARKER_X)
+                       : ui_palette::TRANSPARENT;
+                row |= uint32_t(color_index) << (px * 4);
             }
 
             tile.data[py] = row;
@@ -238,7 +243,7 @@ void GameMarker::paint()
 
 GraveyardPickPlaceholder::GraveyardPickPlaceholder() :
     _tiles(bn::sprite_tiles_ptr::allocate(PLACEHOLDER_TILE_COUNT, bn::bpp_mode::BPP_4)),
-    _palette(bn::sprite_palette_ptr::create(PLACEHOLDER_PALETTE)),
+    _palette(ui_palette::shared()),
     _sprite(bn::sprite_ptr::create(
         0, game_layout::GRAVE_SELECTION_PLACEHOLDER_Y,
         bn::sprite_shape_size(game_layout::GRAVE_SELECTION_PLACEHOLDER_SIZE,
@@ -250,7 +255,7 @@ GraveyardPickPlaceholder::GraveyardPickPlaceholder() :
 
     if(tile_span)
     {
-        const uint32_t row = solid_tile_row(1);
+        const uint32_t row = solid_tile_row(ui_palette::PLACEHOLDER);
 
         for(int tile_index = 0; tile_index < tile_span->size(); ++tile_index)
         {
@@ -277,20 +282,153 @@ void GraveyardPickPlaceholder::set_visible(bool visible)
     _sprite.set_visible(visible);
 }
 
-const bn::sprite_item* CardEffectBadge::sprite_item_for(Kind kind)
+ScoreProgressBar::ScoreProgressBar() :
+    _track_tile(bn::sprite_tiles_ptr::allocate(1, bn::bpp_mode::BPP_4)),
+    _gold_tile(bn::sprite_tiles_ptr::allocate(1, bn::bpp_mode::BPP_4)),
+    _round_tile(bn::sprite_tiles_ptr::allocate(1, bn::bpp_mode::BPP_4)),
+    _palette(ui_palette::shared())
 {
-    switch(kind)
+    auto paint_tile = [](bn::sprite_tiles_ptr& tiles, int color_index) {
+        auto vram = tiles.vram();
+        auto* tile_span = vram.get();
+
+        if(tile_span && !tile_span->empty())
+        {
+            paint_score_bar_tile((*tile_span)[0], color_index);
+        }
+    };
+
+    paint_tile(_track_tile, ui_palette::PLACEHOLDER);
+    paint_tile(_gold_tile, ui_palette::SCORE_BAR_GOLD);
+    paint_tile(_round_tile, ui_palette::GRAVEYARD);
+
+    for(int segment_index = 0; segment_index < game_layout::SCORE_BAR_SEGMENT_COUNT; ++segment_index)
     {
-    case Kind::ECHO:
-        return &bn::sprite_items::hud_trinket_echo;
-
-    case Kind::SWIVEL:
-        // Replace with hud_effect_swivel when the asset exists.
-        return nullptr;
-
-    default:
-        return nullptr;
+        bn::sprite_ptr track_sprite = bn::sprite_ptr::create(
+            segment_center_x(segment_index), game_layout::SCORE_BAR_Y, bn::sprite_shape_size(8, 8),
+            _track_tile, _palette);
+        track_sprite.set_z_order(game_layout::PLAY_PRESENTATION_SCORE_Z - 1);
+        track_sprite.set_visible(false);
+        _track_sprites.push_back(track_sprite);
     }
+}
+
+int ScoreProgressBar::segment_center_x(int segment_index) const
+{
+    return -game_layout::SCORE_BAR_WIDTH / 2 + game_layout::SCORE_BAR_SEGMENT / 2 +
+           segment_index * game_layout::SCORE_BAR_SEGMENT + _x_offset;
+}
+
+void ScoreProgressBar::reposition_segments()
+{
+    for(int segment_index = 0; segment_index < _track_sprites.size(); ++segment_index)
+    {
+        _track_sprites[segment_index].set_x(segment_center_x(segment_index));
+    }
+
+    for(int segment_index = 0; segment_index < _gold_sprites.size(); ++segment_index)
+    {
+        _gold_sprites[segment_index].set_x(segment_center_x(segment_index));
+    }
+
+    const int round_offset = _gold_sprites.size();
+
+    for(int segment_index = 0; segment_index < _round_sprites.size(); ++segment_index)
+    {
+        _round_sprites[segment_index].set_x(segment_center_x(round_offset + segment_index));
+    }
+}
+
+void ScoreProgressBar::rebuild_fill_sprites(
+    bn::vector<bn::sprite_ptr, game_layout::SCORE_BAR_SEGMENT_COUNT>& sprites, int segment_count,
+    int tile_index, int segment_offset)
+{
+    while(sprites.size() > segment_count)
+    {
+        sprites.pop_back();
+    }
+
+    const bn::sprite_tiles_ptr& tile = tile_index == 1 ? _gold_tile : _round_tile;
+
+    while(sprites.size() < segment_count)
+    {
+        const int segment_index = segment_offset + sprites.size();
+        bn::sprite_ptr fill_sprite = bn::sprite_ptr::create(
+            segment_center_x(segment_index), game_layout::SCORE_BAR_Y, bn::sprite_shape_size(8, 8),
+            tile, _palette);
+        fill_sprite.set_z_order(game_layout::PLAY_PRESENTATION_SCORE_Z - 1);
+        fill_sprite.set_visible(_visible);
+        sprites.push_back(fill_sprite);
+    }
+}
+
+void ScoreProgressBar::sync(int total, int round_committed, int goal)
+{
+    if(goal <= 0)
+    {
+        _last_goal = 0;
+        _last_total_px = -1;
+        _last_combined_px = -1;
+        return;
+    }
+
+    const int total_px = score_bar_px(total, goal);
+    const int combined_px = score_bar_px(total + round_committed, goal);
+
+    if(total_px == _last_total_px && combined_px == _last_combined_px && goal == _last_goal)
+    {
+        return;
+    }
+
+    _last_total_px = total_px;
+    _last_combined_px = combined_px;
+    _last_goal = goal;
+
+    const int gold_segments =
+        (total_px + game_layout::SCORE_BAR_SEGMENT - 1) / game_layout::SCORE_BAR_SEGMENT;
+    const int combined_segments =
+        (combined_px + game_layout::SCORE_BAR_SEGMENT - 1) / game_layout::SCORE_BAR_SEGMENT;
+    const int round_segments = combined_segments - gold_segments;
+
+    rebuild_fill_sprites(_gold_sprites, gold_segments, 1, 0);
+    rebuild_fill_sprites(_round_sprites, round_segments, 2, gold_segments);
+    reposition_segments();
+}
+
+void ScoreProgressBar::set_visible(bool visible)
+{
+    if(_visible == visible)
+    {
+        return;
+    }
+
+    _visible = visible;
+
+    for(bn::sprite_ptr& sprite : _track_sprites)
+    {
+        sprite.set_visible(visible);
+    }
+
+    for(bn::sprite_ptr& sprite : _gold_sprites)
+    {
+        sprite.set_visible(visible);
+    }
+
+    for(bn::sprite_ptr& sprite : _round_sprites)
+    {
+        sprite.set_visible(visible);
+    }
+}
+
+void ScoreProgressBar::set_x_offset(int panel_offset)
+{
+    if(_x_offset == panel_offset)
+    {
+        return;
+    }
+
+    _x_offset = panel_offset;
+    reposition_segments();
 }
 
 CardEffectBadge::CardEffectBadge()
@@ -303,7 +441,56 @@ void CardEffectBadge::clear()
     _kind = Kind::NONE;
     _sprite.reset();
     _owned_tiles.reset();
-    _owned_palette.reset();
+}
+
+void CardEffectBadge::paint(Kind kind)
+{
+    if(!_owned_tiles.has_value() || !_sprite.has_value())
+    {
+        return;
+    }
+
+    auto vram = _owned_tiles->vram();
+    auto* tile_span = vram.get();
+
+    if(!tile_span)
+    {
+        return;
+    }
+
+    for(int tile_index = 0; tile_index < tile_span->size(); ++tile_index)
+    {
+        bn::tile& tile = (*tile_span)[tile_index];
+        const int tile_col = tile_index % 2;
+        const int tile_row = tile_index / 2;
+
+        for(int py = 0; py < 8; ++py)
+        {
+            uint32_t row = 0;
+
+            for(int px = 0; px < 8; ++px)
+            {
+                const int x = tile_col * 8 + px;
+                const int y = tile_row * 8 + py;
+                bool on = false;
+
+                if(kind == Kind::SWIVEL)
+                {
+                    on = swivel_badge_pixel(x, y);
+                }
+                else if(kind == Kind::ECHO)
+                {
+                    on = echo_badge_pixel(x, y);
+                }
+
+                const int color_index = on ? (kind == Kind::ECHO ? ui_palette::ECHO_BADGE : ui_palette::SWIVEL_BADGE)
+                                           : ui_palette::TRANSPARENT;
+                row |= uint32_t(color_index) << (px * 4);
+            }
+
+            tile.data[py] = row;
+        }
+    }
 }
 
 void CardEffectBadge::rebuild(Kind kind)
@@ -316,48 +503,10 @@ void CardEffectBadge::rebuild(Kind kind)
         return;
     }
 
-    const bn::sprite_item* item = sprite_item_for(kind);
-
-    if(item != nullptr)
-    {
-        _sprite = item->create_sprite(0, 0);
-        _sprite->set_z_order(1);
-        _sprite->set_visible(false);
-        return;
-    }
-
     _owned_tiles = bn::sprite_tiles_ptr::allocate(4, bn::bpp_mode::BPP_4);
-    _owned_palette = bn::sprite_palette_ptr::create(SWIVEL_BADGE_PALETTE);
-    _sprite = bn::sprite_ptr::create(0, 0, bn::sprite_shape_size(16, 16), *_owned_tiles, *_owned_palette);
-
-    auto vram = _owned_tiles->vram();
-    auto* tile_span = vram.get();
-
-    if(tile_span)
-    {
-        for(int tile_index = 0; tile_index < tile_span->size(); ++tile_index)
-        {
-            bn::tile& tile = (*tile_span)[tile_index];
-            const int tile_col = tile_index % 2;
-            const int tile_row = tile_index / 2;
-
-            for(int py = 0; py < 8; ++py)
-            {
-                uint32_t row = 0;
-
-                for(int px = 0; px < 8; ++px)
-                {
-                    const int x = tile_col * 8 + px;
-                    const int y = tile_row * 8 + py;
-                    const bool on = swivel_badge_pixel(x, y);
-                    row |= uint32_t(on ? 1 : 0) << (px * 4);
-                }
-
-                tile.data[py] = row;
-            }
-        }
-    }
-
+    _sprite = bn::sprite_ptr::create(
+        0, 0, bn::sprite_shape_size(16, 16), *_owned_tiles, ui_palette::shared());
+    paint(kind);
     _sprite->set_z_order(1);
     _sprite->set_visible(false);
 }

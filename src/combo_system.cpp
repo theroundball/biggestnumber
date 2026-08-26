@@ -153,6 +153,22 @@ namespace
         return false;
     }
 
+    bool find_deck_match(const GameState& state, const ComboDef& combo, PendingCombo& out_match)
+    {
+        int start = 0;
+        const bn::span<const CardRef> cards = state.deck.undrawn_span();
+
+        if(!find_match(cards, combo, start))
+        {
+            return false;
+        }
+
+        out_match.use_match_indices = false;
+        out_match.start_index = start;
+        out_match.length = combo.length;
+        return true;
+    }
+
     bool find_graveyard_match(const GameState& state, const ComboDef& combo, PendingCombo& out_match)
     {
         int start = 0;
@@ -201,6 +217,19 @@ namespace
         return true;
     }
 
+    void remove_deck_range(GameState& state, int start, int length)
+    {
+        if(length <= 0)
+        {
+            return;
+        }
+
+        for(int index = start + length - 1; index >= start; --index)
+        {
+            state.deck.remove_undrawn_at(index);
+        }
+    }
+
     void remove_revealed_range(GameState& state, int start, int length)
     {
         if(length <= 0)
@@ -233,6 +262,117 @@ namespace
                 }
             }
         }
+    }
+
+    void shuffle_combo_cards_into_deck(GameState& state, const bn::array<CardRef, 4>& cards, int count)
+    {
+        for(int index = 0; index < count; ++index)
+        {
+            apply_card_relocated(state, cards[index].type);
+            state.deck.add_card(cards[index]);
+        }
+
+        if(count > 0)
+        {
+            state.deck.shuffle(state.rng);
+            state.deck.apply_gravity(state.instance_pool);
+            combo_check_zone(state, ComboZone::DECK);
+        }
+    }
+
+    void exile_combo_cards(GameState& state, const bn::array<CardRef, 4>& cards, int count)
+    {
+        for(int index = 0; index < count; ++index)
+        {
+            exile_push(state, cards[index]);
+        }
+    }
+
+    void collect_hand_range(const GameState& state, int start, int length,
+                            bn::array<CardRef, 4>& out_cards, int& out_count)
+    {
+        out_count = 0;
+
+        for(int index = start; index < start + length; ++index)
+        {
+            if(index >= 0 && index < state.hand.size() && out_count < 4)
+            {
+                out_cards[out_count++] = state.hand[index];
+            }
+        }
+    }
+
+    void collect_graveyard_indices(const GameState& state, const bn::array<int, 4>& indices, int length,
+                                   bn::array<CardRef, 4>& out_cards, int& out_count)
+    {
+        out_count = 0;
+
+        for(int index = 0; index < length; ++index)
+        {
+            const int graveyard_index = indices[index];
+
+            if(graveyard_index >= 0 && graveyard_index < state.graveyard.size() && out_count < 4)
+            {
+                out_cards[out_count++] = state.graveyard[graveyard_index];
+            }
+        }
+    }
+
+    void collect_deck_range(const GameState& state, int start, int length,
+                            bn::array<CardRef, 4>& out_cards, int& out_count)
+    {
+        out_count = 0;
+        const int remaining = state.deck.remaining();
+
+        for(int index = start; index < start + length; ++index)
+        {
+            if(index >= 0 && index < remaining && out_count < 4)
+            {
+                out_cards[out_count++] = state.deck.peek_undrawn_ref(index);
+            }
+        }
+    }
+
+    void collect_revealed_range(const GameState& state, int start, int length,
+                                bn::array<CardRef, 4>& out_cards, int& out_count)
+    {
+        out_count = 0;
+        bn::span<const CardRef> cards;
+
+        if(state.selection.type == PendingActionType::SCRY)
+        {
+            cards = bn::span<const CardRef>(state.selection.scry_buffer.data(),
+                                            state.selection.scry_buffer.size());
+        }
+        else if(state.selection.type == PendingActionType::DECK_SEARCH)
+        {
+            cards = bn::span<const CardRef>(state.selection.deck_search_buffer.data(),
+                                            state.selection.deck_search_buffer.size());
+        }
+        else
+        {
+            return;
+        }
+
+        for(int index = start; index < start + length; ++index)
+        {
+            if(index >= 0 && index < cards.size() && out_count < 4)
+            {
+                out_cards[out_count++] = cards[index];
+            }
+        }
+    }
+
+    void relocate_resolved_combo_cards(GameState& state, ComboZone zone,
+                                       const bn::array<CardRef, 4>& cards, int count)
+    {
+        if(combo_resolves_to_exile(zone))
+        {
+            exile_combo_cards(state, cards, count);
+            return;
+        }
+
+        shuffle_combo_cards_into_deck(state, cards, count);
     }
 
     const ComboDef* combo_by_id(uint8_t id)
@@ -354,6 +494,22 @@ namespace
             return true;
         }
 
+        if(pending.zone == ComboZone::DECK)
+        {
+            PendingCombo fresh{};
+
+            if(!find_deck_match(state, *combo, fresh))
+            {
+                return false;
+            }
+
+            pending.use_match_indices = fresh.use_match_indices;
+            pending.start_index = fresh.start_index;
+            pending.length = fresh.length;
+            pending.match_indices = fresh.match_indices;
+            return true;
+        }
+
         PendingCombo fresh{};
 
         if(!find_graveyard_match(state, *combo, fresh))
@@ -426,7 +582,9 @@ void combo_check_zone(GameState& state, ComboZone zone)
             }()
             : zone == ComboZone::REVEALED
                 ? revealed_buffer_match(state, combo, candidate)
-                : find_graveyard_match(state, combo, candidate);
+                : zone == ComboZone::DECK
+                    ? find_deck_match(state, combo, candidate)
+                    : find_graveyard_match(state, combo, candidate);
 
         if(!matched)
         {
@@ -460,6 +618,17 @@ void combo_cinematic_begin(GameState& state)
             }
 
             state.combo_cinematic.cards.push_back(state.hand[hand_index].type);
+        }
+        else if(match.zone == ComboZone::DECK)
+        {
+            const int deck_index = match.start_index + index;
+
+            if(deck_index < 0 || deck_index >= state.deck.remaining())
+            {
+                continue;
+            }
+
+            state.combo_cinematic.cards.push_back(state.deck.peek_undrawn(deck_index));
         }
         else if(match.zone == ComboZone::REVEALED)
         {
@@ -538,6 +707,13 @@ void combo_apply_score_bonus(GameState& state)
     trinket_queue_score_check(state, TrinketScoreField::TOTAL, before, state.total_score);
 }
 
+bool combo_resolves_to_exile(ComboZone zone)
+{
+    // Consecutive matches in the undrawn library (or scry / deck search) leave the game.
+    // Hand and graveyard matches shuffle back into the library.
+    return zone == ComboZone::REVEALED || zone == ComboZone::DECK;
+}
+
 void combo_remove_resolved_cards(GameState& state, int& selected_card)
 {
     const PendingCombo match = state.pending_combo;
@@ -550,16 +726,27 @@ void combo_remove_resolved_cards(GameState& state, int& selected_card)
         return;
     }
 
+    bn::array<CardRef, 4> removed = {};
+    int removed_count = 0;
+
     if(match.zone == ComboZone::HAND)
     {
+        collect_hand_range(state, match.start_index, match.length, removed, removed_count);
         remove_hand_range(state, match.start_index, match.length, selected_card);
+    }
+    else if(match.zone == ComboZone::DECK)
+    {
+        collect_deck_range(state, match.start_index, match.length, removed, removed_count);
+        remove_deck_range(state, match.start_index, match.length);
     }
     else if(match.zone == ComboZone::REVEALED)
     {
+        collect_revealed_range(state, match.start_index, match.length, removed, removed_count);
         remove_revealed_range(state, match.start_index, match.length);
     }
     else if(match.use_match_indices)
     {
+        collect_graveyard_indices(state, match.match_indices, match.length, removed, removed_count);
         remove_graveyard_indices(state, match.match_indices, match.length);
     }
     else
@@ -571,8 +758,11 @@ void combo_remove_resolved_cards(GameState& state, int& selected_card)
             indices[index] = match.start_index + index;
         }
 
+        collect_graveyard_indices(state, indices, match.length, removed, removed_count);
         remove_graveyard_indices(state, indices, match.length);
     }
+
+    relocate_resolved_combo_cards(state, match.zone, removed, removed_count);
 }
 
 void combo_resolve(GameState& state, int& selected_card)

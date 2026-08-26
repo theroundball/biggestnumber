@@ -59,6 +59,8 @@ public:
     void clear_upgrade_pips();
     void set_amount_overlay(bn::sprite_text_generator* generator, const bn::string<8>& text);
     void clear_amount_overlay();
+    void sync_face_labels(bn::sprite_text_generator* generator, const CardInstance* instance);
+    void clear_face_labels();
 
 private:
     void apply_visual_transform();
@@ -66,6 +68,8 @@ private:
     void reposition_upgrade_pips();
     void sync_amount_overlay_visibility();
     void reposition_amount_overlay();
+    void sync_face_label_visibility();
+    void reposition_face_labels();
 
     CardType _type;
     bn::fixed _x;
@@ -75,6 +79,7 @@ private:
     bool _visual_active = false;
     bool _visual_overlays = false;
     bool _visible = false;
+    bool _draw_on_top = false;
     bn::optional<bn::sprite_affine_mat_ptr> _affine_mat;
     bn::sprite_ptr _body;
     bn::sprite_ptr _accent_top;
@@ -89,9 +94,17 @@ private:
     bn::sprite_text_generator* _amount_overlay_generator = nullptr;
     bn::fixed _amount_anchor_x = 0;
     bn::fixed _amount_anchor_y = 0;
+    bn::vector<bn::sprite_ptr, 24> _face_name_sprites;
+    bn::vector<bn::sprite_ptr, 8> _face_stat_sprites;
+    bn::string<32> _face_name_text;
+    bn::string<12> _face_stat_text;
+    bn::sprite_text_generator* _face_label_generator = nullptr;
+    bn::fixed _face_anchor_x = 0;
+    bn::fixed _face_anchor_y = 0;
 
     void sync_part_visibility();
     void reposition_parts();
+    void apply_draw_layering();
 };
 
 // Shared placeholder graphics so idle display slots drop unique card tile refs.

@@ -24,8 +24,8 @@ namespace
 {
     void finish_empty_hand_if_still_empty(GameContext& ctx)
     {
-        if(!ctx.state.hand.empty() || ctx.mode != GameMode::NORMAL || ctx.game_over || ctx.run_finished ||
-           ctx.removing_card || ctx.hand_draw_fx_blocking())
+        if(!empty_hand_triggers_round_end(ctx.state) || ctx.mode != GameMode::NORMAL ||
+           ctx.game_over || ctx.run_finished || ctx.removing_card || ctx.hand_draw_fx_blocking())
         {
             return;
         }
@@ -57,13 +57,17 @@ void swivel_tick_stall_recovery(GameContext& ctx)
 
     if(ctx.presentation_fx_blocking() || ctx.hand_draw_fx_blocking())
     {
-        ctx.round_end_pending = true;
+        if(empty_hand_triggers_round_end(ctx.state))
+        {
+            ctx.round_end_pending = true;
+        }
+
         return;
     }
 
     ctx.begin_next_pending_or_finish();
 
-    if(ctx.state.hand.empty())
+    if(empty_hand_triggers_round_end(ctx.state))
     {
         finish_empty_hand_if_still_empty(ctx);
     }

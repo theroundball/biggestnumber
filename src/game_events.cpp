@@ -8,11 +8,51 @@
 
 namespace
 {
+    bool birds_return_already_queued(const GameState& state)
+    {
+        if(state.birds_return_count > 0)
+        {
+            return true;
+        }
+
+        for(int index = 0; index < state.pending_actions.size(); ++index)
+        {
+            if(state.pending_actions[index].type == PendingActionType::BIRDS_RETURN)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    void adjust_selected_after_hand_remove(GameState& state, int removed_index, int& selected_card)
+    {
+        if(state.hand.empty())
+        {
+            selected_card = 0;
+            return;
+        }
+
+        if(selected_card > removed_index)
+        {
+            --selected_card;
+        }
+
+        if(selected_card >= state.hand.size())
+        {
+            selected_card = state.hand.size() - 1;
+        }
+
+        if(selected_card < 0)
+        {
+            selected_card = 0;
+        }
+    }
+
     void check_birds_of_a_feather(GameState& state)
     {
-        const int threshold = state.birds_return_threshold;
-
-        if(threshold > 5)
+        if(state.birds_return_threshold > 5 || birds_return_already_queued(state))
         {
             return;
         }
@@ -20,51 +60,19 @@ namespace
         int return_start = -1;
         int return_end = -1;
 
-        for(int start = 0; start < state.graveyard.size(); )
-        {
-            if(state.graveyard[start].type != CardType::BIRDS_OF_A_FEATHER)
-            {
-                ++start;
-                continue;
-            }
-
-            int end = start;
-
-            while(end < state.graveyard.size() &&
-                  state.graveyard[end].type == CardType::BIRDS_OF_A_FEATHER)
-            {
-                ++end;
-            }
-
-            const int run_length = end - start;
-
-            if(run_length >= threshold)
-            {
-                return_start = start;
-                return_end = end;
-                break;
-            }
-
-            start = end;
-        }
-
-        if(return_start < 0)
+        if(!birds_find_return_run(state, return_start, return_end))
         {
             return;
         }
 
-        state.deck.compact();
-
-        for(int index = return_end - 1; index >= return_start; --index)
+        if(state.pending_actions.full())
         {
-            state.deck.insert_top(state.graveyard[index]);
-            state.graveyard.erase(state.graveyard.begin() + index);
+            birds_return_run_to_deck(state, return_start, return_end);
+            return;
         }
 
-        state.deck.apply_gravity(state.instance_pool);
-        state.birds_return_threshold = threshold == 5 ? 6 : threshold + 1;
-
-        combo_check_zone(state, ComboZone::GRAVEYARD);
+        state.pending_actions.insert(state.pending_actions.begin(),
+                                     PendingAction{PendingActionType::BIRDS_RETURN});
     }
 
     void queue_miracle_auto_play(GameState& state)
@@ -94,7 +102,7 @@ int hand_scheduled_count(const GameState& state, bool include_in_flight_draw)
     return count;
 }
 
-bool hand_add_card(GameState& state, CardRef card, bool from_deck_draw)
+bool hand_add_card(GameState& state, CardRef card, bool from_deck_draw, bool miracle_auto_play)
 {
     if(state.hand.full())
     {
@@ -109,7 +117,7 @@ bool hand_add_card(GameState& state, CardRef card, bool from_deck_draw)
         }
 
         state.first_deck_draw_this_round = false;
-        state.pending_hand_draws.push_back(PendingHandDraw{card});
+        state.pending_hand_draws.push_back(PendingHandDraw{card, miracle_auto_play});
         return true;
     }
 
@@ -119,9 +127,9 @@ bool hand_add_card(GameState& state, CardRef card, bool from_deck_draw)
     return true;
 }
 
-bool hand_add_card(GameState& state, CardType type, bool from_deck_draw)
+bool hand_add_card(GameState& state, CardType type, bool from_deck_draw, bool miracle_auto_play)
 {
-    return hand_add_card(state, CardRef{type, NO_INSTANCE}, from_deck_draw);
+    return hand_add_card(state, CardRef{type, NO_INSTANCE}, from_deck_draw, miracle_auto_play);
 }
 
 void hand_swap_cards(GameState& state, int first_card, int second_card)
@@ -140,16 +148,7 @@ void hand_remove_at_to_graveyard_played(GameState& state, int index, int& select
     const CardRef removed = state.hand[index];
     graveyard_push(state, removed);
     state.hand.erase(state.hand.begin() + index);
-
-    if(state.hand.empty())
-    {
-        selected_card = 0;
-    }
-    else if(selected_card >= state.hand.size())
-    {
-        selected_card = state.hand.size() - 1;
-    }
-
+    adjust_selected_after_hand_remove(state, index, selected_card);
     game_events_dispatch(state, GameEvent::HAND_CHANGED);
 }
 
@@ -165,16 +164,7 @@ void hand_remove_at_to_graveyard(GameState& state, int index, int& selected_card
     state.hand.erase(state.hand.begin() + index);
     battle_stat_record_keyword_discard(state);
     trigger_discard_effect_if_any(state, removed.type);
-
-    if(state.hand.empty())
-    {
-        selected_card = 0;
-    }
-    else if(selected_card >= state.hand.size())
-    {
-        selected_card = state.hand.size() - 1;
-    }
-
+    adjust_selected_after_hand_remove(state, index, selected_card);
     game_events_dispatch(state, GameEvent::HAND_CHANGED);
 }
 
@@ -188,16 +178,7 @@ void hand_remove_at_exiled(GameState& state, int index, int& selected_card)
     const CardRef removed = state.hand[index];
     state.hand.erase(state.hand.begin() + index);
     exile_push(state, removed);
-
-    if(state.hand.empty())
-    {
-        selected_card = 0;
-    }
-    else if(selected_card >= state.hand.size())
-    {
-        selected_card = state.hand.size() - 1;
-    }
-
+    adjust_selected_after_hand_remove(state, index, selected_card);
     game_events_dispatch(state, GameEvent::HAND_CHANGED);
 }
 
@@ -211,16 +192,7 @@ void hand_remove_at_to_deck_top(GameState& state, int index, int& selected_card)
     state.deck.insert_top(state.hand[index]);
     state.deck.apply_gravity(state.instance_pool);
     state.hand.erase(state.hand.begin() + index);
-
-    if(state.hand.empty())
-    {
-        selected_card = 0;
-    }
-    else if(selected_card >= state.hand.size())
-    {
-        selected_card = state.hand.size() - 1;
-    }
-
+    adjust_selected_after_hand_remove(state, index, selected_card);
     game_events_dispatch(state, GameEvent::HAND_CHANGED);
 }
 
@@ -289,6 +261,8 @@ void graveyard_clear(GameState& state)
 
 void exile_push(GameState& state, CardRef card, bool from_graveyard)
 {
+    (void)from_graveyard;
+
     if(state.exile.full())
     {
         return;
@@ -298,14 +272,11 @@ void exile_push(GameState& state, CardRef card, bool from_graveyard)
 
     battle_stat_record_exile(state);
 
-    if(from_graveyard)
-    {
-        const CardData& data = card_data(card.type);
+    const CardData& data = card_data(card.type);
 
-        if(data.on_exile)
-        {
-            data.on_exile(state);
-        }
+    if(data.on_exile)
+    {
+        data.on_exile(state);
     }
 }
 
@@ -365,6 +336,71 @@ void graveyard_apply_gravity(GameState& state)
     }
 }
 
+bool birds_find_return_run(const GameState& state, int& out_start, int& out_end)
+{
+    const int threshold = state.birds_return_threshold;
+    out_start = -1;
+    out_end = -1;
+
+    if(threshold > 5)
+    {
+        return false;
+    }
+
+    for(int start = 0; start < state.graveyard.size(); )
+    {
+        if(state.graveyard[start].type != CardType::BIRDS_OF_A_FEATHER)
+        {
+            ++start;
+            continue;
+        }
+
+        int end = start;
+
+        while(end < state.graveyard.size() &&
+              state.graveyard[end].type == CardType::BIRDS_OF_A_FEATHER)
+        {
+            ++end;
+        }
+
+        if(end - start >= threshold)
+        {
+            out_start = start;
+            out_end = end;
+            return true;
+        }
+
+        start = end;
+    }
+
+    return false;
+}
+
+void birds_return_run_to_deck(GameState& state, int return_start, int return_end)
+{
+    if(return_start < 0 || return_end <= return_start || return_end > state.graveyard.size())
+    {
+        return;
+    }
+
+    state.deck.compact();
+
+    for(int index = return_start; index < return_end; ++index)
+    {
+        apply_card_relocated(state, state.graveyard[index].type);
+        state.deck.add_card(state.graveyard[index]);
+    }
+
+    for(int index = return_end - 1; index >= return_start; --index)
+    {
+        state.graveyard.erase(state.graveyard.begin() + index);
+    }
+
+    state.deck.apply_gravity(state.instance_pool);
+    state.birds_return_threshold = state.birds_return_threshold == 5 ? 6 : state.birds_return_threshold + 1;
+    combo_check_zone(state, ComboZone::GRAVEYARD);
+}
+
 void necromancy_shuffle_graveyard_to_deck(GameState& state)
 {
     state.deck.compact();
@@ -393,6 +429,8 @@ void necromancy_shuffle_graveyard_to_deck(GameState& state)
     {
         game_events_dispatch(state, GameEvent::GRAVEYARD_CHANGED);
     }
+
+    combo_check_zone(state, ComboZone::DECK);
 }
 
 

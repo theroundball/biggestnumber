@@ -365,7 +365,12 @@ namespace
 
     void effect_journal(GameState& state)
     {
-        state.add_from_card(state.cards_played_this_round + 1);
+        const int factor = state.cards_played_this_round + 1;
+
+        if(factor > 1)
+        {
+            state.mul_from_card(factor);
+        }
     }
 
     void effect_triptych(GameState& state)
@@ -376,32 +381,9 @@ namespace
         }
     }
 
-    void effect_seeds(GameState& state)
-    {
-        if(state.deck.remaining() < 3 || state.graveyard.size() < 3)
-        {
-            return;
-        }
-
-        state.deck.compact();
-        const int exile_begin = state.exile.size();
-        state.deck.exile_random_undrawn(3, state.rng, state.exile);
-
-        for(int index = exile_begin; index < state.exile.size(); ++index)
-        {
-            apply_card_relocated(state, state.exile[index].type);
-        }
-
-        PendingAction action;
-        action.type = PendingActionType::GRAVEYARD_PICK_TO_TOP;
-        action.count = 3;
-        state.pending_actions.push_back(action);
-    }
-
     void effect_dilla(GameState& state)
     {
-        const int amount = score_contains_digit(state.round.committed(), 0) ? 18 : 8;
-        state.add_from_card(amount);
+        state.pending_double_adds = true;
     }
 
     void effect_semaphore(GameState& state)
@@ -427,10 +409,8 @@ namespace
         state.add_from_card(3);
     }
 
-    void effect_bones_discard(GameState& state)
+    void effect_bones_play(GameState& state)
     {
-        // Base: +2 per GY card (including this Bones). Each extra Bones already
-        // in the GY adds another full +1-per-card pass on top.
         int bones_count = 0;
 
         for(const CardRef& card : state.graveyard)
@@ -441,11 +421,18 @@ namespace
             }
         }
 
-        const int amount = state.graveyard.size() * (1 + bones_count);
+        const int graveyard_count = state.graveyard.size();
 
-        if(amount > 0)
+        if(graveyard_count > 0)
         {
-            state.add_from_card(amount);
+            state.add_from_card(graveyard_count);
+        }
+
+        const int factor = bones_count + 1;
+
+        if(factor > 1)
+        {
+            state.mul_from_card(factor);
         }
     }
 
@@ -489,22 +476,12 @@ namespace
 
     void effect_roll_over_play(GameState& state)
     {
-        state.add_from_card(3);
-
-        if(state.graveyard.size() < 2)
+        if(state.graveyard.empty())
         {
             return;
         }
 
-        PendingAction action;
-        action.type = PendingActionType::GRAVEYARD_PAIR_SWAP;
-        action.count = 3;
-        state.pending_actions.push_back(action);
-    }
-
-    void effect_roll_over_discard(GameState& state)
-    {
-        (void)state;
+        state.pending_actions.push_back(PendingAction{PendingActionType::PLAY_RANDOM_GRAVEYARD});
     }
 
     void effect_toppings(GameState& state)
@@ -524,9 +501,26 @@ namespace
         state.add_from_card(card_data(CardType::GET_ME_OUTA_HERE).immediate_plus);
     }
 
-    void effect_double_time(GameState& state)
+    void effect_cycle(GameState& state)
     {
-        state.pending_double_adds = true;
+        if(state.hand.size() <= 1)
+        {
+            return;
+        }
+
+        state.pending_actions.push_back(PendingAction{PendingActionType::DISCARD_FROM_HAND});
+        queue_effect_draw(state, 1, true);
+    }
+
+    void effect_cycle_seven(GameState& state)
+    {
+        if(state.hand.size() <= 1)
+        {
+            return;
+        }
+
+        state.pending_actions.push_back(PendingAction{PendingActionType::EXILE_FROM_HAND});
+        queue_effect_draw(state, 2, true);
     }
 
     void effect_palindrome(GameState& state)
@@ -578,7 +572,7 @@ namespace
         state.pending_actions.push_back(PendingAction{PendingActionType::REPLACE_TOTAL_DIGIT_WITH_FIVE});
     }
 
-    void effect_speculative(GameState& state)
+    void effect_waterfall(GameState& state)
     {
         if(state.deck.remaining() == 0)
         {
@@ -587,7 +581,7 @@ namespace
 
         PendingAction action;
         action.type = PendingActionType::MILL_REVEAL;
-        action.count = 0;
+        action.count = 2;
         state.pending_actions.push_back(action);
     }
 
@@ -609,106 +603,6 @@ namespace
         state.schedule_keep_going();
     }
 
-    void effect_stat_cycles_add(GameState& state)
-    {
-        const int amount = state.battle_stats.cycles;
-
-        if(amount > 0)
-        {
-            state.add_from_card(amount);
-        }
-    }
-
-    void effect_stat_cycles_mul(GameState& state)
-    {
-        const int factor = state.battle_stats.cycles;
-
-        if(factor > 1)
-        {
-            state.mul_from_card(factor);
-        }
-    }
-
-    void effect_stat_flash_add(GameState& state)
-    {
-        const int amount = state.battle_stats.flashbacks;
-
-        if(amount > 0)
-        {
-            state.add_from_card(amount);
-        }
-    }
-
-    void effect_stat_flash_mul(GameState& state)
-    {
-        const int factor = state.battle_stats.flashbacks;
-
-        if(factor > 1)
-        {
-            state.mul_from_card(factor);
-        }
-    }
-
-    void effect_stat_drawn_add(GameState& state)
-    {
-        const int amount = state.battle_stats.cards_drawn_this_round;
-
-        if(amount > 0)
-        {
-            state.add_from_card(amount);
-        }
-    }
-
-    void effect_stat_drawn_mul(GameState& state)
-    {
-        const int factor = state.battle_stats.cards_drawn_this_round;
-
-        if(factor > 1)
-        {
-            state.mul_from_card(factor);
-        }
-    }
-
-    void effect_stat_exile_add(GameState& state)
-    {
-        const int amount = state.battle_stats.cards_exiled;
-
-        if(amount > 0)
-        {
-            state.add_from_card(amount);
-        }
-    }
-
-    void effect_stat_exile_mul(GameState& state)
-    {
-        const int factor = state.battle_stats.cards_exiled;
-
-        if(factor > 1)
-        {
-            state.mul_from_card(factor);
-        }
-    }
-
-    void effect_stat_discard_add(GameState& state)
-    {
-        const int amount = state.battle_stats.keyword_discards;
-
-        if(amount > 0)
-        {
-            state.add_from_card(amount);
-        }
-    }
-
-    void effect_stat_discard_mul(GameState& state)
-    {
-        const int factor = state.battle_stats.keyword_discards;
-
-        if(factor > 1)
-        {
-            state.mul_from_card(factor);
-        }
-    }
-
     CardData make_card(const char* name, const char* description,
                        int immediate_plus = 0, int immediate_multiply = 0,
                        RoundModifier future_0 = {}, RoundModifier future_1 = {},
@@ -723,14 +617,18 @@ namespace
                        bool has_cycle = false,
                        bool has_flashback = false,
                        int flashback_plus = 0,
-                       void (*on_exile)(GameState&) = nullptr)
+                       void (*on_exile)(GameState&) = nullptr,
+                       bool text_only = false)
     {
         return CardData{
             .name = name,
             .description = description,
-            .body_item = body_item ? body_item : SPRITE_BODY(sips),
-            .accent_top_item = accent_top_item ? accent_top_item : SPRITE_ACCENT_TOP(sips),
-            .accent_bottom_item = accent_bottom_item ? accent_bottom_item : SPRITE_ACCENT_BOTTOM(sips),
+            .body_item = text_only ? nullptr : (body_item ? body_item : SPRITE_BODY(sips)),
+            .accent_top_item = text_only ? nullptr
+                                         : (accent_top_item ? accent_top_item : SPRITE_ACCENT_TOP(sips)),
+            .accent_bottom_item = text_only ? nullptr
+                                            : (accent_bottom_item ? accent_bottom_item
+                                                                  : SPRITE_ACCENT_BOTTOM(sips)),
             .immediate_plus = immediate_plus,
             .immediate_multiply = immediate_multiply,
             .future = { future_0, future_1, future_2 },
@@ -742,6 +640,7 @@ namespace
             .has_cycle = has_cycle,
             .has_flashback = has_flashback,
             .flashback_plus = flashback_plus,
+            .text_only = text_only,
         };
     }
 }
@@ -792,7 +691,7 @@ const CardData& card_data(CardType type)
                   0, 0, {}, {}, {}, nullptr, nullptr, false, false, CARD_SPRITES(sticks)),
         make_card("Bricks", "Complete Straw, Sticks, and Bricks to multiply total score by 3.",
                   0, 0, {}, {}, {}, nullptr, nullptr, false, false, CARD_SPRITES(bricks)),
-        make_card("Lifeline", "Shuffle your graveyard into deck, then exile 5 cards from your deck.",
+        make_card("Lifeline", "Shuffle your graveyard into deck, then exile 3 random cards from your deck.",
                   0, 0, {}, {}, {}, effect_reclaim, nullptr, false, false, CARD_SPRITES(lifeline)),
         make_card("Snail Mail", "+5 next round, +5 two rounds from now, and x5 three rounds from now.",
                   0, 0,
@@ -817,15 +716,15 @@ const CardData& card_data(CardType type)
         make_card("Time is Too Expensive", "Add 2 times the current round number to this round's score.",
                   0, 0, {}, {}, {}, effect_time_is_too_expensive, nullptr, false, false,
                   CARD_SPRITES(time_is_too_expensive)),
-        make_card("Birds of a Feather", "+5. Consecutive runs of 2, then 3, 4, and 5 Birds in your graveyard return to deck top. After 5, this stops.",
+        make_card("Birds of a Feather", "+5. Consecutive runs of 2, then 3, 4, and 5 Birds in your graveyard return to the bottom of your deck. After 5, this stops.",
                   0, 0, {}, {}, {}, effect_birds_of_a_feather_play, nullptr, false, false,
                   CARD_SPRITES(birds_of_a_feather)),
         make_card("Necromancy", "Exile this Necromancy, shuffle your graveyard and add it to the bottom of your deck.",
-                  0, 0, {}, {}, {}, effect_necromancy, nullptr, false, true),
+                  0, 0, {}, {}, {}, effect_necromancy, nullptr, false, true, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Miracle", "Auto-plays for +10 if it is the first card drawn in a round or played from the top of your deck; else +3.",
-                  0, 0, {}, {}, {}, effect_miracle_play),
+                  0, 0, {}, {}, {}, effect_miracle_play, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Rags to Riches", "Exile n cards from your graveyard cards, then multiply your round total by the number of cards exiled this way.",
-                  0, 0, {}, {}, {}, effect_rags_to_riches),
+                  0, 0, {}, {}, {}, effect_rags_to_riches, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Jacks", "Discard another card, then put a card from your graveyard into your hand. Nothing happens if you have no other card to discard.",
                   0, 0, {}, {}, {}, effect_jacks, nullptr, false, false, CARD_SPRITES(jacks)),
         make_card("Fishing Pole", "Discard a card, then put a card from your graveyard on top of your deck. Nothing happens if you have no other card to discard.",
@@ -833,76 +732,53 @@ const CardData& card_data(CardType type)
         make_card("Cups", "Draw 1, discard a card, then exile a card from your graveyard. Skip any step that cannot be completed.",
                   0, 0, {}, {}, {}, effect_cups, nullptr, false, false, CARD_SPRITES(cups)),
         make_card("Swap", "Choose two digits in your total or round score and swap them. The resulting number cannot be smaller",
-                  0, 0, {}, {}, {}, effect_swap),
+                  0, 0, {}, {}, {}, effect_swap, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Catnip", "+1 to this round. Draw 1.",
-                  1, 0, {}, {}, {}, effect_draw1),
-        make_card("Journal", "+n to this round, where n is cards played this round.",
-                  0, 0, {}, {}, {}, effect_journal),
+                  1, 0, {}, {}, {}, effect_draw1, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("Journal", "Multiply this round by n, where n is cards played this round.",
+                  0, 0, {}, {}, {}, effect_journal, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Triptych", "+3 to this round. Multiply by 3 if the total is divisible by 3.",
-                  3, 0, {}, {}, {}, effect_triptych),
-        make_card("Seeds", "Exile 3 random cards from your deck, then pick 3 cards from your graveyard to put on top of your deck. Nothing happens if you have less than 3 cards in your deck.",
-                  0, 0, {}, {}, {}, effect_seeds, nullptr, false),
-        make_card("Dilla", "+18 to this round if your round score contains a 0. Otherwise +8.",
-                  0, 0, {}, {}, {}, effect_dilla),
+                  3, 0, {}, {}, {}, effect_triptych, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("Dilla", "+8. The next card's number amounts are doubled.",
+                  8, 0, {}, {}, {}, effect_dilla, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Semaphore", "If Semaphore is the first card played of round 1: +100. Last card in hand with an empty deck: add multiplier of n, where n is the number of cards in your graveyard. Otherwise +3.",
-                  0, 0, {}, {}, {}, effect_semaphore),
-        make_card("Bones", "Add 1+n to your round score for each card in your graveyard, where n is the number of Bones cards in your graveyard.",
-                  0, 0, {}, {}, {}, nullptr, effect_bones_discard),
+                  0, 0, {}, {}, {}, effect_semaphore, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("Bones", "Add 1 to the round for each card in your graveyard, then multiply by n+1 where n is the number of Bones in your graveyard.",
+                  0, 0, {}, {}, {}, effect_bones_play, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Threshold", "+3 when played. When discarded, if there are 7 or more cards in your graveyard draw 1 card and multiplyer your round score by 3.",
-                  0, 0, {}, {}, {}, effect_threshold_play, effect_threshold_discard),
+                  0, 0, {}, {}, {}, effect_threshold_play, effect_threshold_discard, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Tombstones", "+3 when played. multiply your round score by n when discarded, where n is unique card names in your graveyard.",
-                  0, 0, {}, {}, {}, effect_tombstones_play, effect_tombstones_discard),
-        make_card("Roll Over", "+3 when played. And swap two graveyard cards, 3 times.",
-                  0, 0, {}, {}, {}, effect_roll_over_play, effect_roll_over_discard, false, false,
+                  0, 0, {}, {}, {}, effect_tombstones_play, effect_tombstones_discard, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("Roll Over", "Play a random card from your graveyard.",
+                  0, 0, {}, {}, {}, effect_roll_over_play, nullptr, false, false,
                   CARD_SPRITES(roll_over)),
         make_card("Toppings", "Multiply this round by 2, then play the top card in your deck.",
                   0, 2, {}, {}, {}, effect_toppings, nullptr, false, false, CARD_SPRITES(toppings)),
-        make_card("Cycle", "+2. Press Down to exile this from hand and draw 1.",
-                  2, 0, {}, {}, {}, nullptr, nullptr, false, false, nullptr, nullptr, nullptr, true),
-        make_card("Cycle Seven", "+7. Press Down to exile this from hand and draw 1.",
-                  7, 0, {}, {}, {}, nullptr, nullptr, false, false, nullptr, nullptr, nullptr, true),
+        make_card("Cycle", "Discard another card, +2, then draw 1.",
+                  2, 0, {}, {}, {}, effect_cycle, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("Cycle Seven", "+7. Exile another card and draw 2.",
+                  7, 0, {}, {}, {}, effect_cycle_seven, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Get Me Outa Here", "+9 when played, discarded, or whenever another card moves this.",
                   9, 0, {}, {}, {}, nullptr, effect_get_me_outa_here, false, false,
-                  nullptr, nullptr, nullptr, false, false, 0, effect_get_me_outa_here),
+                  nullptr, nullptr, nullptr, false, false, 0, effect_get_me_outa_here, true),
         make_card("Comeback", "+3. Flashback: exile from graveyard to play for +3.",
-                  3, 0, {}, {}, {}, nullptr, nullptr, false, false, nullptr, nullptr, nullptr, false, true, 3),
+                  3, 0, {}, {}, {}, nullptr, nullptr, false, false, nullptr, nullptr, nullptr, false, true, 3, nullptr, true),
         make_card("Encore", "+6. Flashback: exile from graveyard to play for +6.",
-                  6, 0, {}, {}, {}, nullptr, nullptr, false, false, nullptr, nullptr, nullptr, false, true, 6),
-        make_card("Double Time", "+8. The next card's add amounts are doubled.",
-                  8, 0, {}, {}, {}, effect_double_time),
-        make_card("The Fourth", "Move a 4 in your total score without making the score smaller. Fizzles if no valid move exists.",
-                  0, 0, {}, {}, {}, effect_the_fourth),
-        make_card("Palindrome", "If total score is a palindrome, wrap it in 1s. Double Time wraps it in 2s instead.",
-                  0, 0, {}, {}, {}, effect_palindrome),
+                  6, 0, {}, {}, {}, nullptr, nullptr, false, false, nullptr, nullptr, nullptr, false, true, 6, nullptr, true),
+        make_card("The Fourth", "Move a 4 in your total score without making the score smaller. If no valid move exists, +4 to this round.",
+                  0, 0, {}, {}, {}, effect_the_fourth, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("Palindrome", "If total score is a palindrome, wrap it in 1s. Dilla wraps it in 2s instead.",
+                  0, 0, {}, {}, {}, effect_palindrome, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("The Fifth", "Replace any digit in your total score with a 5.",
-                  0, 0, {}, {}, {}, effect_the_fifth),
-        make_card("Solo", "+11. Draw 1 if no other cards remain in your hand after this is played.", 11),
-        make_card("Speculative", "Reveal the top card. Play it if it would make the current number bigger and then draw 1. Otherwise mill it.",
-                  0, 0, {}, {}, {}, effect_speculative),
+                  0, 0, {}, {}, {}, effect_the_fifth, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("one more thing", "+11. Draw 1 if no other cards remain in your hand after this is played.", 11, 0, {}, {}, {},
+                  nullptr, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("waterfall", "Reveal the top card. Play it (and draw 1) if it would make the current number bigger and repeat; otherwise mill it.",
+                  0, 0, {}, {}, {}, effect_waterfall, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Flex", "Mill cards from the top of your deck until you find one that can add or multiply, then play it.",
-                  0, 0, {}, {}, {}, effect_flex),
-        make_card("Keep Going", "At the start of each of the next 3 rounds, put a random card from your graveyard on top of your deck.",
-                  0, 0, {}, {}, {}, effect_keep_going),
-        make_card("Spokes", "+n to this round, where n is the number of times you cycled this battle.",
-                  0, 0, {}, {}, {}, effect_stat_cycles_add),
-        make_card("Wheel", "Multiply this round by n, where n is the number of times you cycled this battle.",
-                  0, 0, {}, {}, {}, effect_stat_cycles_mul),
-        make_card("Ghost Light", "+n to this round, where n is the number of times you flashbacked this battle.",
-                  0, 0, {}, {}, {}, effect_stat_flash_add),
-        make_card("Ghost Show", "Multiply this round by n, where n is the number of times you flashbacked this battle.",
-                  0, 0, {}, {}, {}, effect_stat_flash_mul),
-        make_card("Flood", "+n to this round, where n is the number of cards drawn this round.",
-                  0, 0, {}, {}, {}, effect_stat_drawn_add),
-        make_card("Torrent", "Multiply this round by n, where n is the number of cards drawn this round.",
-                  0, 0, {}, {}, {}, effect_stat_drawn_mul),
-        make_card("Banish", "+n to this round, where n is the number of cards exiled this battle.",
-                  0, 0, {}, {}, {}, effect_stat_exile_add),
-        make_card("Oblivion", "Multiply this round by n, where n is the number of cards exiled this battle.",
-                  0, 0, {}, {}, {}, effect_stat_exile_mul),
-        make_card("Shred", "+n to this round, where n is the number of times you discarded this battle.",
-                  0, 0, {}, {}, {}, effect_stat_discard_add),
-        make_card("Shredder", "Multiply this round by n, where n is the number of times you discarded this battle.",
-                  0, 0, {}, {}, {}, effect_stat_discard_mul),
+                  0, 0, {}, {}, {}, effect_flex, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("Keep Going", "Exile this. At the start of each of the next 3 rounds, put a random card from your graveyard on top of your deck.",
+                  0, 0, {}, {}, {}, effect_keep_going, nullptr, false, true, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
     };
 
     static_assert(sizeof(table) / sizeof(table[0]) == int(CardType::COUNT),
@@ -950,7 +826,7 @@ void reclaim_graveyard_into_deck(GameState& state)
     state.deck.shuffle(state.rng);
     state.deck.apply_gravity(state.instance_pool);
     const int exile_begin = state.exile.size();
-    state.deck.exile_undrawn_end(LIFELINE_EXILE_COUNT, state.exile);
+    state.deck.exile_random_undrawn(LIFELINE_EXILE_COUNT, state.rng, state.exile);
 
     for(int index = exile_begin; index < state.exile.size(); ++index)
     {

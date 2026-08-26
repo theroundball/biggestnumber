@@ -96,6 +96,7 @@ enum class PendingActionType
     EXILE_GRAVEYARD_MULTIPLY_BY_COUNT,
     DISCARD_FROM_HAND_THEN_MULTIPLY,
     DISCARD_FROM_HAND,
+    EXILE_FROM_HAND,
     PUT_HAND_ON_DECK_TOP,
     RETRIEVE_FROM_GRAVEYARD,
     RETRIEVE_FROM_GRAVEYARD_TO_TOP,
@@ -105,12 +106,15 @@ enum class PendingActionType
     SCRY,
     DECK_SEARCH,
     PLAY_DECK_TOP,
+    PLAY_RANDOM_GRAVEYARD,
     MIRACLE_AUTO_PLAY,
     EFFECT_DECK_DRAW,
     COMBO_CINEMATIC,
     SWAP_TOTAL_SCORE_DIGITS,
     MOVE_FOUR_TOTAL_DIGIT,
     REPLACE_TOTAL_DIGIT_WITH_FIVE,
+    // Birds of a Feather: animate a qualifying GY run onto the deck.
+    BIRDS_RETURN,
     // Lifeline: shuffle GY→deck after the played card has entered the GY.
     RECLAIM_GRAVEYARD,
     NECROMANCY_SHUFFLE,
@@ -128,6 +132,7 @@ struct PendingAction
 struct PendingHandDraw
 {
     CardRef card;
+    bool miracle_auto_play = false;
 };
 
 struct BattleStats
@@ -188,6 +193,8 @@ struct GameState
     CardRef echo_replay_card{};
     PlaySource echo_replay_scoring_source = PlaySource::HAND;
     int birds_return_threshold = 2;
+    int birds_return_start = -1;
+    int birds_return_count = 0;
     bool pending_double_adds = false;
     bool applying_double_adds = false;
     bool first_deck_draw_this_round = true;

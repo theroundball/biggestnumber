@@ -51,6 +51,8 @@ constexpr uint8_t NO_INSTANCE = 255;
 int effective_immediate_plus(const CardInstance& instance);
 int effective_immediate_multiply(const CardInstance& instance);
 
+void instance_pool_clamp(InstancePool& pool);
+
 const CardInstance* instance_at(const InstancePool& pool, uint8_t id);
 CardInstance* instance_at_mut(InstancePool& pool, uint8_t id);
 

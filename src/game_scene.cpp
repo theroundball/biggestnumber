@@ -4,6 +4,12 @@
 #include "bn_keypad.h"
 #include "bn_sprite_text_generator.h"
 
+#include <new>
+
+#ifndef BN_DATA_EWRAM_BSS
+    #define BN_DATA_EWRAM_BSS __attribute__((section(".sbss")))
+#endif
+
 #include "battle_backdrop.h"
 #include "card_instance.h"
 #include "common_variable_8x16_sprite_font.h"
@@ -18,6 +24,9 @@
 
 namespace
 {
+    alignas(GameContext) BN_DATA_EWRAM_BSS char game_context_storage[sizeof(GameContext)];
+    GameContext* active_game_context = nullptr;
+
     bool run_game_pause_menu()
     {
         wait_for_keypad_clear();
@@ -63,7 +72,17 @@ namespace
 
 GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const BattleLaunch& launch)
 {
-    GameContext ctx(collection, launch);
+    // GameContext is ~23KB; GBA main stack is ~16KB. EWRAM placement avoids stack overflow
+    // corrupting palette/text generator state (manifests as "Unknown compression type: 229").
+    if(active_game_context)
+    {
+        active_game_context->shutdown_for_exit();
+        active_game_context->~GameContext();
+        active_game_context = nullptr;
+    }
+
+    active_game_context = new(game_context_storage) GameContext(collection, launch);
+    GameContext& ctx = *active_game_context;
 
     while(! ctx.run_finished)
     {
@@ -73,6 +92,7 @@ GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const 
             {
                 ctx.scene_result.exited_early = true;
                 ctx.run_finished = true;
+                ctx.shutdown_for_exit();
                 break;
             }
         }
@@ -119,7 +139,11 @@ GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const 
         bn::core::update();
     }
 
-    return ctx.scene_result;
+    GameSceneResult result = ctx.scene_result;
+    ctx.shutdown_for_exit();
+    ctx.~GameContext();
+    active_game_context = nullptr;
+    return result;
 }
 
 GameSceneResult run_game_scene(const bn::vector<CardType, 50>& collection, const BattleLaunch& launch)

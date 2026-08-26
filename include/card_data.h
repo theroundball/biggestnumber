@@ -36,6 +36,8 @@ struct CardData
     bool has_cycle = false;
     bool has_flashback = false;
     int flashback_plus = 0;
+    // Renders a shared blank frame plus on-card name/stat text instead of card art.
+    bool text_only = false;
 };
 
 // Look up the definition for a card type (indexed into the static table).
@@ -45,7 +47,7 @@ int count_unique_graveyard_types(const GameState& state);
 
 // Lifeline reclaim: merge entire graveyard into deck (including Lifeline if already
 // routed there), shuffle, exile 5 undrawn cards from deck bottom.
-constexpr int LIFELINE_EXILE_COUNT = 5;
+constexpr int LIFELINE_EXILE_COUNT = 3;
 
 void reclaim_graveyard_into_deck(GameState& state);
 

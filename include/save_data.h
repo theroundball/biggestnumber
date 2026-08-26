@@ -11,7 +11,7 @@
 #include "game_state.h"
 
 constexpr int SAVE_DATA_MAGIC = 0x424E554D; // 'BNUM'
-constexpr int SAVE_DATA_VERSION = 11;
+constexpr int SAVE_DATA_VERSION = 12;
 constexpr int MAX_SAVED_DECKS = 6;
 constexpr int LIBRARY_COPY_LIMIT = 5;
 constexpr int DECK_MIN_CARDS = 1;
@@ -33,7 +33,7 @@ struct SavedDeck
         uint8_t(TrinketType::NONE),
         uint8_t(TrinketType::NONE),
     };
-    // 1 = sandbox deck: full catalog, no library/per-type limits (still max DECK_MAX_CARDS).
+    // 1 = sandbox/debug deck: full catalog, no library/per-type limits (max DECK_MAX_CARDS).
     uint8_t unrestricted_build = 0;
 };
 
@@ -76,6 +76,7 @@ bool saved_deck_name_in_use(const SaveData& save, const bn::string_view& name, i
 void saved_deck_assign_unique_name(SavedDeck& deck, const SaveData& save, int ignore_deck_index = -1);
 bn::string<16> saved_deck_display_name(const SavedDeck& deck);
 int saved_deck_total_cards(const SavedDeck& deck);
+void saved_deck_trim_to_max(SavedDeck& deck, int max_cards);
 bool saved_deck_can_add(const SavedDeck& deck, CardType type);
 bool saved_deck_add_card(SavedDeck& deck, CardType type);
 bool saved_deck_remove_card(SavedDeck& deck, CardType type);

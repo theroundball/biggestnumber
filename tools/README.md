@@ -126,3 +126,20 @@ python3 tools/fill_transparent_png.py graphics/source --key ff00ff
 ### `split_card_sprites.py` (legacy)
 
 Thin wrapper that calls `convert_sprites.py`. Prefer `convert_sprites.py` directly.
+
+### `generate_card_pdf.py`
+
+Builds a printable PDF of every card from `src/card_data.cpp` — sprite art (when
+`CARD_SPRITES` is set) plus name and UI description. Text-only cards omit art.
+
+Run from `biggestnumber/`:
+
+```bash
+pip install pillow fpdf2
+python tools/generate_card_pdf.py
+python tools/generate_card_pdf.py --output docs/cards.pdf --per-page 8
+python tools/generate_card_pdf.py --per-page 6   # 2x3 grid
+```
+
+Looks for `{slug}_body.bmp`, `_accent_top`, and `_accent_bottom` under `graphics/`
+(and `graphics/output/`). Re-run whenever card text or art changes.

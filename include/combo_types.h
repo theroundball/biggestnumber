@@ -15,6 +15,7 @@ enum class ComboZone
     HAND,
     GRAVEYARD,
     REVEALED,
+    DECK,
 };
 
 struct PendingCombo

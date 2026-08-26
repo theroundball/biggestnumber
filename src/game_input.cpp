@@ -200,8 +200,7 @@ void GameContext::handle_input_inspect_toggle()
 
     // Select / Down toggles the inspect view for the highlighted card (in any card
     // view: hand, discard target, or graveyard picker).
-    const bool removal_blocks_inspect =
-        removing_card && removal_phase != PlayRemovalPhase::WAIT_PRESENTATION;
+    const bool removal_blocks_inspect = removing_card && !play_can_overlap();
 
     if (inspect_toggle_pressed && !removal_blocks_inspect && !graveyard_card_fx_active &&
         !hand_draw_fx_blocking() &&
@@ -293,7 +292,30 @@ bool GameContext::handle_input_presentation()
     {
         // Removal timing is driven from the main loop so animations finish even when
         // handle_input is skipped (lucky sevens, deck-search resolve, etc.).
-        if(removal_phase == PlayRemovalPhase::WAIT_PRESENTATION && mode == GameMode::NORMAL)
+        // Keep left/right selection live while a play is in the air. Confirm and
+        // cycle still self-gate on play_can_overlap().
+        if(mode == GameMode::NORMAL)
+        {
+            return false;
+        }
+
+        bool waiting_only = true;
+
+        for(const PlayFlight& flight : play_flights)
+        {
+            if(!flight.active)
+            {
+                continue;
+            }
+
+            if(flight.phase != PlayRemovalPhase::WAIT_PRESENTATION)
+            {
+                waiting_only = false;
+                break;
+            }
+        }
+
+        if(waiting_only && mode == GameMode::NORMAL)
         {
             return false;
         }
@@ -406,15 +428,14 @@ bool GameContext::handle_input_presentation()
 void GameContext::handle_input_normal(int current_direction, bool direction_triggered, int direction_steps,
                                       bool scrolling)
 {
-    const bool score_wait_locks_hand_actions =
-        removing_card && removal_phase == PlayRemovalPhase::WAIT_PRESENTATION;
     const int slot_count = playable_slot_count(state);
     const bool live_selected = selected_card >= 0 && selected_card < state.hand.size();
     const bool flashback_selected = selected_card >= state.hand.size() && selected_card < slot_count;
+    const bool lock_for_scroll = scrolling && !removing_card;
 
     if(!game_over && !scrolling && !inspecting &&
        side_panel == SidePanel::NONE && !panel_transition_active() && state.hand.size() && bn::keypad::b_held() &&
-       !score_wait_locks_hand_actions &&
+       !removing_card &&
        bn::keypad::right_pressed() && live_selected && selected_card < state.hand.size() - 1)
     {
         swapping_card = true;
@@ -424,7 +445,7 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
     }
     else if(!game_over && !scrolling && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() && state.hand.size() && bn::keypad::b_held() &&
-            !score_wait_locks_hand_actions &&
+            !removing_card &&
             bn::keypad::left_pressed() && live_selected && selected_card > 0)
     {
         swapping_card = true;
@@ -442,25 +463,55 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
     {
         cycle_side_panel(-1);
     }
-    else if(!game_over && !scrolling && side_panel == SidePanel::NONE &&
+    else if(!game_over && !lock_for_scroll && side_panel == SidePanel::NONE &&
             !panel_transition_active() && slot_count && !bn::keypad::b_held() && direction_triggered)
     {
-        nudge_cursor(selected_card, current_direction, direction_steps, 0, slot_count - 1);
+        const int min_index = 0;
+        const int max_index = slot_count - 1;
+        int cursor = selected_card;
+
+        for(int step = 0; step < direction_steps; ++step)
+        {
+            int next = cursor + current_direction;
+
+            while(next >= min_index && next <= max_index && play_hides_visual_slot(next))
+            {
+                next += current_direction;
+            }
+
+            if(next < min_index || next > max_index)
+            {
+                break;
+            }
+
+            cursor = next;
+        }
+
+        selected_card = cursor;
+
+        if(removing_card)
+        {
+            snap_selected_card_raise();
+        }
+
         update_target_scroll();
     }
-    else if(!game_over && !scrolling && !inspecting &&
+    else if(!game_over && !lock_for_scroll && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() && live_selected &&
-            !score_wait_locks_hand_actions && bn::keypad::down_pressed() &&
+            bn::keypad::down_pressed() &&
             card_has_cycle(state.hand[selected_card].type))
     {
-        removal_cycle_draw = true;
-        removal_cycle_exile = true;
+        if(removing_card && !play_can_overlap())
+        {
+            return;
+        }
+
         capture_removal_start();
-        begin_direct_removal(removal_start_x, removal_start_y, RemovalStyle::EXILE_DISSIPATE, false);
+        begin_direct_removal(removal_start_x, removal_start_y, RemovalStyle::EXILE_DISSIPATE, false, true);
     }
-    else if(!game_over && !scrolling && !inspecting &&
+    else if(!game_over && !lock_for_scroll && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() && slot_count &&
-            !score_wait_locks_hand_actions && confirm_pressed())
+            confirm_pressed())
     {
         if(inspecting)
         {
@@ -468,6 +519,11 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
         }
         else if(flashback_selected)
         {
+            if(removing_card && !play_can_overlap())
+            {
+                return;
+            }
+
             const int gy_index = playable_slot_graveyard_index(state, selected_card);
             const CardRef played_ref = playable_slot_card(state, selected_card);
 
@@ -476,7 +532,7 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
                 return;
             }
 
-            const int main_x = main_panel_offset_x();
+            capture_removal_start();
             PlayResolutionContext context;
             context.source = PlaySource::FLASHBACK;
             context.hand_index = gy_index;
@@ -487,12 +543,17 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
                                      card_has_play_effect(state, played_ref);
             begin_play_presentation(
                 played_ref,
-                card_target_x_for_hud_icon(game_layout::HUD_GRAVEYARD_X, main_x),
-                card_target_y_for_hud_icon(game_layout::HUD_GRAVEYARD_Y),
+                removal_start_x,
+                removal_start_y,
                 PlayPresentOrigin::GRAVEYARD, context, RemovalStyle::EXILE_DISSIPATE);
         }
         else if(swivel_is_waiting(*this) && live_selected)
         {
+            if(removing_card)
+            {
+                return;
+            }
+
             const CardRef played_ref = state.hand[selected_card];
             capture_removal_start();
 
@@ -502,15 +563,24 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
             context.selected_card = &selected_card;
             context.apply_destination = false;
 
-            removal_swivel_follow = true;
             state.swivel_waiting = false;
             echo_play_badge_active = state.echo_first_play_active() &&
                                      card_has_play_effect(state, played_ref);
             begin_play_presentation(played_ref, removal_start_x, removal_start_y, PlayPresentOrigin::HAND,
                                   context, RemovalStyle::TO_DECK_TOP);
+
+            if(PlayFlight* flight = latest_play_flight())
+            {
+                flight->swivel_follow = true;
+            }
         }
         else if(live_selected)
         {
+            if(removing_card && !play_can_overlap())
+            {
+                return;
+            }
+
             const CardRef played_ref = state.hand[selected_card];
             echo_play_badge_active = state.echo_first_play_active() &&
                                      card_has_play_effect(state, played_ref);
@@ -525,9 +595,11 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
 
             if(played_ref.type == CardType::SWIVEL)
             {
-                removal_style = style;
-                removal_is_discard = false;
-                removal_swivel_follow = false;
+                if(removing_card)
+                {
+                    return;
+                }
+
                 begin_direct_removal(removal_start_x, removal_start_y, style, false);
             }
             else if(card_has_play_effect(state, played_ref))
@@ -537,8 +609,6 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
             }
             else
             {
-                removal_style = style;
-                removal_is_discard = false;
                 begin_direct_removal(removal_start_x, removal_start_y, style, false);
             }
         }
@@ -562,6 +632,14 @@ void GameContext::handle_input_discard_target(int current_direction, bool direct
             capture_removal_start();
             begin_direct_removal(removal_start_x, removal_start_y, RemovalStyle::TO_DECK_TOP, false);
         }
+        else if(state.selection.type == PendingActionType::EXILE_FROM_HAND)
+        {
+            const int removed = selected_card;
+            hand_remove_at_exiled(state, removed, selected_card);
+            shift_card_raise_after_remove(removed);
+            draw_round_score();
+            begin_next_pending_or_finish();
+        }
         else if(card_has_discard_effect(state.hand[selected_card].type))
         {
             begin_discard_presentation(selected_card);
@@ -577,6 +655,11 @@ void GameContext::handle_input_discard_target(int current_direction, bool direct
 void GameContext::handle_input_graveyard_target(int current_direction, bool direction_triggered,
                                                 int direction_steps, bool row_scrolling)
 {
+    if(state.selection.type == PendingActionType::BIRDS_RETURN)
+    {
+        return;
+    }
+
     // --- GRAVEYARD_TARGET: pick a graveyard card to return to hand (Up) ---
     if(!row_scrolling && !graveyard_card_fx_active && direction_triggered && current_direction != 0)
     {
@@ -706,8 +789,6 @@ void GameContext::handle_input_deck_search(int current_direction, bool direction
             return;
         }
 
-        removal_swivel_follow = swivel_follow;
-
         if(swivel_follow)
         {
             state.swivel_waiting = false;
@@ -723,6 +804,11 @@ void GameContext::handle_input_deck_search(int current_direction, bool direction
         begin_play_presentation(
             prepared.card, pick_x, pick_y, PlayPresentOrigin::DECK_SEARCH, context, resolved_style,
             prepared.miracle_from_top);
+
+        if(PlayFlight* flight = latest_play_flight())
+        {
+            flight->swivel_follow = swivel_follow;
+        }
 
         state.selection = SelectionSession{};
         mode = GameMode::NORMAL;
@@ -839,7 +925,6 @@ void GameContext::handle_input_scry(int current_direction, bool direction_trigge
         }
 
         const PreparedDeckPlay prepared = scry_prepare_play(state);
-        removal_swivel_follow = swivel_follow;
 
         if(swivel_follow)
         {
@@ -856,6 +941,11 @@ void GameContext::handle_input_scry(int current_direction, bool direction_trigge
         begin_play_presentation(
             prepared.card, pick_x, pick_y, PlayPresentOrigin::SCRY, context, resolved_style,
             prepared.miracle_from_top);
+
+        if(PlayFlight* flight = latest_play_flight())
+        {
+            flight->swivel_follow = swivel_follow;
+        }
 
         state.selection = SelectionSession{};
         mode = GameMode::NORMAL;

@@ -99,12 +99,13 @@ namespace game_layout
     constexpr int SWAP_FRAMES = 12;
     constexpr int SWAP_EASE_SCALE = 256;
     constexpr int SWAP_ARC_PEAK = 5;
-    constexpr int REMOVAL_FRAMES = 24;
-    constexpr int PLAY_APPROACH_FRAMES = 16;
+    constexpr int MAX_PLAY_FLIGHTS = 2;
+    constexpr int REMOVAL_FRAMES = 16;
+    constexpr int PLAY_APPROACH_FRAMES = 12;
     constexpr int PLAY_DECK_APPROACH_FRAMES = 28;
-    constexpr int PLAY_HOLD_FRAMES = 15;
-    constexpr int PLAY_DEPART_FRAMES = 24;
-    constexpr int HAND_DRAW_FRAMES = 8;
+    constexpr int PLAY_HOLD_FRAMES = 10;
+    constexpr int PLAY_DEPART_FRAMES = 18;
+    constexpr int HAND_DRAW_FRAMES = 24;
     constexpr int ZONE_TRANSFER_FRAMES = 28;
     constexpr int REMOVAL_MIN_SCALE = 1;
     constexpr int REMOVAL_MIN_SCALE_DIVISOR = 8;
@@ -115,10 +116,16 @@ namespace game_layout
     constexpr int HUD_GRAVEYARD_X = 108;
     constexpr int HUD_GRAVEYARD_Y = -68;
     constexpr int HAND_CARD_Z = -5;
+    // Text drawn on card faces must sit above the body sprite (higher z = in front).
+    constexpr int CARD_FACE_TEXT_Z = HAND_CARD_Z + 1;
     constexpr int PLAY_PRESENTATION_CARD_Z = -8;
     constexpr int PLAY_PRESENTATION_SCORE_Z = -30;
     constexpr int MARKER_Z_ORDER = -10;
     constexpr int SCORE_CENTER_Y = -41;
+    constexpr int SCORE_BAR_Y = -66;
+    constexpr int SCORE_BAR_WIDTH = 192;
+    constexpr int SCORE_BAR_SEGMENT = 8;
+    constexpr int SCORE_BAR_SEGMENT_COUNT = SCORE_BAR_WIDTH / SCORE_BAR_SEGMENT;
     constexpr int CARD_BODY_HEIGHT = 64;
     // Play beat: sit above raised hand row with a small gap (card position is top-left).
     constexpr int PLAY_PRESENTATION_CENTER_Y =

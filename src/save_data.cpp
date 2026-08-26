@@ -14,9 +14,11 @@ namespace
     constexpr int SAVE_DATA_VERSION_V8 = 8;
     constexpr int SAVE_DATA_VERSION_V9 = 9;
     constexpr int SAVE_DATA_VERSION_V10 = 10;
+    constexpr int SAVE_DATA_VERSION_V11 = 11;
     constexpr int SAVE_DATA_CARD_COUNT_V10 = 63;
+    constexpr int SAVE_DATA_CARD_COUNT_V11 = 74;
     constexpr int SAVE_DATA_TRINKET_COUNT_V10 = 6;
-    static_assert(int(CardType::KEEP_GOING) == SAVE_DATA_CARD_COUNT_V10);
+    static_assert(int(CardType::COUNT) == 62);
     static_assert(int(TrinketType::FIBONACCI) == SAVE_DATA_TRINKET_COUNT_V10);
     constexpr int SAVE_DATA_CARD_COUNT_V9 = 51;
     constexpr int SAVE_DATA_CARD_COUNT_V5 = 53;
@@ -571,6 +573,194 @@ namespace
         {
             save_data_migrate_deck_v10_to_v11(data.decks[deck_index], old_data.decks[deck_index]);
         }
+    }
+
+    int save_data_map_v11_card_index(int old_index)
+    {
+        switch(old_index)
+        {
+        case 44:  // SEEDS
+        case 57:  // DOUBLE_TIME
+        case 64:  // STAT_CYCLES_ADD
+        case 65:  // STAT_CYCLES_MUL
+        case 66:  // STAT_FLASH_ADD
+        case 67:  // STAT_FLASH_MUL
+        case 68:  // STAT_DRAWN_ADD
+        case 69:  // STAT_DRAWN_MUL
+        case 70:  // STAT_EXILE_ADD
+        case 71:  // STAT_EXILE_MUL
+        case 72:  // STAT_DISCARD_ADD
+        case 73:  // STAT_DISCARD_MUL
+            return -1;
+
+        default:
+            break;
+        }
+
+        int shift = 0;
+
+        if(old_index > 44)
+        {
+            ++shift;
+        }
+
+        if(old_index > 57)
+        {
+            ++shift;
+        }
+
+        for(int stat_index = 64; stat_index <= 73; ++stat_index)
+        {
+            if(old_index > stat_index)
+            {
+                ++shift;
+            }
+        }
+
+        return old_index - shift;
+    }
+
+    void save_data_migrate_counts_v11_to_v12(uint8_t* out_counts, const uint8_t* old_counts)
+    {
+        for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+        {
+            out_counts[type_index] = 0;
+        }
+
+        for(int old_index = 0; old_index < SAVE_DATA_CARD_COUNT_V11; ++old_index)
+        {
+            const int new_index = save_data_map_v11_card_index(old_index);
+
+            if(new_index >= 0 && new_index < int(CardType::COUNT))
+            {
+                out_counts[new_index] = old_counts[old_index];
+            }
+        }
+    }
+
+    struct SavedDeckV11
+    {
+        char name[16] = {};
+        uint8_t counts[SAVE_DATA_CARD_COUNT_V11] = {};
+        int32_t highest_score = 0;
+        uint8_t trinkets[CAMPAIGN_TRINKET_SLOTS] = {
+            uint8_t(TrinketType::NONE),
+            uint8_t(TrinketType::NONE),
+        };
+        uint8_t unrestricted_build = 0;
+    };
+
+    struct SaveDataV11
+    {
+        uint32_t magic = 0;
+        uint16_t version = 0;
+        uint8_t deck_count = 0;
+        uint8_t active_deck_index = 0;
+        uint8_t campaign_ready = 0;
+        uint8_t reserved_pad = 0;
+        int32_t biggest_number_record = 0;
+        int32_t total_wins = 0;
+        int32_t same_number_wins = 0;
+        int16_t same_number_target = 0;
+        uint8_t same_number_used_count = 0;
+        uint8_t reserved = 0;
+        int16_t same_number_used_targets[SAME_NUMBER_USED_CAPACITY] = {};
+        int32_t number_now_round_best[CAMPAIGN_NUMBER_NOW_ROUNDS] = {};
+        uint8_t library_counts[SAVE_DATA_CARD_COUNT_V11] = {};
+        uint8_t trinket_owned[SAVE_DATA_TRINKET_COUNT_V10] = {};
+        InstancePool instance_pool{};
+        SavedDeckV11 decks[MAX_SAVED_DECKS] = {};
+    };
+
+    void save_data_migrate_deck_v11_to_v12(SavedDeck& deck, const SavedDeckV11& old_deck)
+    {
+        for(int index = 0; index < 16; ++index)
+        {
+            deck.name[index] = old_deck.name[index];
+        }
+
+        deck.highest_score = old_deck.highest_score;
+        deck.unrestricted_build = old_deck.unrestricted_build;
+
+        for(int slot = 0; slot < CAMPAIGN_TRINKET_SLOTS; ++slot)
+        {
+            deck.trinkets[slot] = old_deck.trinkets[slot];
+        }
+
+        save_data_migrate_counts_v11_to_v12(deck.counts, old_deck.counts);
+    }
+
+    void save_data_migrate_v11_to_v12(SaveData& data, const SaveDataV11& old_data)
+    {
+        data = SaveData{};
+        data.magic = old_data.magic;
+        data.version = SAVE_DATA_VERSION;
+        data.deck_count = old_data.deck_count;
+        data.active_deck_index = old_data.active_deck_index;
+        data.campaign_ready = old_data.campaign_ready;
+        data.reserved_pad = old_data.reserved_pad;
+        data.biggest_number_record = old_data.biggest_number_record;
+        data.total_wins = old_data.total_wins;
+        data.same_number_wins = old_data.same_number_wins;
+        data.same_number_target = old_data.same_number_target;
+        data.same_number_used_count = old_data.same_number_used_count;
+        data.reserved = old_data.reserved;
+
+        for(int index = 0; index < SAME_NUMBER_USED_CAPACITY; ++index)
+        {
+            data.same_number_used_targets[index] = old_data.same_number_used_targets[index];
+        }
+
+        for(int round_index = 0; round_index < CAMPAIGN_NUMBER_NOW_ROUNDS; ++round_index)
+        {
+            data.number_now_round_best[round_index] = old_data.number_now_round_best[round_index];
+        }
+
+        save_data_migrate_counts_v11_to_v12(data.library_counts, old_data.library_counts);
+
+        for(int trinket_index = 0; trinket_index < SAVE_DATA_TRINKET_COUNT_V10; ++trinket_index)
+        {
+            data.trinket_owned[trinket_index] = old_data.trinket_owned[trinket_index];
+        }
+
+        data.instance_pool = old_data.instance_pool;
+
+        for(int deck_index = 0; deck_index < data.deck_count; ++deck_index)
+        {
+            save_data_migrate_deck_v11_to_v12(data.decks[deck_index], old_data.decks[deck_index]);
+        }
+    }
+
+    bool save_data_valid_v11(const SaveDataV11& data)
+    {
+        if(data.magic != SAVE_DATA_MAGIC || data.version != SAVE_DATA_VERSION_V11 ||
+           data.deck_count > MAX_SAVED_DECKS)
+        {
+            return false;
+        }
+
+        if(data.active_deck_index >= data.deck_count && data.deck_count > 0)
+        {
+            return false;
+        }
+
+        for(int deck_index = 0; deck_index < data.deck_count; ++deck_index)
+        {
+            const SavedDeckV11& deck = data.decks[deck_index];
+            int total = 0;
+
+            for(int type_index = 0; type_index < SAVE_DATA_CARD_COUNT_V11; ++type_index)
+            {
+                total += deck.counts[type_index];
+            }
+
+            if(total < DECK_MIN_CARDS || total > DECK_LEGACY_MAX_CARDS)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // Card roster size before Gravedigger was removed (CardType::GRAVEDIGGER was index 36).
@@ -1498,176 +1688,7 @@ void save_data_init()
     }
     else
     {
-        SaveDataV10 loaded_v10;
-        bn::sram::read(loaded_v10);
-
-        if(save_data_valid_v10(loaded_v10))
-        {
-            save_data_migrate_v10_to_v11(_save_data, loaded_v10);
-
-            for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
-            {
-                saved_deck_sanitize_name(_save_data.decks[deck_index]);
-            }
-        }
-        else
-        {
-        SaveDataV9 loaded_v9;
-        bn::sram::read(loaded_v9);
-
-        if(save_data_valid_v9(loaded_v9))
-        {
-            save_data_migrate_v9_to_v10(_save_data, loaded_v9);
-
-            for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
-            {
-                saved_deck_sanitize_name(_save_data.decks[deck_index]);
-            }
-        }
-        else
-        {
-        SaveDataV8 loaded_v8;
-        bn::sram::read(loaded_v8);
-
-        if(save_data_valid_v8(loaded_v8))
-        {
-            save_data_migrate_v8_to_v9(_save_data, loaded_v8);
-
-            for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
-            {
-                saved_deck_sanitize_name(_save_data.decks[deck_index]);
-            }
-        }
-        else
-        {
-        SaveDataV7 loaded_v7;
-        bn::sram::read(loaded_v7);
-
-        if(save_data_valid_v7(loaded_v7))
-        {
-            save_data_migrate_v7_to_v8(_save_data, loaded_v7);
-
-            for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
-            {
-                saved_deck_sanitize_name(_save_data.decks[deck_index]);
-            }
-        }
-        else
-        {
-        SaveDataV6 loaded_v6;
-        bn::sram::read(loaded_v6);
-
-        if(save_data_valid_v6(loaded_v6))
-        {
-            save_data_migrate_v6_to_v7(_save_data, loaded_v6);
-
-            for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
-            {
-                saved_deck_sanitize_name(_save_data.decks[deck_index]);
-            }
-        }
-        else
-        {
-        SaveDataV5 loaded_v5;
-        bn::sram::read(loaded_v5);
-
-        if(save_data_valid_v5(loaded_v5))
-        {
-            save_data_migrate_v5_to_v6(_save_data, loaded_v5);
-
-            for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
-            {
-                saved_deck_sanitize_name(_save_data.decks[deck_index]);
-            }
-        }
-        else
-        {
-        SaveDataV4 loaded_v4;
-        bn::sram::read(loaded_v4);
-
-        if(save_data_valid_v4(loaded_v4))
-        {
-            save_data_migrate_v4_to_v5(_save_data, loaded_v4);
-
-            for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
-            {
-                saved_deck_sanitize_name(_save_data.decks[deck_index]);
-            }
-        }
-        else
-        {
-            SaveDataV3 loaded_v3;
-            bn::sram::read(loaded_v3);
-
-            if(save_data_valid_v3_decks(loaded_v3))
-            {
-                save_data_migrate_v3_to_v4(_save_data, loaded_v3);
-
-                for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
-                {
-                    saved_deck_sanitize_name(_save_data.decks[deck_index]);
-                }
-            }
-            else
-            {
-                SaveDataV2 loaded_v2;
-                bn::sram::read(loaded_v2);
-
-                if(save_data_valid_v2_decks(loaded_v2))
-                {
-                    SaveDataV3 as_v3;
-                    save_data_migrate_v2_to_v3(as_v3, loaded_v2);
-                    save_data_migrate_v3_to_v4(_save_data, as_v3);
-
-                    for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
-                    {
-                        saved_deck_sanitize_name(_save_data.decks[deck_index]);
-                    }
-                }
-                else if(save_data_valid_v1_decks(loaded))
-                {
-                    SaveDataV2 as_v2;
-                    as_v2.magic = loaded.magic;
-                    as_v2.version = 2;
-                    as_v2.deck_count = loaded.deck_count;
-                    as_v2.reserved = loaded.reserved;
-
-                    for(int deck_index = 0; deck_index < loaded.deck_count; ++deck_index)
-                    {
-                        for(int index = 0; index < 16; ++index)
-                        {
-                            as_v2.decks[deck_index].name[index] = loaded.decks[deck_index].name[index];
-                        }
-
-                        as_v2.decks[deck_index].highest_score = 0;
-
-                        for(int type_index = 0; type_index < SAVE_DATA_CARD_COUNT_V2; ++type_index)
-                        {
-                            as_v2.decks[deck_index].counts[type_index] = loaded.decks[deck_index].counts[type_index];
-                        }
-                    }
-
-                    SaveDataV3 as_v3;
-                    save_data_migrate_v2_to_v3(as_v3, as_v2);
-                    save_data_migrate_v3_to_v4(_save_data, as_v3);
-
-                    for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
-                    {
-                        saved_deck_sanitize_name(_save_data.decks[deck_index]);
-                    }
-                }
-                else
-                {
-                    save_data_reset();
-                }
-            }
-        }
-        }
-        }
-        }
-        }
-        }
-        }
+        save_data_reset();
     }
 
     save_data_validate(_save_data);
@@ -1860,6 +1881,11 @@ void saved_deck_sanitize_name(SavedDeck& deck)
 
 bn::string<16> saved_deck_display_name(const SavedDeck& deck)
 {
+    if(saved_deck_unrestricted_build(deck))
+    {
+        return bn::string<16>("Debug");
+    }
+
     bn::string<16> name;
 
     for(int index = 0; index < 16 && deck.name[index] != '\0'; ++index)
@@ -1890,6 +1916,23 @@ int saved_deck_total_cards(const SavedDeck& deck)
     }
 
     return total;
+}
+
+void saved_deck_trim_to_max(SavedDeck& deck, int max_cards)
+{
+    int total = saved_deck_total_cards(deck);
+
+    while(total > max_cards)
+    {
+        for(int type_index = int(CardType::COUNT) - 1; type_index >= 0 && total > max_cards; --type_index)
+        {
+            if(deck.counts[type_index] > 0)
+            {
+                --deck.counts[type_index];
+                --total;
+            }
+        }
+    }
 }
 
 bool saved_deck_can_add(const SavedDeck& deck, CardType type)
@@ -2064,6 +2107,8 @@ void campaign_set_active_deck(SaveData& save, int deck_index)
 
 void save_data_validate(SaveData& save)
 {
+    instance_pool_clamp(save.instance_pool);
+
     if(save.deck_count > MAX_SAVED_DECKS)
     {
         save.deck_count = MAX_SAVED_DECKS;
@@ -2132,21 +2177,15 @@ void save_data_validate(SaveData& save)
     for(int deck_index = 0; deck_index < save.deck_count; ++deck_index)
     {
         SavedDeck& deck = save.decks[deck_index];
-        int total = saved_deck_total_cards(deck);
 
-        while(total > DECK_MAX_CARDS)
+        if(deck.unrestricted_build != 0)
         {
-            for(int type_index = int(CardType::COUNT) - 1; type_index >= 0 && total > DECK_MAX_CARDS; --type_index)
-            {
-                if(deck.counts[type_index] > 0)
-                {
-                    --deck.counts[type_index];
-                    --total;
-                }
-            }
+            deck.unrestricted_build = 1;
         }
 
         saved_deck_sanitize_name(deck);
+
+        saved_deck_trim_to_max(deck, DECK_MAX_CARDS);
     }
 
     if(save.same_number_wins < 0)
@@ -2242,8 +2281,5 @@ void save_data_validate(SaveData& save)
         }
     }
 
-    if(save.instance_pool.count > InstancePool::CAPACITY)
-    {
-        save.instance_pool.count = InstancePool::CAPACITY;
-    }
+    instance_pool_clamp(save.instance_pool);
 }

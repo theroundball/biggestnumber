@@ -3,6 +3,7 @@
 #include "campaign.h"
 #include "campaign_scenes.h"
 #include "campaign_types.h"
+#include "card_instance.h"
 #include "game_scene.h"
 #include "menu_scenes.h"
 #include "save_data.h"
@@ -52,6 +53,7 @@ namespace
         launch.same_number_target = setup.same_number_target;
         launch.number_now_scoring_round = setup.number_now_scoring_round;
         launch.number_now_round_peak = setup.number_now_round_peak;
+        instance_pool_clamp(save.instance_pool);
         launch.instance_pool = save.instance_pool;
         campaign_load_trinkets(deck, launch.trinkets);
 

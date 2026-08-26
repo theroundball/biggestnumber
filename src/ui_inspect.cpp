@@ -108,6 +108,16 @@ void show_inspect_card(Card& card, CardType type, const CardInstance* instance,
     card.set_type(type);
     card.set_position(inspect_layout::CARD_X, inspect_layout::CARD_Y);
     card.set_blending_enabled(false);
+
+    if(card_data(type).text_only)
+    {
+        card.sync_face_labels(pip_generator, instance);
+    }
+    else
+    {
+        card.clear_face_labels();
+    }
+
     card.set_upgrade_pips(pip_generator, instance);
     card.set_inspect_visual(2);
     card.set_visible(true);

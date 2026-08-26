@@ -3,9 +3,11 @@
 #include "bn_core.h"
 #include "bn_seed_random.h"
 #include "bn_span.h"
+#include "bn_string.h"
 
 #include "card_data.h"
 #include "card.h"
+#include "card_instance.h"
 #include "game_events.h"
 #include "game_ui.h"
 #include "play_resolution.h"
@@ -142,16 +144,7 @@ bool card_numeric_play_override(CardType type)
     case CardType::CLOVER:
     case CardType::BIG_KUROSAWA_BURGER:
     case CardType::RAGS_TO_RICHES:
-    case CardType::STAT_CYCLES_ADD:
-    case CardType::STAT_CYCLES_MUL:
-    case CardType::STAT_FLASH_ADD:
-    case CardType::STAT_FLASH_MUL:
-    case CardType::STAT_DRAWN_ADD:
-    case CardType::STAT_DRAWN_MUL:
-    case CardType::STAT_EXILE_ADD:
-    case CardType::STAT_EXILE_MUL:
-    case CardType::STAT_DISCARD_ADD:
-    case CardType::STAT_DISCARD_MUL:
+    case CardType::BONES:
         return true;
     default:
         return false;
@@ -217,6 +210,203 @@ bool card_can_add_or_multiply(const GameState& state, CardRef card)
     return card_can_add_or_multiply(card.type);
 }
 
+namespace
+{
+    bool score_contains_digit_below(int value, int below)
+    {
+        if(below <= 0)
+        {
+            return false;
+        }
+
+        int digits = value < 0 ? -value : value;
+
+        if(digits == 0)
+        {
+            return 0 < below;
+        }
+
+        while(digits > 0)
+        {
+            if(digits % 10 < below)
+            {
+                return true;
+            }
+
+            digits /= 10;
+        }
+
+        return false;
+    }
+
+    bool total_score_is_palindrome(int total)
+    {
+        const bn::string<12> digits = bn::to_string<12>(total);
+
+        if(digits.size() > 9)
+        {
+            return false;
+        }
+
+        for(int left = 0, right = digits.size() - 1; left < right; ++left, --right)
+        {
+            if(digits[left] != digits[right])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    bool palindrome_would_increase_total(int total, bool applying_double_adds)
+    {
+        if(!total_score_is_palindrome(total))
+        {
+            return false;
+        }
+
+        const bn::string<12> digits = bn::to_string<12>(total);
+        long long outer_place = 10;
+
+        for(int index = 0; index < digits.size(); ++index)
+        {
+            outer_place *= 10;
+        }
+
+        const int wrapper = applying_double_adds ? 2 : 1;
+        const long long after = static_cast<long long>(wrapper) * outer_place +
+                                static_cast<long long>(total) * 10 + wrapper;
+
+        return after <= 2147483647 && after > total;
+    }
+
+    bool roundup_would_increase_total(const GameState& state)
+    {
+        const int count = state.roundup_play_count + 1;
+        int divisor = 10;
+
+        if(count == 2)
+        {
+            divisor = 100;
+        }
+        else if(count >= 3)
+        {
+            divisor = 1000;
+        }
+
+        const int after = ((state.total_score + divisor - 1) / divisor) * divisor;
+        return after > state.total_score;
+    }
+
+    bool waterfall_immediate_round_increase(const GameState& state, CardRef card)
+    {
+        if(card_preview_plus(state, card, false) > 0)
+        {
+            return true;
+        }
+
+        int multiply = card_data(card.type).immediate_multiply;
+
+        if(card.has_instance())
+        {
+            if(const CardInstance* instance = instance_at(state.instance_pool, card.instance_id))
+            {
+                multiply = effective_immediate_multiply(*instance);
+            }
+        }
+
+        return multiply > 1 && state.round.running > 0;
+    }
+}
+
+bool mill_reveal_card_hits(const GameState& state, CardRef card, bool waterfall)
+{
+    return waterfall ? waterfall_would_make_bigger(state, card)
+                     : card_can_add_or_multiply(state, card);
+}
+
+bool waterfall_would_make_bigger(const GameState& state, CardRef card)
+{
+    switch(card.type)
+    {
+    case CardType::WISHES:
+    case CardType::SIPS:
+    case CardType::SNAIL_MAIL:
+    case CardType::SWAP:
+    case CardType::HACKER:
+    case CardType::LIBRARIAN:
+    case CardType::PILOT:
+    case CardType::NECROMANCY:
+    case CardType::JACKS:
+    case CardType::FISHING_POLE:
+    case CardType::CUPS:
+    case CardType::ROLL_OVER:
+    case CardType::FLEX:
+    case CardType::SPECULATIVE:
+    case CardType::KEEP_GOING:
+    case CardType::LIFELINE:
+    case CardType::SWIVEL:
+    case CardType::TURTLE_MODE:
+    case CardType::RAGS_TO_RICHES:
+        return false;
+
+    case CardType::MIRACLE:
+        return true;
+
+    case CardType::THE_FOURTH:
+        return true;
+
+    case CardType::THE_FIFTH:
+        return score_contains_digit_below(state.total_score, 5);
+
+    case CardType::PALINDROME:
+        return palindrome_would_increase_total(state.total_score, state.applying_double_adds);
+
+    case CardType::ROUNDUP:
+        return roundup_would_increase_total(state);
+
+    case CardType::CLOVER:
+        return state.graveyard.size() >= 3;
+
+    case CardType::BIG_KUROSAWA_BURGER:
+        return state.hand.size() > 1;
+
+    case CardType::THRESHOLD:
+    case CardType::TOMBSTONES:
+    case CardType::BIRDS_OF_A_FEATHER:
+    case CardType::TIME_IS_TOO_EXPENSIVE:
+        return true;
+
+    case CardType::BONES:
+        return state.graveyard.size() > 0;
+
+    case CardType::JOURNAL:
+        return state.cards_played_this_round > 0 && state.round.running > 0;
+
+    case CardType::SEMAPHORE:
+        if(state.current_round == 1 && state.cards_played_this_round == 0)
+        {
+            return true;
+        }
+
+        if(state.hand.size() == 1 && state.deck.empty())
+        {
+            return state.graveyard.size() > 1;
+        }
+
+        return true;
+
+    case CardType::TRIPTYCH:
+        return true;
+
+    default:
+        break;
+    }
+
+    return waterfall_immediate_round_increase(state, card);
+}
+
 int card_preview_plus(const GameState& state, CardRef card, bool flashback)
 {
     const CardData& data = card_data(card.type);
@@ -253,12 +443,16 @@ int flashback_ghost_count(const GameState& state)
     return count;
 }
 
+bool empty_hand_triggers_round_end(const GameState& state)
+{
+    return state.hand.empty() && flashback_ghost_count(state) == 0;
+}
+
 int playable_slot_count(const GameState& state)
 {
-    // Flashback is optional and does not keep an empty live hand in the round.
     if(state.hand.empty())
     {
-        return 0;
+        return flashback_ghost_count(state);
     }
 
     return state.hand.size() + flashback_ghost_count(state);
@@ -562,9 +756,25 @@ CardRowResult render_card_row(bn::span<Card> pool, bn::span<const CardRef> sourc
         pool[slot].set_visible(true);
         pool[slot].set_blending_enabled(false);
 
+        const CardInstance* instance = nullptr;
+
+        if(instances && source[index].has_instance())
+        {
+            instance = instance_at(*instances, source[index].instance_id);
+        }
+
+        if(pip_generator && card_data(source[index].type).text_only)
+        {
+            pool[slot].sync_face_labels(pip_generator, instance);
+        }
+        else
+        {
+            pool[slot].clear_face_labels();
+        }
+
         if(instances && pip_generator && source[index].has_instance())
         {
-            pool[slot].set_upgrade_pips(pip_generator, instance_at(*instances, source[index].instance_id));
+            pool[slot].set_upgrade_pips(pip_generator, instance);
         }
         else
         {

@@ -7,6 +7,32 @@
 #include "bn_sprite_ptr.h"
 #include "bn_sprite_palette_ptr.h"
 #include "bn_sprite_tiles_ptr.h"
+#include "bn_vector.h"
+
+#include "game_types.h"
+
+// One OBJ palette slot shared by HUD icons, card markers, fade bands, and effect badges.
+// GBA allows 16 sprite palettes total; battle UI must not allocate one palette per widget.
+namespace ui_palette
+{
+    constexpr int TRANSPARENT = 0;
+    constexpr int MARKER_X = 1;
+    constexpr int MARKER_LOCK = 2;
+    constexpr int PLACEHOLDER = 3;
+    constexpr int SWIVEL_BADGE = 4;
+    constexpr int ECHO_BADGE = 5;
+    constexpr int DECK = 6;
+    constexpr int GRAVEYARD = 7;
+    constexpr int TRINKET_EMPTY = 8;
+    constexpr int TRINKET_EQUIPPED = 9;
+    constexpr int TRINKET_LUCKY_SEVENS = 10;
+    constexpr int TRINKET_GET_WITH_THE_TIMES = 11;
+    constexpr int TURTLE = 12;
+    constexpr int TRINKET_PRIME_TIME = 13;
+    constexpr int SCORE_BAR_GOLD = 15;
+
+    [[nodiscard]] const bn::sprite_palette_ptr& shared();
+}
 
 class GameFadeBand
 {
@@ -61,6 +87,36 @@ private:
     bn::sprite_ptr _sprite;
 };
 
+// Horizontal track above the total score: gold = committed total, dark gray = current round.
+class ScoreProgressBar
+{
+public:
+    ScoreProgressBar();
+
+    void sync(int total, int round_committed, int goal);
+    void set_visible(bool visible);
+    void set_x_offset(int panel_offset);
+
+private:
+    bn::sprite_tiles_ptr _track_tile;
+    bn::sprite_tiles_ptr _gold_tile;
+    bn::sprite_tiles_ptr _round_tile;
+    bn::sprite_palette_ptr _palette;
+    bn::vector<bn::sprite_ptr, game_layout::SCORE_BAR_SEGMENT_COUNT> _track_sprites;
+    bn::vector<bn::sprite_ptr, game_layout::SCORE_BAR_SEGMENT_COUNT> _gold_sprites;
+    bn::vector<bn::sprite_ptr, game_layout::SCORE_BAR_SEGMENT_COUNT> _round_sprites;
+    int _last_total_px = -1;
+    int _last_combined_px = -1;
+    int _last_goal = -1;
+    int _x_offset = 0;
+    bool _visible = false;
+
+    [[nodiscard]] int segment_center_x(int segment_index) const;
+    void reposition_segments();
+    void rebuild_fill_sprites(bn::vector<bn::sprite_ptr, game_layout::SCORE_BAR_SEGMENT_COUNT>& sprites,
+                              int segment_count, int tile_index, int segment_offset);
+};
+
 // Small 16x16 badge rendered above a hand card (Echo trinket art, Swivel placeholder
 // until hud_effect_swivel.bmp exists — swap CardEffectBadge::sprite_item_for(SWIVEL)).
 class CardEffectBadge
@@ -83,11 +139,10 @@ private:
     Kind _kind = Kind::NONE;
     bn::optional<bn::sprite_ptr> _sprite;
     bn::optional<bn::sprite_tiles_ptr> _owned_tiles;
-    bn::optional<bn::sprite_palette_ptr> _owned_palette;
 
-    static const bn::sprite_item* sprite_item_for(Kind kind);
     void rebuild(Kind kind);
     void clear();
+    void paint(Kind kind);
 };
 
 void apply_row_fade_bands(bn::array<GameFadeBand, 4>& bands, int card_y, bool has_left, bool has_right);

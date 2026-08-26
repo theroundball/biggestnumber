@@ -4,10 +4,16 @@
 #include "bn_array.h"
 #include "bn_bpp_mode.h"
 #include "bn_color.h"
+#include "bn_compression_type.h"
 #include "bn_math.h"
+#include "bn_optional.h"
 #include "bn_span.h"
+#include "bn_sprite_item.h"
 #include "bn_sprite_palette_item.h"
 #include "bn_sprite_palette_ptr.h"
+#include "bn_sprite_shape_size.h"
+#include "bn_sprite_tiles_ptr.h"
+#include "bn_tile.h"
 #include "card_data.h"
 #include "card_instance.h"
 #include "game_events.h"
@@ -94,13 +100,257 @@ namespace
         }
 
         const bn::sprite_palette_item item(
-            bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4);
-        // create() reuses an existing bank when colors already match (per rarity).
+            bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4,
+            bn::compression_type::NONE);
         const bn::sprite_palette_ptr palette = bn::sprite_palette_ptr::create(item);
 
         body.set_palette(palette);
         accent_top.set_palette(palette);
         accent_bottom.set_palette(palette);
+    }
+
+    constexpr int TEXT_CARD_TILES_W = 4;
+    constexpr int TEXT_CARD_TILES_H = 8;
+    constexpr int TEXT_CARD_PIXEL_W = 32;
+    constexpr int TEXT_CARD_TILE_COUNT = TEXT_CARD_TILES_W * TEXT_CARD_TILES_H;
+
+    constexpr int TEXT_CARD_RARITY_COUNT = 3;
+
+    bool g_text_card_tiles_ready = false;
+    bn::optional<bn::sprite_tiles_ptr> g_text_card_tiles_ptr;
+    bn::array<bn::color, 16> g_text_card_palette_colors_by_rarity[TEXT_CARD_RARITY_COUNT];
+    bn::optional<bn::sprite_palette_ptr> g_text_card_palettes_by_rarity[TEXT_CARD_RARITY_COUNT];
+    bool g_text_card_palette_colors_ready = false;
+
+    void init_text_card_palette_colors()
+    {
+        if(g_text_card_palette_colors_ready)
+        {
+            return;
+        }
+
+        for(int rarity_index = 0; rarity_index < TEXT_CARD_RARITY_COUNT; ++rarity_index)
+        {
+            bn::array<bn::color, 16>& colors = g_text_card_palette_colors_by_rarity[rarity_index];
+            colors[0] = bn::color(0, 0, 0);
+            colors[1] = bn::color(14, 14, 18);
+            colors[2] = border_color_for(CardRarity(rarity_index));
+
+            for(int index = 3; index < 16; ++index)
+            {
+                colors[index] = bn::color(0, 0, 0);
+            }
+        }
+
+        g_text_card_palette_colors_ready = true;
+    }
+
+    const bn::sprite_palette_ptr& text_card_palette_for(CardRarity rarity)
+    {
+        init_text_card_palette_colors();
+
+        int rarity_index = int(rarity);
+
+        if(rarity_index < 0 || rarity_index >= TEXT_CARD_RARITY_COUNT)
+        {
+            rarity_index = int(CardRarity::COMMON);
+        }
+
+        if(!g_text_card_palettes_by_rarity[rarity_index])
+        {
+            const bn::sprite_palette_item palette_item(
+                bn::span<const bn::color>(g_text_card_palette_colors_by_rarity[rarity_index].data(), 16),
+                bn::bpp_mode::BPP_4, bn::compression_type::NONE);
+            g_text_card_palettes_by_rarity[rarity_index] = bn::sprite_palette_ptr::create(palette_item);
+        }
+
+        return g_text_card_palettes_by_rarity[rarity_index].value();
+    }
+
+    bool text_card_border_pixel(int global_x, int global_y)
+    {
+        return global_x == 0 || global_x == TEXT_CARD_PIXEL_W - 1 || global_y == 0 || global_y == 63;
+    }
+
+    void write_text_card_tiles(bn::span<bn::tile> dest)
+    {
+        for(int ty = 0; ty < TEXT_CARD_TILES_H; ++ty)
+        {
+            for(int tx = 0; tx < TEXT_CARD_TILES_W; ++tx)
+            {
+                bn::tile& tile = dest[ty * TEXT_CARD_TILES_W + tx];
+
+                for(int py = 0; py < 8; ++py)
+                {
+                    uint32_t row = 0;
+
+                    for(int px = 0; px < 8; ++px)
+                    {
+                        const int global_x = tx * 8 + px;
+                        const int global_y = ty * 8 + py;
+                        const int color_index = text_card_border_pixel(global_x, global_y) ? 2 : 1;
+                        row |= uint32_t(color_index) << (px * 4);
+                    }
+
+                    tile.data[py] = row;
+                }
+            }
+        }
+    }
+
+    void ensure_text_card_tiles()
+    {
+        if(g_text_card_tiles_ready)
+        {
+            return;
+        }
+
+        g_text_card_tiles_ptr = bn::sprite_tiles_ptr::allocate(TEXT_CARD_TILE_COUNT, bn::bpp_mode::BPP_4);
+        bn::span<bn::tile> tiles_vram = g_text_card_tiles_ptr->vram().value();
+        write_text_card_tiles(tiles_vram);
+        g_text_card_tiles_ready = true;
+    }
+
+    void apply_text_card_body_tiles(bn::sprite_ptr& body, CardType type)
+    {
+        ensure_text_card_tiles();
+        body.set_tiles_and_palette(bn::sprite_shape_size(32, 64), g_text_card_tiles_ptr.value(),
+                                   text_card_palette_for(card_meta(type).rarity));
+    }
+
+    int face_line_char_limit()
+    {
+        return 10;
+    }
+
+    void append_face_word(bn::string<32>& line, bn::string<32>& next_line, const bn::string_view& word)
+    {
+        if(word.empty())
+        {
+            return;
+        }
+
+        const int extra = line.empty() ? int(word.size()) : int(word.size()) + 1;
+
+        if(line.size() + extra <= face_line_char_limit())
+        {
+            if(!line.empty())
+            {
+                line.append(' ');
+            }
+
+            line.append(word);
+            return;
+        }
+
+        if(next_line.empty() && word.size() <= face_line_char_limit())
+        {
+            next_line.append(word);
+            return;
+        }
+
+        if(next_line.size() + extra <= face_line_char_limit())
+        {
+            if(!next_line.empty())
+            {
+                next_line.append(' ');
+            }
+
+            next_line.append(word);
+        }
+    }
+
+    void format_face_name_lines(const char* name, bn::string<32>& line_a, bn::string<32>& line_b)
+    {
+        line_a.clear();
+        line_b.clear();
+
+        if(!name || name[0] == '\0')
+        {
+            return;
+        }
+
+        bn::string<32> word;
+
+        for(int index = 0; name[index] != '\0'; ++index)
+        {
+            const char character = name[index];
+
+            if(character == ' ')
+            {
+                append_face_word(line_a, line_b, word);
+                word.clear();
+            }
+            else
+            {
+                word.push_back(character);
+            }
+        }
+
+        append_face_word(line_a, line_b, word);
+    }
+
+    void build_face_stat_line(const CardData& data, const CardInstance* instance, bn::string<12>& out)
+    {
+        out.clear();
+
+        int plus = data.immediate_plus;
+        int multiply = data.immediate_multiply;
+
+        if(instance)
+        {
+            plus = effective_immediate_plus(*instance);
+            multiply = effective_immediate_multiply(*instance);
+        }
+
+        if(plus != 0)
+        {
+            out.append(plus > 0 ? "+" : "-");
+            out.append(bn::to_string<8>(plus > 0 ? plus : -plus));
+        }
+
+        if(multiply > 1)
+        {
+            if(!out.empty())
+            {
+                out.append(' ');
+            }
+
+            out.append("x");
+            out.append(bn::to_string<8>(multiply));
+        }
+
+        if(data.has_cycle)
+        {
+            if(!out.empty())
+            {
+                out.append(' ');
+            }
+
+            out.append("Cyc");
+        }
+
+        if(data.has_flashback)
+        {
+            if(!out.empty())
+            {
+                out.append(' ');
+            }
+
+            out.append("FB");
+
+            if(data.flashback_plus != 0)
+            {
+                out.append(data.flashback_plus > 0 ? "+" : "-");
+                out.append(bn::to_string<4>(data.flashback_plus > 0 ? data.flashback_plus
+                                                                    : -data.flashback_plus));
+            }
+        }
+
+        if(out.empty() && data.on_play != nullptr && data.immediate_plus == 0 && data.immediate_multiply <= 1)
+        {
+            out.append("FX");
+        }
     }
 }
 
@@ -113,6 +363,7 @@ Card::Card() :
     _accent_bottom(card_data(CardType::SIPS).accent_bottom_item->create_sprite(0, 0))
 {
     apply_rarity_border_palette(_body, _accent_top, _accent_bottom, _type);
+    apply_draw_layering();
     set_visible(false);
 }
 
@@ -127,6 +378,7 @@ Card::Card(CardType type, bn::fixed x, bn::fixed y) :
                                                                      y + BODY_H - ACCENT_H / 2))
 {
     apply_rarity_border_palette(_body, _accent_top, _accent_bottom, _type);
+    apply_draw_layering();
 }
 
 void apply_card_play(GameState& state, CardType type)
@@ -257,25 +509,41 @@ void Card::set_type(CardType type)
 {
     if(_type == type)
     {
+        apply_draw_layering();
         return;
     }
 
     _type = type;
+    clear_face_labels();
 
     const CardData& data = card_data(type);
-    _body.set_item(*data.body_item);
-    _accent_top.set_item(*data.accent_top_item);
-    _accent_bottom.set_item(*data.accent_bottom_item);
-    apply_rarity_border_palette(_body, _accent_top, _accent_bottom, _type);
+
+    if(data.text_only)
+    {
+        apply_text_card_body_tiles(_body, _type);
+    }
+    else
+    {
+        _body.set_item(*data.body_item);
+        _accent_top.set_item(*data.accent_top_item);
+        _accent_bottom.set_item(*data.accent_bottom_item);
+        apply_rarity_border_palette(_body, _accent_top, _accent_bottom, _type);
+    }
+
+    reposition_parts();
+    apply_draw_layering();
 }
 
 void Card::sync_part_visibility()
 {
+    const bool show_accents = _visible && !card_data(_type).text_only;
+
     _body.set_visible(_visible);
-    _accent_top.set_visible(_visible);
-    _accent_bottom.set_visible(_visible);
+    _accent_top.set_visible(show_accents);
+    _accent_bottom.set_visible(show_accents);
     sync_upgrade_pip_visibility();
     sync_amount_overlay_visibility();
+    sync_face_label_visibility();
 }
 
 void Card::reposition_parts()
@@ -286,6 +554,7 @@ void Card::reposition_parts()
                                 _y + BODY_H - ACCENT_H / 2);
     reposition_upgrade_pips();
     reposition_amount_overlay();
+    reposition_face_labels();
 }
 
 void Card::sync_upgrade_pip_visibility()
@@ -356,6 +625,139 @@ void Card::reposition_amount_overlay()
     }
 }
 
+void Card::clear_face_labels()
+{
+    _face_name_sprites.clear();
+    _face_stat_sprites.clear();
+    _face_name_text.clear();
+    _face_stat_text.clear();
+    _face_label_generator = nullptr;
+    _face_anchor_x = 0;
+    _face_anchor_y = 0;
+}
+
+void Card::sync_face_label_visibility()
+{
+    const bool show = _visible && (!_visual_active || _visual_overlays) && card_data(_type).text_only;
+
+    for(bn::sprite_ptr& sprite : _face_name_sprites)
+    {
+        sprite.set_visible(show);
+    }
+
+    for(bn::sprite_ptr& sprite : _face_stat_sprites)
+    {
+        sprite.set_visible(show);
+    }
+}
+
+void Card::reposition_face_labels()
+{
+    if(_face_name_sprites.empty() && _face_stat_sprites.empty())
+    {
+        return;
+    }
+
+    const bn::fixed dx = _x - _face_anchor_x;
+    const bn::fixed dy = _y - _face_anchor_y;
+
+    if(dx == 0 && dy == 0)
+    {
+        return;
+    }
+
+    for(bn::sprite_ptr& sprite : _face_name_sprites)
+    {
+        sprite.set_position(sprite.x() + dx, sprite.y() + dy);
+    }
+
+    for(bn::sprite_ptr& sprite : _face_stat_sprites)
+    {
+        sprite.set_position(sprite.x() + dx, sprite.y() + dy);
+    }
+
+    _face_anchor_x = _x;
+    _face_anchor_y = _y;
+}
+
+void Card::sync_face_labels(bn::sprite_text_generator* generator, const CardInstance* instance)
+{
+    if(!generator || !card_data(_type).text_only)
+    {
+        clear_face_labels();
+        return;
+    }
+
+    bn::string<32> line_a;
+    bn::string<32> line_b;
+    format_face_name_lines(card_data(_type).name, line_a, line_b);
+
+    bn::string<12> stat_line;
+    build_face_stat_line(card_data(_type), instance, stat_line);
+
+    bn::string<40> name_block;
+
+    if(!line_a.empty())
+    {
+        name_block.append(line_a);
+
+        if(!line_b.empty())
+        {
+            name_block.append('|');
+            name_block.append(line_b);
+        }
+    }
+
+    if(generator == _face_label_generator && name_block == _face_name_text && stat_line == _face_stat_text &&
+       !_face_name_sprites.empty())
+    {
+        reposition_face_labels();
+        sync_face_label_visibility();
+        apply_draw_layering();
+        return;
+    }
+
+    _face_name_sprites.clear();
+    _face_stat_sprites.clear();
+    _face_name_text = name_block;
+    _face_stat_text = stat_line;
+    _face_label_generator = generator;
+    _face_anchor_x = _x;
+    _face_anchor_y = _y;
+
+    generator->set_center_alignment();
+
+    if(!line_a.empty())
+    {
+        generator->generate(_x.integer() + BODY_W.integer() / 2, _y.integer() + 12, line_a, _face_name_sprites);
+    }
+
+    if(!line_b.empty())
+    {
+        bn::vector<bn::sprite_ptr, 12> second_line;
+        generator->generate(_x.integer() + BODY_W.integer() / 2, _y.integer() + 22, line_b, second_line);
+
+        for(bn::sprite_ptr& sprite : second_line)
+        {
+            if(_face_name_sprites.full())
+            {
+                break;
+            }
+
+            _face_name_sprites.push_back(sprite);
+        }
+    }
+
+    if(!stat_line.empty())
+    {
+        generator->generate(_x.integer() + BODY_W.integer() / 2, _y.integer() + 52, stat_line,
+                              _face_stat_sprites);
+    }
+
+    sync_face_label_visibility();
+    apply_draw_layering();
+}
+
 void Card::clear_amount_overlay()
 {
     _amount_overlay.clear();
@@ -388,12 +790,8 @@ void Card::set_amount_overlay(bn::sprite_text_generator* generator, const bn::st
     generator->set_left_alignment();
     generator->generate(_amount_anchor_x.integer(), _amount_anchor_y.integer(), text, _amount_overlay);
 
-    for(bn::sprite_ptr& sprite : _amount_overlay)
-    {
-        sprite.set_z_order(game_layout::HAND_CARD_Z);
-    }
-
     sync_amount_overlay_visibility();
+    apply_draw_layering();
 }
 
 void Card::clear_upgrade_pips()
@@ -426,6 +824,7 @@ void Card::set_upgrade_pips(bn::sprite_text_generator* generator, const CardInst
     {
         reposition_upgrade_pips();
         sync_upgrade_pip_visibility();
+        apply_draw_layering();
         return;
     }
 
@@ -437,12 +836,8 @@ void Card::set_upgrade_pips(bn::sprite_text_generator* generator, const CardInst
     generator->set_left_alignment();
     generator->generate(_pip_anchor_x.integer(), _pip_anchor_y.integer(), pips, _upgrade_pips);
 
-    for(bn::sprite_ptr& sprite : _upgrade_pips)
-    {
-        sprite.set_z_order(game_layout::HAND_CARD_Z);
-    }
-
     sync_upgrade_pip_visibility();
+    apply_draw_layering();
 }
 
 void Card::set_position(bn::fixed x, bn::fixed y)
@@ -489,29 +884,50 @@ void Card::set_blending_enabled(bool blending_enabled)
     }
 }
 
-void Card::set_draw_on_top(bool on_top)
+void Card::apply_draw_layering()
 {
-    const int z = on_top ? game_layout::PLAY_PRESENTATION_CARD_Z : game_layout::HAND_CARD_Z;
-    const int bg_priority = on_top ? 0 : 2;
+    const int z = _draw_on_top ? game_layout::PLAY_PRESENTATION_CARD_Z : game_layout::HAND_CARD_Z;
+    const int face_z = _draw_on_top ? game_layout::PLAY_PRESENTATION_CARD_Z + 1 : game_layout::CARD_FACE_TEXT_Z;
+    const int body_bg_priority = _draw_on_top ? 0 : 2;
+    const int face_bg_priority = _draw_on_top ? 0 : 1;
+    const int overlay_z = _draw_on_top ? game_layout::PLAY_PRESENTATION_CARD_Z - 1 : game_layout::HAND_CARD_Z;
 
     _body.set_z_order(z);
-    _body.set_bg_priority(bg_priority);
+    _body.set_bg_priority(body_bg_priority);
     _accent_top.set_z_order(z);
-    _accent_top.set_bg_priority(bg_priority);
+    _accent_top.set_bg_priority(body_bg_priority);
     _accent_bottom.set_z_order(z);
-    _accent_bottom.set_bg_priority(bg_priority);
+    _accent_bottom.set_bg_priority(body_bg_priority);
 
     for(bn::sprite_ptr& sprite : _upgrade_pips)
     {
-        sprite.set_z_order(on_top ? game_layout::PLAY_PRESENTATION_CARD_Z - 1 : game_layout::HAND_CARD_Z);
-        sprite.set_bg_priority(bg_priority);
+        sprite.set_z_order(overlay_z);
+        sprite.set_bg_priority(body_bg_priority);
     }
 
     for(bn::sprite_ptr& sprite : _amount_overlay)
     {
-        sprite.set_z_order(on_top ? game_layout::PLAY_PRESENTATION_CARD_Z - 1 : game_layout::HAND_CARD_Z);
-        sprite.set_bg_priority(bg_priority);
+        sprite.set_z_order(overlay_z);
+        sprite.set_bg_priority(body_bg_priority);
     }
+
+    for(bn::sprite_ptr& sprite : _face_name_sprites)
+    {
+        sprite.set_z_order(face_z);
+        sprite.set_bg_priority(face_bg_priority);
+    }
+
+    for(bn::sprite_ptr& sprite : _face_stat_sprites)
+    {
+        sprite.set_z_order(face_z);
+        sprite.set_bg_priority(face_bg_priority);
+    }
+}
+
+void Card::set_draw_on_top(bool on_top)
+{
+    _draw_on_top = on_top;
+    apply_draw_layering();
 }
 
 void Card::set_visual(bn::fixed scale, bn::fixed rotation_degrees)
@@ -671,6 +1087,7 @@ void release_card_display_tiles(Card& card)
 {
     card.clear_upgrade_pips();
     card.clear_amount_overlay();
+    card.clear_face_labels();
     card.set_visible(false);
     card.clear_visual();
     card.set_blending_enabled(false);

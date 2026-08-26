@@ -52,7 +52,6 @@ enum class CardType
     CATNIP,
     JOURNAL,
     TRIPTYCH,
-    SEEDS,
     DILLA,
     SEMAPHORE,
     BONES,
@@ -65,7 +64,6 @@ enum class CardType
     GET_ME_OUTA_HERE,
     COMEBACK,
     ENCORE,
-    DOUBLE_TIME,
     THE_FOURTH,
     PALINDROME,
     THE_FIFTH,
@@ -73,16 +71,6 @@ enum class CardType
     SPECULATIVE,
     FLEX,
     KEEP_GOING,
-    STAT_CYCLES_ADD,
-    STAT_CYCLES_MUL,
-    STAT_FLASH_ADD,
-    STAT_FLASH_MUL,
-    STAT_DRAWN_ADD,
-    STAT_DRAWN_MUL,
-    STAT_EXILE_ADD,
-    STAT_EXILE_MUL,
-    STAT_DISCARD_ADD,
-    STAT_DISCARD_MUL,
     COUNT
 };
 

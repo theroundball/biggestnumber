@@ -22,6 +22,7 @@ void combo_cinematic_begin(GameState& state);
 void combo_apply_score_bonus(GameState& state);
 void combo_remove_resolved_cards(GameState& state, int& selected_card);
 void combo_resolve(GameState& state, int& selected_card);
+bool combo_resolves_to_exile(ComboZone zone);
 bool try_start_combo_cinematic(GameState& state);
 bool combo_start_cinematic_if_valid(GameState& state);
 bool combo_try_start_pending(GameState& state);

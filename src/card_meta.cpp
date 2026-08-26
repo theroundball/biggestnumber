@@ -97,7 +97,6 @@ namespace
         {CardRarity::COMMON, 3},   // CATNIP
         {CardRarity::UNCOMMON, 5}, // JOURNAL
         {CardRarity::UNCOMMON, 5}, // TRIPTYCH
-        {CardRarity::UNCOMMON, 2}, // SEEDS
         {CardRarity::UNCOMMON, 2}, // DILLA
         {CardRarity::RARE, 1},     // SEMAPHORE
         {CardRarity::COMMON, 3},   // BONES
@@ -110,7 +109,6 @@ namespace
         {CardRarity::UNCOMMON, 3}, // GET_ME_OUTA_HERE
         {CardRarity::UNCOMMON, 3}, // COMEBACK
         {CardRarity::UNCOMMON, 3}, // ENCORE
-        {CardRarity::UNCOMMON, 2}, // DOUBLE_TIME
         {CardRarity::COMMON, 5},   // THE_FOURTH
         {CardRarity::COMMON, 5},   // PALINDROME
         {CardRarity::COMMON, 5},   // THE_FIFTH
@@ -118,16 +116,6 @@ namespace
         {CardRarity::RARE, 1},     // SPECULATIVE
         {CardRarity::RARE, 1},     // FLEX
         {CardRarity::UNCOMMON, 3}, // KEEP_GOING
-        {CardRarity::UNCOMMON, 5}, // STAT_CYCLES_ADD
-        {CardRarity::UNCOMMON, 5}, // STAT_CYCLES_MUL
-        {CardRarity::UNCOMMON, 5}, // STAT_FLASH_ADD
-        {CardRarity::UNCOMMON, 5}, // STAT_FLASH_MUL
-        {CardRarity::UNCOMMON, 5}, // STAT_DRAWN_ADD
-        {CardRarity::UNCOMMON, 5}, // STAT_DRAWN_MUL
-        {CardRarity::UNCOMMON, 5}, // STAT_EXILE_ADD
-        {CardRarity::UNCOMMON, 5}, // STAT_EXILE_MUL
-        {CardRarity::UNCOMMON, 5}, // STAT_DISCARD_ADD
-        {CardRarity::UNCOMMON, 5}, // STAT_DISCARD_MUL
     };
 
     static_assert(sizeof(META_TABLE) / sizeof(META_TABLE[0]) == int(CardType::COUNT),

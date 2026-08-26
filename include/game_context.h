@@ -23,6 +23,36 @@
 #include "trinket_system.h"
 #include "ui_common.h"
 
+struct PlayFlight
+{
+    bool active = false;
+    bool is_discard = false;
+    PlayRemovalPhase phase = PlayRemovalPhase::APPROACH;
+    bool center_beat = false;
+    PlayPresentOrigin origin = PlayPresentOrigin::HAND;
+    CardRef played_ref{};
+    PlayResolutionContext play_context{};
+    bool play_resolved = false;
+    bool is_miracle_bonus = false;
+    bool swivel_follow = false;
+    bool cycle_draw = false;
+    bool cycle_exile = false;
+    bool mill_without_play = false;
+    bool mill_reveal_flex_continue = false;
+    bool mill_reveal_waterfall_continue = false;
+    bool mill_reveal_draw_on_hit = false;
+    int mill_reveal_round_before = 0;
+    int mill_reveal_total_before = 0;
+    bool hand_committed = false;
+    PlaySource scoring_source = PlaySource::HAND;
+    RemovalStyle style = RemovalStyle::TO_GRAVEYARD;
+    int frame = 0;
+    int hand_index = -1;
+    int start_x = 0;
+    int start_y = 0;
+    Card fx_card;
+};
+
 class GameContext
 {
 public:
@@ -44,29 +74,14 @@ public:
     int selected_card = 0;
     int browse_cursor = 0;
     bool removing_card = false;
-    bool removal_is_discard = false;
-    PlayRemovalPhase removal_phase = PlayRemovalPhase::APPROACH;
-    bool removal_center_beat = false;
-    PlayPresentOrigin removal_origin = PlayPresentOrigin::HAND;
-    CardRef removal_played_ref{};
-    PlayResolutionContext removal_play_context{};
-    bool removal_play_resolved = false;
-    bool removal_is_miracle_bonus = false;
-    bool removal_swivel_follow = false;
-    bool removal_cycle_draw = false;
-    bool removal_cycle_exile = false;
-    bool removal_mill_without_play = false;
-    bool mill_reveal_flex_continue = false;
-    bool mill_reveal_draw_on_hit = false;
-    PlaySource removal_scoring_source = PlaySource::HAND;
     bool pending_opening_hand_deal = false;
-    RemovalStyle removal_style = RemovalStyle::TO_GRAVEYARD;
     bool echo_play_badge_active = false;
     bool swivel_follow_pending = false;
-    int removal_frame = 0;
-    int removal_hand_index = -1;
     int removal_start_x = 0;
     int removal_start_y = 0;
+    int latest_flight_index = -1;
+    int pending_cycle_draws = 0;
+    bn::array<PlayFlight, game_layout::MAX_PLAY_FLIGHTS> play_flights;
     bool swapping_card = false;
     bool swap_first_step = true;
     int swap_frame = 0;
@@ -105,9 +120,9 @@ public:
     CardEffectBadge echo_badge;
     CardEffectBadge swivel_badge;
     GraveyardPickPlaceholder graveyard_pick_placeholder;
+    ScoreProgressBar score_progress_bar;
     bn::array<GameMarker, game_layout::VISIBLE_CARD_COUNT> grave_exclude_markers;
     bn::array<Card, game_layout::HAND_DISPLAY_POOL> hand_display;
-    Card removal_fx_card;
     Card echo_ghost_card;
     bool echo_ghost_active = false;
     int echo_ghost_x = 0;
@@ -123,6 +138,10 @@ public:
     int graveyard_card_fx_dest_y = 0;
     GraveyardExilePickKind graveyard_card_fx_kind = GraveyardExilePickKind::NONE;
     RemovalStyle graveyard_card_fx_style = RemovalStyle::EXILE_DISSIPATE;
+    bool keep_going_transfer_active = false;
+    int keep_going_transfers_remaining = 0;
+    bool deferred_round_start_pending = false;
+    bool deferred_round_start_turtle_preserve = false;
     bn::array<Card, game_layout::VISIBLE_CARD_COUNT> grave_row_display;
     bn::array<Card, game_layout::SCRY_VISIBLE> scry_display;
     bn::array<Card, 4> combo_display;
@@ -173,6 +192,7 @@ public:
     int hand_draw_fx_dest_y = 0;
     int hand_draw_fx_dest_index = 0;
     CardRef hand_draw_fx_card{};
+    bool hand_draw_fx_miracle_auto = false;
     LuckySevensFxState lucky_sevens_fx;
     bn::vector<TrinketScoreField, 8> pending_lucky_sevens;
     bn::vector<bn::sprite_ptr, 16> trinket_fx_sprites;
@@ -196,17 +216,35 @@ public:
     bn::string<48> _cached_round_score_text;
     int _cached_total_score = 0;
 
+    void shutdown_for_exit();
     void reset_card_animation_state();
     void capture_removal_start();
     void begin_play_presentation(CardRef card, int start_x, int start_y, PlayPresentOrigin origin,
                                  PlayResolutionContext context, RemovalStyle style,
                                  bool miracle_bonus = false);
     void begin_discard_presentation(int hand_index);
-    void begin_direct_removal(int start_x, int start_y, RemovalStyle style, bool is_discard);
-    void resolve_removal_play_effects();
-    void complete_removal_fx();
+    void begin_direct_removal(int start_x, int start_y, RemovalStyle style, bool is_discard,
+                              bool cycle_exile = false);
+    PlayFlight* alloc_play_flight();
+    PlayFlight* latest_play_flight();
+    const PlayFlight* latest_play_flight() const;
+    int play_flight_count() const;
+    bool play_can_overlap() const;
+    bool play_hides_hand_index(int hand_index) const;
+    bool play_hides_graveyard_visual(int visual_index) const;
+    bool play_hides_visual_slot(int visual_index) const;
+    void snap_selected_card_raise();
+    void retarget_selection_off_hidden_slot();
+    Card& exclusive_fx_card();
+    void sync_removing_card();
+    void clear_play_flight(PlayFlight& flight);
+    void resolve_play_flight_effects(PlayFlight& flight);
+    void commit_play_flight_destination(PlayFlight& flight);
+    void complete_play_flight(PlayFlight& flight);
+    void tick_one_play_flight(PlayFlight& flight);
     bool tick_removal_fx();
-    CardFlightSample sample_removal_flight(int main_x, int dest_x, int dest_y) const;
+    CardFlightSample sample_play_flight(const PlayFlight& flight, int main_x, int dest_x, int dest_y) const;
+    void render_one_play_flight(PlayFlight& flight, int main_x, bool skip_face_labels);
     int hand_removal_shift() const;
     bool hand_removal_gap_layout() const;
     int visual_hand_slot_count() const;
@@ -220,6 +258,9 @@ public:
     void draw_round_score();
     void show_total_score_value(int value);
     void show_round_score_running(int running, int end_multiplier);
+    [[nodiscard]] int score_progress_goal() const;
+    [[nodiscard]] bool score_progress_visible() const;
+    void sync_score_progress_bar();
     void finalize_total_score_display();
     void finalize_round_score_display();
     void tick_score_wiggles();
@@ -231,9 +272,15 @@ public:
     void prepare_hand_selection_mode();
     void clamp_hand_cursor();
     void begin_graveyard_card_fx(GraveyardExilePickKind pick_kind);
+    void begin_keep_going_round_transfers(bool turtle_preserve);
+    void try_begin_keep_going_transfer();
+    void finish_deferred_round_start();
     void hand_slot_screen_position(int hand_index, int main_x, int& out_x, int& out_y) const;
     int graveyard_card_fx_frame_count() const;
     void complete_graveyard_card_fx();
+    bool try_begin_birds_return_fx();
+    void complete_birds_return();
+    void resolve_birds_return_instantly();
     void begin_deck_search_resolve(CardRef played, int start_x, int start_y, bool swivel_follow = false);
     void tick_deck_search_resolve();
     void finish_deck_search_resolve();
@@ -287,7 +334,7 @@ public:
     void begin_next_pending_or_finish();
     void finish_empty_hand_round();
     void tick_round_end_pending();
-    void arm_echo_replay(CardRef played);
+    void arm_echo_replay(CardRef played, PlaySource scoring_source, int ghost_x, int ghost_y);
     void advance_effect_draw();
     void continue_effect_draw_batch();
     // Re-scan hand/GY and start a pending combo if any. True = do not end the round yet.

@@ -2,6 +2,7 @@
 #define DECK_H
 
 #include "bn_seed_random.h"
+#include "bn_span.h"
 #include "bn_vector.h"
 #include "card_instance.h"
 
@@ -22,6 +23,7 @@ public:
 
     [[nodiscard]] CardRef peek_undrawn_ref(int index) const;
     [[nodiscard]] CardType peek_undrawn(int index) const;
+    [[nodiscard]] bn::span<const CardRef> undrawn_span() const;
     void move_undrawn_to_top(int index);
 
     void compact();

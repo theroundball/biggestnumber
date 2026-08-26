@@ -14,8 +14,10 @@ enum class GameEvent
 
 int hand_scheduled_count(const GameState& state, bool include_in_flight_draw);
 
-bool hand_add_card(GameState& state, CardRef card, bool from_deck_draw = false);
-bool hand_add_card(GameState& state, CardType type, bool from_deck_draw = false);
+bool hand_add_card(GameState& state, CardRef card, bool from_deck_draw = false,
+                   bool miracle_auto_play = false);
+bool hand_add_card(GameState& state, CardType type, bool from_deck_draw = false,
+                   bool miracle_auto_play = false);
 void hand_swap_cards(GameState& state, int first_card, int second_card);
 void hand_remove_at_to_graveyard(GameState& state, int index, int& selected_card);
 void hand_remove_at_to_graveyard_played(GameState& state, int index, int& selected_card);
@@ -34,6 +36,8 @@ void exile_push(GameState& state, CardRef card, bool from_graveyard = false);
 void exile_push(GameState& state, CardType type, bool from_graveyard = false);
 
 void necromancy_shuffle_graveyard_to_deck(GameState& state);
+bool birds_find_return_run(const GameState& state, int& out_start, int& out_end);
+void birds_return_run_to_deck(GameState& state, int return_start, int return_end);
 void game_events_dispatch(GameState& state, GameEvent event);
 
 void battle_stats_reset(GameState& state);

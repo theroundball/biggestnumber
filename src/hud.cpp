@@ -1,12 +1,6 @@
 #include "hud.h"
 
 #include "bn_affine_mat_attributes.h"
-#include "bn_sprite_item.h"
-#include "bn_sprite_items_hud_deck.h"
-#include "bn_sprite_items_hud_graveyard.h"
-#include "bn_sprite_items_hud_trinket_morel.h"
-#include "bn_sprite_items_hud_trinket_echo.h"
-#include "bn_sprite_items_hud_lucky7.h"
 #include "bn_math.h"
 #include "bn_optional.h"
 #include "bn_sprite_affine_mat_ptr.h"
@@ -15,6 +9,7 @@
 #include "bn_sprite_tiles_ptr.h"
 #include "bn_string.h"
 #include "bn_tile.h"
+#include "game_ui.h"
 #include "scoring.h"
 
 #include "campaign_types.h"
@@ -80,28 +75,16 @@ namespace
         return a.positive == b.positive && a.multiply == b.multiply && a.draw_at_start == b.draw_at_start;
     }
 
-    // GBA BPP_4 palettes hold exactly 16 colors — keep this array at 16 entries.
-    constexpr bn::array<bn::color, 16> HUD_PALETTE_COLORS = {
-        bn::color(0, 0, 0), bn::color(0, 16, 31), bn::color(20, 20, 24), bn::color(12, 12, 16),
-        bn::color(26, 18, 10), bn::color(18, 8, 24), bn::color(8, 20, 10), bn::color(24, 18, 4),
-        bn::color(10, 22, 14), bn::color(28, 10, 22), bn::color(0, 0, 0), bn::color(0, 0, 0),
-        bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0), bn::color(0, 0, 0),
-    };
-    static_assert(HUD_PALETTE_COLORS.size() == 16);
-
-    constexpr bn::sprite_palette_item HUD_PALETTE(
-        bn::span<const bn::color>(HUD_PALETTE_COLORS.data(), HUD_PALETTE_COLORS.size()),
-        bn::bpp_mode::BPP_4);
-
-    constexpr int COLOR_DECK = 1;
-    constexpr int COLOR_GRAVEYARD = 2;
-    constexpr int COLOR_TRINKET_EMPTY = 3;
-    constexpr int COLOR_TRINKET_EQUIPPED = 4;
-    constexpr int COLOR_TRINKET_ECHO = 5;
-    constexpr int COLOR_TRINKET_LUCKY_SEVENS = 6;
-    constexpr int COLOR_TRINKET_GET_WITH_THE_TIMES = 7;
-    constexpr int COLOR_TRINKET_PRIME_TIME = 9;
-    constexpr int COLOR_TURTLE = 8;
+    // GBA BPP_4 palettes hold exactly 16 colors — indices match ui_palette::shared().
+    constexpr int COLOR_DECK = ui_palette::DECK;
+    constexpr int COLOR_GRAVEYARD = ui_palette::GRAVEYARD;
+    constexpr int COLOR_TRINKET_EMPTY = ui_palette::TRINKET_EMPTY;
+    constexpr int COLOR_TRINKET_EQUIPPED = ui_palette::TRINKET_EQUIPPED;
+    constexpr int COLOR_TRINKET_ECHO = ui_palette::ECHO_BADGE;
+    constexpr int COLOR_TRINKET_LUCKY_SEVENS = ui_palette::TRINKET_LUCKY_SEVENS;
+    constexpr int COLOR_TRINKET_GET_WITH_THE_TIMES = ui_palette::TRINKET_GET_WITH_THE_TIMES;
+    constexpr int COLOR_TRINKET_PRIME_TIME = ui_palette::TRINKET_PRIME_TIME;
+    constexpr int COLOR_TURTLE = ui_palette::TURTLE;
 
     uint32_t solid_tile_row(int color_index)
     {
@@ -120,6 +103,16 @@ namespace
         return state.future_mods[(state.next_mod_index + slot) % 3];
     }
 
+    int keep_going_at(const GameState& state, int slot)
+    {
+        return state.keep_going_returns[(state.next_mod_index + slot) % 3];
+    }
+
+    bool mod_line_is_empty(const RoundModifier& modifier, int keep_going)
+    {
+        return modifier_is_empty(modifier) && keep_going <= 0;
+    }
+
     constexpr int DETAILS_MOD_X = -72;
     constexpr int DETAILS_MOD_TURTLE_X = DETAILS_MOD_X + HUD_SMALL_ICON_HALF;
     constexpr int DETAILS_MOD_TEXT_X = DETAILS_MOD_X;
@@ -132,32 +125,8 @@ namespace
 
 const bn::sprite_item* PersistentHud::HudIcon::sprite_item_for(IconKind kind)
 {
-    switch(kind)
-    {
-    case IconKind::DECK_STACK:
-        return &bn::sprite_items::hud_deck;
-
-    case IconKind::TOMBSTONE:
-        return &bn::sprite_items::hud_graveyard;
-
-    case IconKind::TRINKET_MOREL:
-        return &bn::sprite_items::hud_trinket_morel;
-
-    case IconKind::TRINKET_ECHO:
-        return &bn::sprite_items::hud_trinket_echo;
-
-    case IconKind::TRINKET_LUCKY_SEVENS:
-        return &bn::sprite_items::hud_lucky7;
-
-    case IconKind::TRINKET_FIBONACCI:
-        return &bn::sprite_items::hud_lucky7;
-
-    case IconKind::TRINKET_PRIME_TIME:
-        return nullptr;
-
-    default:
-        return nullptr;
-    }
+    (void)kind;
+    return nullptr;
 }
 
 int PersistentHud::HudIcon::solid_color_index(IconKind kind)
@@ -203,7 +172,7 @@ PersistentHud::HudIcon::HudIcon(IconKind kind, bool compact) :
     _kind(kind),
     _compact(compact),
     _tiles(bn::sprite_tiles_ptr::allocate(compact ? 1 : 4, bn::bpp_mode::BPP_4)),
-    _palette(bn::sprite_palette_ptr::create(HUD_PALETTE)),
+    _palette(ui_palette::shared()),
     _sprite(bn::sprite_ptr::create(
         0, 0,
         compact ? bn::sprite_shape_size(8, 8) : bn::sprite_shape_size(16, 16),
@@ -216,16 +185,6 @@ PersistentHud::HudIcon::HudIcon(IconKind kind, bool compact) :
 void PersistentHud::HudIcon::apply_kind(IconKind kind)
 {
     _kind = kind;
-
-    if(!_compact)
-    {
-        if(const bn::sprite_item* item = sprite_item_for(kind))
-        {
-            _sprite.set_item(*item);
-            return;
-        }
-    }
-
     _sprite.set_tiles(_tiles);
     _sprite.set_palette(_palette);
     paint(kind);
@@ -238,19 +197,7 @@ void PersistentHud::HudIcon::set_kind(IconKind kind)
         return;
     }
 
-    const bn::fixed x = _sprite.x();
-    const bn::fixed y = _sprite.y();
     const bool visible = _sprite.visible();
-
-    if(!_compact && (sprite_item_for(kind) != nullptr) != (sprite_item_for(_kind) != nullptr))
-    {
-        _sprite = bn::sprite_ptr::create(
-            x, y,
-            bn::sprite_shape_size(16, 16),
-            _tiles, _palette);
-        _sprite.set_z_order(HUD_ICON_Z_ORDER);
-    }
-
     apply_kind(kind);
     _sprite.set_visible(visible);
 }
@@ -381,7 +328,7 @@ void PersistentHud::HudModLine::redraw()
 {
     _sprites.clear();
 
-    if(_round_prefix.empty() && (!_has_modifier || modifier_is_empty(_last_modifier)))
+    if(_round_prefix.empty() && mod_line_is_empty(_last_modifier, _keep_going))
     {
         return;
     }
@@ -394,7 +341,7 @@ void PersistentHud::HudModLine::redraw()
         draw_x = _x + MOD_POSITIVE_COLUMN_WIDTH + MOD_SEGMENT_GAP;
     }
 
-    if(!_has_modifier || modifier_is_empty(_last_modifier))
+    if(mod_line_is_empty(_last_modifier, _keep_going))
     {
         return;
     }
@@ -423,6 +370,20 @@ void PersistentHud::HudModLine::redraw()
     {
         segment = "draw ";
         segment.append(bn::to_string<8>(_last_modifier.draw_at_start));
+        append_segment_at(draw_x, segment, MOD_EMPHASIZED_TEXT_SCALE);
+        draw_x += MOD_DRAW_COLUMN_WIDTH + MOD_SEGMENT_GAP;
+    }
+
+    if(_keep_going > 0)
+    {
+        segment = "keep";
+
+        if(_keep_going > 1)
+        {
+            segment.append(" ");
+            segment.append(bn::to_string<4>(_keep_going));
+        }
+
         append_segment_at(draw_x, segment, MOD_EMPHASIZED_TEXT_SCALE);
     }
 }
@@ -461,6 +422,17 @@ void PersistentHud::HudModLine::set_modifier(const RoundModifier& modifier)
     redraw();
 }
 
+void PersistentHud::HudModLine::set_keep_going(int returns)
+{
+    if(returns == _keep_going)
+    {
+        return;
+    }
+
+    _keep_going = returns;
+    redraw();
+}
+
 void PersistentHud::HudModLine::set_position(int x, int y)
 {
     if(_x == x && _y == y)
@@ -471,7 +443,7 @@ void PersistentHud::HudModLine::set_position(int x, int y)
     _x = x;
     _y = y;
 
-    if(_has_modifier)
+    if(_has_modifier || _keep_going > 0 || !_round_prefix.empty())
     {
         redraw();
     }
@@ -561,6 +533,7 @@ void PersistentHud::update_modifier_rows(const GameState& state,
         turtles[slot].set_visible(visible && show_turtle);
         lines[slot].set_position(origin_x + (show_turtle ? text_x_with_turtle : text_x), row_y);
         lines[slot].set_modifier(future_mod_at(state, slot));
+        lines[slot].set_keep_going(keep_going_at(state, slot));
 
         if(campaign_mode == CampaignMode::NUMBER_NOW && number_now_scoring_round > 0)
         {

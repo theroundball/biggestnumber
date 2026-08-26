@@ -19,6 +19,7 @@
 
 #include "campaign.h"
 #include "card.h"
+#include "card_data.h"
 #include "card_instance.h"
 #include "common_variable_8x8_sprite_font.h"
 #include "common_variable_8x16_sprite_font.h"
@@ -353,7 +354,7 @@ namespace
 
     bool side_panel_active(int panel_slide)
     {
-        return panel_slide > game_layout::PANEL_WIDTH / 2;
+        return panel_slide > 0;
     }
 
     void draw_status_panel(SceneText& scene_text, int offset_x, const SaveData& save)
@@ -412,20 +413,24 @@ namespace
 
     bool try_save_working_deck(SavedDeck& working, SaveData& save, int deck_index)
     {
+        saved_deck_trim_to_max(working, DECK_MAX_CARDS);
+
         const int total = saved_deck_total_cards(working);
 
-        if(total < DECK_MIN_CARDS || total > DECK_MAX_CARDS)
+        if(total < DECK_MIN_CARDS)
         {
             return false;
         }
 
-        if(saved_deck_unrestricted_build(working))
+        int write_index = deck_index;
+
+        if(write_index < 0 && saved_deck_unrestricted_build(working))
         {
             const int existing = save_data_unrestricted_deck_index(save);
 
-            if(existing >= 0 && existing != deck_index)
+            if(existing >= 0)
             {
-                return false;
+                write_index = existing;
             }
         }
 
@@ -441,18 +446,18 @@ namespace
             saved_deck_sanitize_name(working);
         }
 
-        if(deck_index >= 0)
+        if(write_index >= 0)
         {
-            save.decks[deck_index] = working;
-            campaign_set_active_deck(save, deck_index);
+            save.decks[write_index] = working;
+            campaign_set_active_deck(save, write_index);
         }
         else if(save.deck_count < MAX_SAVED_DECKS)
         {
-            const int new_index = save.deck_count;
-            save.decks[new_index] = working;
+            write_index = save.deck_count;
+            save.decks[write_index] = working;
             // Count first: campaign_set_active_deck rejects indices past deck_count.
             ++save.deck_count;
-            campaign_set_active_deck(save, new_index);
+            campaign_set_active_deck(save, write_index);
         }
         else
         {
@@ -525,6 +530,8 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck)
     int panel_slide_target = 0;
     int panel_side = 1;
     int actions_cursor = 0;
+    int save_notice_frames = 0;
+    bn::string<24> save_notice;
 
     const int grid_left = grid_left_x();
     const int track_top = GRID_TOP;
@@ -714,6 +721,15 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck)
                     card.set_position(card_x, card_y - raise);
                     card.set_visible(true);
 
+                    if(card_data(type).text_only)
+                    {
+                        card.sync_face_labels(&body_generator, catalog_display_instance(save, type));
+                    }
+                    else
+                    {
+                        card.clear_face_labels();
+                    }
+
                     // Pips only on the selected card — each pip string costs font tiles.
                     if(selected)
                     {
@@ -766,6 +782,13 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck)
                     scene_text.draw_centered_line(actions_offset_x,
                                                   ACTIONS_ITEM_Y + ACTIONS_LINE_HEIGHT * 2,
                                                   trinket_slot_label(1, working));
+
+                    if(save_notice_frames > 0)
+                    {
+                        scene_text.draw_centered_line(actions_offset_x, ACTIONS_ITEM_Y + ACTIONS_LINE_HEIGHT * 3,
+                                                      save_notice);
+                    }
+
                     actions_selector.set_position(actions_offset_x + ACTIONS_SELECTOR_X,
                                                   ACTIONS_ITEM_Y + actions_cursor * ACTIONS_LINE_HEIGHT);
                     actions_selector.set_visible(true);
@@ -853,6 +876,22 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck)
                         result.next = MenuSceneResult::MAIN_MENU;
                         return result;
                     }
+
+                    if(saved_deck_total_cards(working) < DECK_MIN_CARDS)
+                    {
+                        save_notice = "Need 1+ cards";
+                    }
+                    else if(save.deck_count >= MAX_SAVED_DECKS && deck_index < 0 &&
+                            save_data_unrestricted_deck_index(save) < 0)
+                    {
+                        save_notice = "Max decks";
+                    }
+                    else
+                    {
+                        save_notice = "Save failed";
+                    }
+
+                    save_notice_frames = 120;
                 }
                 else
                 {
@@ -901,6 +940,12 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck)
         }
 
         battle_backdrop_tick();
+
+        if(save_notice_frames > 0)
+        {
+            --save_notice_frames;
+        }
+
         bn::core::update();
     }
 }

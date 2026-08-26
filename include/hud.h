@@ -93,6 +93,7 @@ private:
         explicit HudModLine(bn::sprite_text_generator& text_generator);
 
         void set_modifier(const RoundModifier& modifier);
+        void set_keep_going(int returns);
         void set_round_prefix(const bn::string_view& prefix);
         void clear_round_prefix();
         void set_position(int x, int y);
@@ -106,6 +107,7 @@ private:
         bn::vector<bn::sprite_ptr, 16> _sprites;
         RoundModifier _last_modifier{};
         bn::string<8> _round_prefix;
+        int _keep_going = 0;
         bool _has_modifier = false;
         int _x = 0;
         int _y = 0;

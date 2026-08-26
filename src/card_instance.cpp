@@ -28,9 +28,17 @@ int effective_immediate_multiply(const CardInstance& instance)
     return instance.increment_mult ? 2 : 0;
 }
 
+void instance_pool_clamp(InstancePool& pool)
+{
+    if(pool.count > InstancePool::CAPACITY)
+    {
+        pool.count = InstancePool::CAPACITY;
+    }
+}
+
 const CardInstance* instance_at(const InstancePool& pool, uint8_t id)
 {
-    if(id >= pool.count)
+    if(id >= InstancePool::CAPACITY || id >= pool.count)
     {
         return nullptr;
     }
@@ -40,7 +48,7 @@ const CardInstance* instance_at(const InstancePool& pool, uint8_t id)
 
 CardInstance* instance_at_mut(InstancePool& pool, uint8_t id)
 {
-    if(id >= pool.count)
+    if(id >= InstancePool::CAPACITY || id >= pool.count)
     {
         return nullptr;
     }

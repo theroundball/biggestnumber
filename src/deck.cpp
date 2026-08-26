@@ -1,5 +1,6 @@
 #include "deck.h"
 
+#include "bn_span.h"
 #include "bn_utility.h"
 
 Deck::Deck(int card_count, int dealt_cards) :
@@ -171,6 +172,11 @@ CardRef Deck::peek_undrawn_ref(int index) const
 CardType Deck::peek_undrawn(int index) const
 {
     return _cards[_next_card + index].type;
+}
+
+bn::span<const CardRef> Deck::undrawn_span() const
+{
+    return bn::span<const CardRef>(&_cards[_next_card], remaining());
 }
 
 void Deck::move_undrawn_to_top(int index)

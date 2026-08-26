@@ -1,4 +1,6 @@
 {
     "type": "sprite",
-	"height": 64
+    "height": 64,
+    "tiles_compression": "none",
+    "palette_compression": "none"
 }

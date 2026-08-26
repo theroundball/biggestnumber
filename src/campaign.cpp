@@ -318,6 +318,11 @@ void campaign_flatten_deck(const SaveData& save, int deck_index, bn::vector<Card
                 }
             }
 
+            if(out.full())
+            {
+                return;
+            }
+
             out.push_back(CardRef{type, instance_id});
         }
     }

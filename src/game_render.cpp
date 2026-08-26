@@ -4,6 +4,7 @@
 #include "bn_string.h"
 
 #include "combo_system.h"
+#include "card_data.h"
 #include "game_helpers.h"
 #include "game_ui.h"
 #include "score_pop_system.h"
@@ -90,14 +91,13 @@ namespace
                 continue;
             }
 
-            if(ctx.removing_card && ctx.removal_center_beat && ctx.removal_origin == PlayPresentOrigin::HAND &&
-               ctx.removal_hand_index >= 0 && hand_index == ctx.removal_hand_index)
+            if(ctx.play_hides_hand_index(hand_index))
             {
                 continue;
             }
 
-            if(ctx.removing_card && ctx.removal_center_beat &&
-               ctx.removal_origin == PlayPresentOrigin::GRAVEYARD && visual_index == ctx.selected_card)
+            if(ctx.play_hides_graveyard_visual(visual_index) &&
+               playable_slot_is_flashback(ctx.state, visual_index))
             {
                 continue;
             }
@@ -235,7 +235,18 @@ void GameContext::tick_card_raise()
             target = selected_raise;
         }
 
-        ease_raise_toward(card_raise_offset[card_index], target);
+        const bool snap_live_hand = mode == GameMode::NORMAL && removing_card &&
+                                    card_index == cursor && target == selected_raise &&
+                                    !play_hides_visual_slot(card_index);
+
+        if(snap_live_hand)
+        {
+            card_raise_offset[card_index] = target;
+        }
+        else
+        {
+            ease_raise_toward(card_raise_offset[card_index], target);
+        }
     }
 }
 
@@ -257,10 +268,15 @@ void GameContext::render_combo_frame(int main_x)
             const int row_start = -(count * spacing) / 2;
             const int score_target_x = card_target_x_for_score_center(main_x);
             const int score_target_y = card_target_y_for_score_center();
+            const int deck_target_x = card_target_x_for_hud_icon(game_layout::HUD_DECK_X, main_x);
+            const int deck_target_y = card_target_y_for_hud_icon(game_layout::HUD_DECK_Y);
+            const bool exile_combo = combo_resolves_to_exile(state.pending_combo.zone);
+            const int exit_x = exile_combo ? score_target_x : deck_target_x;
+            const int exit_y = exile_combo ? score_target_y : deck_target_y;
 
             if (combo_focus_active())
             {
-                render_combo_focus_frame(score_target_x, score_target_y);
+                render_combo_focus_frame(exit_x, exit_y);
                 return;
             }
 
@@ -280,9 +296,13 @@ void GameContext::render_combo_frame(int main_x)
                 else
                 {
                     const int exit_frame = frame - COMBO_GATHER_FRAMES;
-                    const CardFlightSample flight = sample_card_exile_dissipate(
-                        gather_x, game_layout::HAND_Y, score_target_x, score_target_y,
-                        exit_frame, COMBO_EXIT_FRAMES);
+                    const CardFlightSample flight = exile_combo
+                        ? sample_card_exile_dissipate(
+                            gather_x, game_layout::HAND_Y, exit_x, exit_y,
+                            exit_frame, COMBO_EXIT_FRAMES)
+                        : sample_card_to_deck(
+                            gather_x, game_layout::HAND_Y, exit_x, exit_y,
+                            exit_frame, COMBO_EXIT_FRAMES);
                     card_x = flight.x;
                     card_y = flight.y;
                     combo_display[card_index].set_position(card_x, card_y);
@@ -306,7 +326,7 @@ void GameContext::render_combo_frame(int main_x)
 }
 
 // Graveyard combos play over the browse row: matched cards lift out of their slots,
-// line up in the middle, then fly to the score while the view slides back.
+// line up in the middle, then fly to the library (or exile, for in-deck matches).
 void GameContext::render_combo_focus_frame(int score_target_x, int score_target_y)
 {
     // Before the gather the cards are still drawn by the graveyard row itself.
@@ -320,6 +340,7 @@ void GameContext::render_combo_focus_frame(int score_target_x, int score_target_
     const int spacing = 36;
     const int row_start = -(count * spacing) / 2 + spacing / 2;
     const int line_y = game_layout::GRAVEYARD_BROWSE_Y;
+    const bool exile_combo = combo_resolves_to_exile(state.pending_combo.zone);
 
     for(int card_index = 0; card_index < count; ++card_index)
     {
@@ -341,9 +362,13 @@ void GameContext::render_combo_focus_frame(int score_target_x, int score_target_
         }
         else
         {
-            const CardFlightSample flight = sample_card_exile_dissipate(
-                line_x, line_y, score_target_x, score_target_y,
-                frame - COMBO_GATHER_FRAMES, COMBO_EXIT_FRAMES);
+            const CardFlightSample flight = exile_combo
+                ? sample_card_exile_dissipate(
+                    line_x, line_y, score_target_x, score_target_y,
+                    frame - COMBO_GATHER_FRAMES, COMBO_EXIT_FRAMES)
+                : sample_graveyard_to_deck_flight(
+                    line_x, line_y, score_target_x, score_target_y,
+                    frame - COMBO_GATHER_FRAMES, COMBO_EXIT_FRAMES);
 
             combo_display[card_index].set_position(flight.x, flight.y);
             combo_display[card_index].set_visual(flight.scale, 0);
@@ -562,14 +587,12 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                     continue;
                 }
 
-                if(removing_card && removal_center_beat && removal_origin == PlayPresentOrigin::HAND &&
-                   removal_hand_index >= 0 && hand_index == removal_hand_index)
+                if(play_hides_hand_index(hand_index))
                 {
                     continue;
                 }
 
-                if(removing_card && removal_center_beat && removal_origin == PlayPresentOrigin::GRAVEYARD &&
-                   visual_index == selected_card)
+                if(play_hides_graveyard_visual(visual_index) && is_flashback)
                 {
                     continue;
                 }
@@ -611,9 +634,20 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                         game_layout::HAND_SPACING, visual_count);
                 int card_y = game_layout::HAND_Y - selection_raise - wave_raise;
 
-                if(removing_card && !removal_center_beat && !removal_play_resolved &&
-                   removal_origin == PlayPresentOrigin::HAND &&
-                   !is_flashback && hand_index == selected_card)
+                const PlayFlight* no_beat_flight = nullptr;
+
+                for(const PlayFlight& flight : play_flights)
+                {
+                    if(flight.active && !flight.center_beat && !flight.hand_committed &&
+                       !flight.play_resolved && flight.origin == PlayPresentOrigin::HAND &&
+                       !is_flashback && flight.hand_index == hand_index)
+                    {
+                        no_beat_flight = &flight;
+                        break;
+                    }
+                }
+
+                if(no_beat_flight)
                 {
                     const int deck_target_x = card_target_x_for_hud_icon(game_layout::HUD_DECK_X, main_x);
                     const int deck_target_y = card_target_y_for_hud_icon(game_layout::HUD_DECK_Y);
@@ -622,13 +656,13 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                     int dest_x = graveyard_target_x;
                     int dest_y = graveyard_target_y;
 
-                    if(removal_style == RemovalStyle::TO_DECK_TOP)
+                    if(no_beat_flight->style == RemovalStyle::TO_DECK_TOP)
                     {
                         dest_x = deck_target_x;
                         dest_y = deck_target_y;
                     }
 
-                    const CardFlightSample flight = sample_removal_flight(main_x, dest_x, dest_y);
+                    const CardFlightSample flight = sample_play_flight(*no_beat_flight, main_x, dest_x, dest_y);
                     card_x = flight.x;
                     card_y = flight.y;
                     card.set_position(card_x, card_y);
@@ -664,10 +698,23 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                 card.set_draw_on_top(false);
                 card.set_visible(true);
 
+                const CardInstance* slot_instance =
+                    slot_card.has_instance()
+                        ? instance_at(state.instance_pool, slot_card.instance_id)
+                        : nullptr;
+
+                if(card_data(slot_card.type).text_only)
+                {
+                    card.sync_face_labels(&hud_count_generator, slot_instance);
+                }
+                else
+                {
+                    card.clear_face_labels();
+                }
+
                 if(slot_card.has_instance())
                 {
-                    card.set_upgrade_pips(&hud_count_generator,
-                                          instance_at(state.instance_pool, slot_card.instance_id));
+                    card.set_upgrade_pips(&hud_count_generator, slot_instance);
                 }
                 else
                 {
@@ -690,7 +737,18 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
 
                 ++pool_slot;
 
-                if(visual_index == selected_card && !(removing_card && removal_center_beat))
+                bool center_beat_active = false;
+
+                for(const PlayFlight& flight : play_flights)
+                {
+                    if(flight.active && flight.center_beat)
+                    {
+                        center_beat_active = true;
+                        break;
+                    }
+                }
+
+                if(visual_index == selected_card && !center_beat_active)
                 {
                     const bool echo_preview = !is_flashback && state.echo_first_play_active() &&
                                               card_has_play_effect(state, slot_card);
@@ -753,7 +811,18 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
 
 void GameContext::sync_score_sprite_depth()
 {
-    const bool presentation_active = removing_card && removal_center_beat;
+    bool presentation_active = false;
+
+    for(const PlayFlight& flight : play_flights)
+    {
+        if(flight.active && flight.center_beat &&
+           flight.phase != PlayRemovalPhase::WAIT_PRESENTATION)
+        {
+            presentation_active = true;
+            break;
+        }
+    }
+
     const int score_z = presentation_active ? game_layout::PLAY_PRESENTATION_SCORE_Z : 0;
     const int score_bg_priority = presentation_active ? 3 : 2;
 
@@ -779,19 +848,19 @@ void GameContext::sync_score_sprite_depth()
     }
 }
 
-void GameContext::render_play_presentation_overlay(int main_x)
+void GameContext::render_one_play_flight(PlayFlight& flight, int main_x, bool skip_face_labels)
 {
-    if(graveyard_card_fx_active || hand_draw_fx_active ||
-       (deck_search_resolve_fx.active &&
-        deck_search_resolve_fx.phase == DeckSearchResolvePhase::PICK_FLIGHT))
+    if(!flight.active || flight.phase == PlayRemovalPhase::WAIT_PRESENTATION)
     {
+        flight.fx_card.set_visible(false);
         return;
     }
 
-    if(!removing_card || removal_phase == PlayRemovalPhase::WAIT_PRESENTATION ||
-       (!removal_center_beat && !removal_mill_without_play))
+    const bool draw_no_beat = !flight.center_beat && (flight.mill_without_play || flight.hand_committed);
+
+    if(!flight.center_beat && !draw_no_beat)
     {
-        release_card_display_tiles(removal_fx_card);
+        flight.fx_card.set_visible(false);
         return;
     }
 
@@ -802,54 +871,94 @@ void GameContext::render_play_presentation_overlay(int main_x)
     int dest_x = graveyard_target_x;
     int dest_y = graveyard_target_y;
 
-    if(removal_style == RemovalStyle::TO_DECK_TOP)
+    if(flight.style == RemovalStyle::TO_DECK_TOP)
     {
         dest_x = deck_target_x;
         dest_y = deck_target_y;
     }
 
-    const CardFlightSample flight = sample_removal_flight(main_x, dest_x, dest_y);
+    const CardFlightSample sample = sample_play_flight(flight, main_x, dest_x, dest_y);
+    Card& fx_card = flight.fx_card;
+    fx_card.set_type(flight.played_ref.type);
 
-    removal_fx_card.set_type(removal_played_ref.type);
+    const CardInstance* removal_instance =
+        flight.played_ref.has_instance()
+            ? instance_at(state.instance_pool, flight.played_ref.instance_id)
+            : nullptr;
 
-    if(removal_played_ref.has_instance())
+    if(!skip_face_labels && card_data(flight.played_ref.type).text_only)
     {
-        removal_fx_card.set_upgrade_pips(&hud_count_generator,
-                                         instance_at(state.instance_pool, removal_played_ref.instance_id));
+        fx_card.sync_face_labels(&hud_count_generator, removal_instance);
     }
     else
     {
-        removal_fx_card.clear_upgrade_pips();
+        fx_card.clear_face_labels();
     }
 
-    removal_fx_card.set_position(flight.x, flight.y);
-    removal_fx_card.set_visual(flight.scale, 0);
-    removal_fx_card.set_draw_on_top(true);
-
-    if(flight.alpha <= 0)
+    if(flight.played_ref.has_instance())
     {
-        removal_fx_card.set_visible(false);
+        fx_card.set_upgrade_pips(&hud_count_generator, removal_instance);
+    }
+    else
+    {
+        fx_card.clear_upgrade_pips();
+    }
+
+    fx_card.set_position(sample.x, sample.y);
+    fx_card.set_visual(sample.scale, 0);
+    fx_card.set_draw_on_top(true);
+
+    if(sample.alpha <= 0)
+    {
+        fx_card.set_visible(false);
         return;
     }
 
-    removal_fx_card.set_visible(true);
+    fx_card.set_visible(true);
 
-    if(flight.alpha < 1)
+    if(sample.alpha < 1)
     {
         bn::blending::set_transparency_alpha(
-            flight.alpha < bn::fixed(0.05) ? bn::fixed(0.05) : flight.alpha);
-        removal_fx_card.set_blending_enabled(true);
+            sample.alpha < bn::fixed(0.05) ? bn::fixed(0.05) : sample.alpha);
+        fx_card.set_blending_enabled(true);
     }
     else
     {
-        removal_fx_card.set_blending_enabled(false);
+        fx_card.set_blending_enabled(false);
     }
 
     if(echo_play_badge_active)
     {
         echo_badge.set_kind(CardEffectBadge::Kind::ECHO);
-        echo_badge.set_position_above_card(flight.x, flight.y);
+        echo_badge.set_position_above_card(sample.x, sample.y);
         echo_badge.set_visible(true);
+    }
+}
+
+void GameContext::render_play_presentation_overlay(int main_x)
+{
+    if(graveyard_card_fx_active || hand_draw_fx_active ||
+       (deck_search_resolve_fx.active &&
+        deck_search_resolve_fx.phase == DeckSearchResolvePhase::PICK_FLIGHT))
+    {
+        return;
+    }
+
+    const int flight_count = play_flight_count();
+
+    if(flight_count <= 0)
+    {
+        for(PlayFlight& flight : play_flights)
+        {
+            flight.fx_card.set_visible(false);
+        }
+
+        return;
+    }
+
+    for(int index = 0; index < game_layout::MAX_PLAY_FLIGHTS; ++index)
+    {
+        render_one_play_flight(play_flights[index], main_x, index > 0 || flight_count > 1);
     }
 }
 
@@ -1026,32 +1135,45 @@ void GameContext::render_frame()
                     graveyard_card_fx_frame, frame_count);
             }
 
-            removal_fx_card.set_type(graveyard_card_fx_type);
+            exclusive_fx_card().set_type(graveyard_card_fx_type);
 
-            if(graveyard_card_fx_instance_id != NO_INSTANCE)
+            const CardInstance* graveyard_fx_instance =
+                graveyard_card_fx_instance_id != NO_INSTANCE
+                    ? instance_at(state.instance_pool, graveyard_card_fx_instance_id)
+                    : nullptr;
+
+            if(card_data(graveyard_card_fx_type).text_only)
             {
-                removal_fx_card.set_upgrade_pips(&hud_count_generator,
-                                                 instance_at(state.instance_pool, graveyard_card_fx_instance_id));
+                exclusive_fx_card().sync_face_labels(&hud_count_generator, graveyard_fx_instance);
             }
             else
             {
-                removal_fx_card.clear_upgrade_pips();
+                exclusive_fx_card().clear_face_labels();
             }
 
-            removal_fx_card.set_position(flight.x, flight.y);
-            removal_fx_card.set_visual(flight.scale, 0);
-            removal_fx_card.set_draw_on_top(true);
-            removal_fx_card.set_visible(true);
+            if(graveyard_card_fx_instance_id != NO_INSTANCE)
+            {
+                exclusive_fx_card().set_upgrade_pips(&hud_count_generator, graveyard_fx_instance);
+            }
+            else
+            {
+                exclusive_fx_card().clear_upgrade_pips();
+            }
+
+            exclusive_fx_card().set_position(flight.x, flight.y);
+            exclusive_fx_card().set_visual(flight.scale, 0);
+            exclusive_fx_card().set_draw_on_top(true);
+            exclusive_fx_card().set_visible(true);
 
             if(flight.alpha < 1)
             {
                 bn::blending::set_transparency_alpha(
                     flight.alpha < bn::fixed(0.05) ? bn::fixed(0.05) : flight.alpha);
-                removal_fx_card.set_blending_enabled(true);
+                exclusive_fx_card().set_blending_enabled(true);
             }
             else
             {
-                removal_fx_card.set_blending_enabled(false);
+                exclusive_fx_card().set_blending_enabled(false);
             }
         }
         else if(hand_draw_fx_active)
@@ -1064,23 +1186,36 @@ void GameContext::render_frame()
                 dest_x, dest_y,
                 hand_draw_fx_frame, game_layout::HAND_DRAW_FRAMES);
 
-            removal_fx_card.set_type(hand_draw_fx_card.type);
+            exclusive_fx_card().set_type(hand_draw_fx_card.type);
 
-            if(hand_draw_fx_card.has_instance())
+            const CardInstance* draw_fx_instance =
+                hand_draw_fx_card.has_instance()
+                    ? instance_at(state.instance_pool, hand_draw_fx_card.instance_id)
+                    : nullptr;
+
+            if(card_data(hand_draw_fx_card.type).text_only)
             {
-                removal_fx_card.set_upgrade_pips(&hud_count_generator,
-                                                 instance_at(state.instance_pool, hand_draw_fx_card.instance_id));
+                exclusive_fx_card().sync_face_labels(&hud_count_generator, draw_fx_instance);
             }
             else
             {
-                removal_fx_card.clear_upgrade_pips();
+                exclusive_fx_card().clear_face_labels();
             }
 
-            removal_fx_card.set_position(flight.x, flight.y);
-            removal_fx_card.set_visual(flight.scale, 0);
-            removal_fx_card.set_draw_on_top(true);
-            removal_fx_card.set_visible(true);
-            removal_fx_card.set_blending_enabled(false);
+            if(hand_draw_fx_card.has_instance())
+            {
+                exclusive_fx_card().set_upgrade_pips(&hud_count_generator, draw_fx_instance);
+            }
+            else
+            {
+                exclusive_fx_card().clear_upgrade_pips();
+            }
+
+            exclusive_fx_card().set_position(flight.x, flight.y);
+            exclusive_fx_card().set_visual(flight.scale, 0);
+            exclusive_fx_card().set_draw_on_top(true);
+            exclusive_fx_card().set_visible(true);
+            exclusive_fx_card().set_blending_enabled(false);
         }
         else if(deck_search_resolve_fx.active &&
                 deck_search_resolve_fx.phase == DeckSearchResolvePhase::PICK_FLIGHT)
@@ -1118,25 +1253,35 @@ void GameContext::render_frame()
                     0, 0, 1, min_scale);
             }
 
-            removal_fx_card.set_type(deck_search_resolve_fx.picked_type);
-            removal_fx_card.set_position(flight.x, flight.y);
-            removal_fx_card.set_visual(flight.scale, 0);
-            removal_fx_card.set_visible(true);
+            exclusive_fx_card().set_type(deck_search_resolve_fx.picked_type);
+
+            if(card_data(deck_search_resolve_fx.picked_type).text_only)
+            {
+                exclusive_fx_card().sync_face_labels(&hud_count_generator, nullptr);
+            }
+            else
+            {
+                exclusive_fx_card().clear_face_labels();
+            }
+
+            exclusive_fx_card().set_position(flight.x, flight.y);
+            exclusive_fx_card().set_visual(flight.scale, 0);
+            exclusive_fx_card().set_visible(true);
 
             if(flight.alpha < 1)
             {
                 bn::blending::set_transparency_alpha(
                     flight.alpha < bn::fixed(0.05) ? bn::fixed(0.05) : flight.alpha);
-                removal_fx_card.set_blending_enabled(true);
+                exclusive_fx_card().set_blending_enabled(true);
             }
             else
             {
-                removal_fx_card.set_blending_enabled(false);
+                exclusive_fx_card().set_blending_enabled(false);
             }
         }
         else if(!removing_card)
         {
-            release_card_display_tiles(removal_fx_card);
+            release_card_display_tiles(exclusive_fx_card());
         }
 
         position_main_score_sprites();
@@ -1155,6 +1300,11 @@ void GameContext::render_frame()
         {
             sprite.set_visible(show_round_score);
         }
+
+        sync_score_progress_bar();
+        const bool show_score_bar = score_progress_visible() && !hide_main_scores && !score_swap_is_active(*this);
+        score_progress_bar.set_visible(show_score_bar);
+        score_progress_bar.set_x_offset(main_panel_offset_x());
 
         score_pop_render(*this, show_round_score && !inspecting);
         sync_score_sprite_depth();
