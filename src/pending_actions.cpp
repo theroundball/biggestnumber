@@ -137,6 +137,17 @@ namespace
         return PendingStartResult::ENTERED_MODE;
     }
 
+    PendingStartResult start_roll_over_substitute(GameContext& ctx, const PendingAction&)
+    {
+        if(!begin_roll_over_substitution(ctx.state, &ctx.selected_card))
+        {
+            return PendingStartResult::FIZZLE;
+        }
+
+        ctx.update_target_scroll();
+        return PendingStartResult::INSTANT_DONE;
+    }
+
     PendingStartResult start_play_random_graveyard(GameContext& ctx, const PendingAction&)
     {
         if(ctx.state.graveyard.empty())
@@ -225,6 +236,21 @@ namespace
 
     // Big Kurosawa — discard one hand card, then ×factor. Mode: DISCARD_TARGET.
     PendingStartResult start_discard_from_hand_then_multiply(GameContext& ctx, const PendingAction& action)
+    {
+        if(ctx.state.hand.empty())
+        {
+            return PendingStartResult::FIZZLE;
+        }
+
+        begin_selection(ctx, action.type);
+        ctx.state.selection.multiply_factor = action.count;
+        ctx.mode = GameMode::DISCARD_TARGET;
+        ctx.prepare_hand_selection_mode();
+        return PendingStartResult::ENTERED_MODE;
+    }
+
+    // Overclock — optional discard chain; each pick multiplies by count (3, 4, 5…).
+    PendingStartResult start_overclock_discard_prompt(GameContext& ctx, const PendingAction& action)
     {
         if(ctx.state.hand.empty())
         {
@@ -337,6 +363,105 @@ namespace
         return PendingStartResult::ENTERED_MODE;
     }
 
+    // Peanut Butter — scry 3, auto-top Jelly when present.
+    PendingStartResult start_peanut_butter_scry(GameContext& ctx, const PendingAction& action)
+    {
+        ctx.state.deck.compact();
+        const int count = action.count < ctx.state.deck.remaining() ? action.count : ctx.state.deck.remaining();
+
+        if(count <= 0)
+        {
+            return PendingStartResult::FIZZLE;
+        }
+
+        bn::vector<CardRef, 3> peeked;
+
+        for(int peek_index = 0; peek_index < count; ++peek_index)
+        {
+            CardRef drawn;
+
+            if(!ctx.state.deck.draw(drawn))
+            {
+                break;
+            }
+
+            peeked.push_back(drawn);
+        }
+
+        int jelly_index = -1;
+
+        for(int index = 0; index < peeked.size(); ++index)
+        {
+            if(peeked[index].type == CardType::JELLY)
+            {
+                jelly_index = index;
+                break;
+            }
+        }
+
+        if(jelly_index >= 0)
+        {
+            for(int index = peeked.size() - 1; index >= 0; --index)
+            {
+                if(index != jelly_index)
+                {
+                    ctx.state.deck.insert_top(peeked[index]);
+                }
+            }
+
+            ctx.state.deck.insert_top(peeked[jelly_index]);
+            return PendingStartResult::FIZZLE;
+        }
+
+        begin_selection(ctx, PendingActionType::SCRY);
+
+        for(CardRef card : peeked)
+        {
+            ctx.state.selection.scry_buffer.push_back(card);
+        }
+
+        ctx.sync_row_scroll_for_mode(ctx.state.selection.cursor, ctx.state.selection.scry_buffer.size(),
+                                     game_layout::SCRY_SPACING);
+        combo_check_zone(ctx.state, ComboZone::REVEALED);
+
+        if(combo_try_start_pending(ctx.state))
+        {
+            ctx.enter_combo_mode();
+            return PendingStartResult::ENTERED_MODE;
+        }
+
+        ctx.mode = GameMode::SCRY;
+        return PendingStartResult::ENTERED_MODE;
+    }
+
+    // Paper — pick a hand card to swap with the slot Paper occupied.
+    PendingStartResult start_paper_swap_hand(GameContext& ctx, const PendingAction& action)
+    {
+        if(ctx.state.hand.empty())
+        {
+            return PendingStartResult::FIZZLE;
+        }
+
+        int anchor = action.count;
+
+        if(anchor < 0)
+        {
+            anchor = 0;
+        }
+
+        if(anchor >= ctx.state.hand.size())
+        {
+            anchor = ctx.state.hand.size() - 1;
+        }
+
+        begin_selection(ctx, action.type);
+        ctx.state.selection.multiply_factor = anchor;
+        ctx.state.selection.cursor = anchor == 0 ? (ctx.state.hand.size() > 1 ? 1 : 0) : 0;
+        ctx.mode = GameMode::DISCARD_TARGET;
+        ctx.prepare_hand_selection_mode();
+        return PendingStartResult::ENTERED_MODE;
+    }
+
     // Pilot / Librarian peek. Mode: SCRY (or COMBO if revealed match).
     PendingStartResult start_scry(GameContext& ctx, const PendingAction& action)
     {
@@ -371,6 +496,21 @@ namespace
         }
 
         ctx.mode = GameMode::SCRY;
+        return PendingStartResult::ENTERED_MODE;
+    }
+
+    // Build a Number — pick a digit slot after playing a +1..+9 card.
+    PendingStartResult start_build_number_place_digit(GameContext& ctx, const PendingAction& action)
+    {
+        if(!ctx.state.build_a_number_active)
+        {
+            return PendingStartResult::FIZZLE;
+        }
+
+        begin_selection(ctx, action.type);
+        ctx.state.selection.cursor = 0;
+        ctx.state.selection.multiply_factor = action.count;
+        ctx.mode = GameMode::BUILD_NUMBER_DIGIT;
         return PendingStartResult::ENTERED_MODE;
     }
 
@@ -486,6 +626,8 @@ namespace
             return start_exile_from_graveyard_then_multiply(ctx, action);
         case PendingActionType::DISCARD_FROM_HAND_THEN_MULTIPLY:
             return start_discard_from_hand_then_multiply(ctx, action);
+        case PendingActionType::OVERCLOCK_DISCARD_PROMPT:
+            return start_overclock_discard_prompt(ctx, action);
         case PendingActionType::DISCARD_FROM_HAND:
         case PendingActionType::EXILE_FROM_HAND:
         case PendingActionType::PUT_HAND_ON_DECK_TOP:
@@ -504,6 +646,8 @@ namespace
             return start_play_deck_top(ctx, action);
         case PendingActionType::PLAY_RANDOM_GRAVEYARD:
             return start_play_random_graveyard(ctx, action);
+        case PendingActionType::ROLL_OVER_SUBSTITUTE:
+            return start_roll_over_substitute(ctx, action);
         case PendingActionType::MILL_REVEAL:
             return start_mill_reveal(ctx, action);
         case PendingActionType::SCRY:
@@ -514,6 +658,12 @@ namespace
             return start_move_four_total_digit(ctx, action);
         case PendingActionType::REPLACE_TOTAL_DIGIT_WITH_FIVE:
             return start_replace_total_digit_with_five(ctx, action);
+        case PendingActionType::BUILD_A_NUMBER_PLACE_DIGIT:
+            return start_build_number_place_digit(ctx, action);
+        case PendingActionType::PAPER_SWAP_HAND:
+            return start_paper_swap_hand(ctx, action);
+        case PendingActionType::PEANUT_BUTTER_SCRY:
+            return start_peanut_butter_scry(ctx, action);
         case PendingActionType::BIRDS_RETURN:
             return start_birds_return(ctx, action);
         case PendingActionType::RECLAIM_GRAVEYARD:
@@ -599,6 +749,8 @@ namespace
         ctx.row_scroll_x = 0;
         ctx.target_row_scroll_x = 0;
         ctx.target_row_scroll_index = 0;
+
+        try_finish_roll_over_substitution(ctx.state, &ctx.selected_card);
 
         if(empty_hand_triggers_round_end(ctx.state))
         {

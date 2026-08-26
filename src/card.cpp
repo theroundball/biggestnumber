@@ -20,6 +20,7 @@
 #include "game_types.h"
 #include "card_meta.h"
 #include "game_state.h"
+#include "trinket_system.h"
 #include "scoring.h"
 
 namespace
@@ -422,6 +423,7 @@ void apply_card_play(GameState& state, CardRef card, PlaySource source)
     if(plus)
     {
         state.add_from_card(plus);
+        staircase_on_card_plus(state, plus);
     }
 
     if(multiply)
@@ -452,7 +454,11 @@ void apply_card_play(GameState& state, CardRef card, PlaySource source)
         }
     }
 
-    if(d.on_play)
+    if(card.type == CardType::EVALUATE && source == PlaySource::FLASHBACK)
+    {
+        state.evaluate_apply_all_future_multipliers();
+    }
+    else if(d.on_play)
     {
         d.on_play(state);
     }

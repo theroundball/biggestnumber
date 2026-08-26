@@ -30,6 +30,10 @@ void trinket_process_queues(GameContext& ctx);
 void trinket_tick_fx(GameContext& ctx);
 void trinket_render_fx(GameContext& ctx);
 
+void staircase_reset(GameState& state);
+void staircase_on_card_plus(GameState& state, int plus);
+void staircase_flush_climb(GameState& state);
+
 struct LuckySevensFxState
 {
     bool active = false;

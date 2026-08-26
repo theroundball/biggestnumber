@@ -1,7 +1,6 @@
 #include "game_state.h"
-
-#include "card.h"
 #include "game_events.h"
+#include "game_helpers.h"
 #include "score_pop_system.h"
 #include "score_count_system.h"
 #include "trinket_system.h"
@@ -12,6 +11,11 @@ int GameState::add_from_card(int amount)
     {
         round.add(amount);
         return amount;
+    }
+
+    if(build_a_number_active && !applying_build_a_number_payout)
+    {
+        return 0;
     }
 
     if(has_trinket(TrinketType::GET_WITH_THE_TIMES))
@@ -40,11 +44,18 @@ int GameState::add_from_card(int amount)
         ++deferred_morel_count;
     }
 
+    check_bounty_return(*this);
+
     return amount;
 }
 
 void GameState::apply_round_start_trinkets()
 {
+    if(build_a_number_active)
+    {
+        return;
+    }
+
     if(has_trinket(TrinketType::GET_WITH_THE_TIMES))
     {
         const int before = round.running;
@@ -72,6 +83,166 @@ void GameState::apply_round_start_trinkets()
         fibonacci_previous = fibonacci_current;
         fibonacci_current = next > 2147483647 ? 2147483647 : int(next);
     }
+}
+
+void GameState::apply_round_start_adds()
+{
+    apply_round_start_trinkets();
+
+    if(round_start_seed.positive)
+    {
+        add_from_card(round_start_seed.positive);
+    }
+}
+
+void GameState::apply_round_start_multiply()
+{
+    if(round_start_seed.multiply)
+    {
+        apply_seed_multiply(round_start_seed.multiply);
+    }
+}
+
+bool GameState::apply_round_start_turtle_step()
+{
+    if(turtle_rounds_remaining <= 0)
+    {
+        return false;
+    }
+
+    --turtle_rounds_remaining;
+
+    if(turtle_rounds_remaining == 0)
+    {
+        flush_staircase_climb();
+    }
+
+    return turtle_rounds_remaining == 0;
+}
+
+void GameState::flush_staircase_climb()
+{
+    staircase_flush_climb(*this);
+}
+
+void GameState::evaluate_apply_next_slot_multiply()
+{
+    RoundModifier& slot = mod_next();
+
+    if(slot.multiply <= 1)
+    {
+        return;
+    }
+
+    apply_seed_multiply(slot.multiply);
+    slot.multiply = 0;
+}
+
+void GameState::evaluate_apply_all_future_multipliers()
+{
+    for(int index = 0; index < 3; ++index)
+    {
+        RoundModifier& slot = future_mods[index];
+
+        if(slot.multiply <= 1)
+        {
+            continue;
+        }
+
+        apply_seed_multiply(slot.multiply);
+        slot.multiply = 0;
+    }
+
+    if(turtle_rounds_remaining > 0)
+    {
+        turtle_rounds_remaining = 0;
+        const int before = total_score;
+        commit_round();
+        trinket_queue_score_check(*this, TrinketScoreField::TOTAL, before, total_score);
+    }
+}
+
+void GameState::build_a_number_activate()
+{
+    if(build_a_number_active)
+    {
+        return;
+    }
+
+    build_pre_running = round.running;
+    build_pre_end_multiplier = round.end_multiplier;
+    build_a_number_active = true;
+
+    for(int index = 0; index < 3; ++index)
+    {
+        build_digits[index] = -1;
+    }
+
+    round.running = 0;
+}
+
+void GameState::build_a_number_reset()
+{
+    build_a_number_active = false;
+    build_pre_running = 0;
+    build_pre_end_multiplier = 1;
+    applying_build_a_number_payout = false;
+
+    for(int index = 0; index < 3; ++index)
+    {
+        build_digits[index] = -1;
+    }
+}
+
+bool GameState::build_a_number_all_digits_filled() const
+{
+    for(int index = 0; index < 3; ++index)
+    {
+        if(build_digits[index] < 0 || build_digits[index] > 9)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+int GameState::build_a_number_assembled_value() const
+{
+    return build_digits[0] * 100 + build_digits[1] * 10 + build_digits[2];
+}
+
+void GameState::build_a_number_complete_payout()
+{
+    if(!build_a_number_all_digits_filled())
+    {
+        return;
+    }
+
+    const int payout = build_a_number_assembled_value();
+    build_a_number_reset();
+    applying_build_a_number_payout = true;
+    add_from_card(payout);
+    applying_build_a_number_payout = false;
+}
+
+int GameState::build_a_number_commit_prebuild()
+{
+    int committed = 0;
+
+    if(build_a_number_active && (build_pre_running != 0 || build_pre_end_multiplier != 1))
+    {
+        RoundScore snapshot;
+        snapshot.running = build_pre_running;
+        snapshot.end_multiplier = build_pre_end_multiplier;
+        committed = snapshot.committed();
+        total_score += committed;
+        build_pre_running = 0;
+        build_pre_end_multiplier = 1;
+    }
+
+    round.reset();
+    return committed;
 }
 
 void GameState::schedule_keep_going()
@@ -133,6 +304,11 @@ void GameState::mul_from_card(int factor)
         return;
     }
 
+    if(build_a_number_active && !applying_build_a_number_payout)
+    {
+        return;
+    }
+
     const int before_running = round.running;
     const int before_committed = round.committed();
     round.running *= factor;
@@ -151,6 +327,8 @@ void GameState::mul_from_card(int factor)
     }
 
     trinket_queue_score_check(*this, TrinketScoreField::ROUND, before_committed, after_committed);
+
+    check_bounty_return(*this);
 }
 
 void GameState::apply_seed_multiply(int factor)

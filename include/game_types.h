@@ -14,6 +14,7 @@ enum class GameMode
     COMBO,
     SWIVEL,
     SCORE_SWAP,
+    BUILD_NUMBER_DIGIT,
 };
 
 enum class SidePanel

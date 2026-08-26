@@ -56,6 +56,8 @@ namespace
             return "Prime Time";
         case TrinketType::FIBONACCI:
             return "Fibonacci";
+        case TrinketType::STAIRCASE:
+            return "Staircase";
         default:
             return "Trinket";
         }
@@ -77,6 +79,8 @@ namespace
             return "When round or total score are prime numbers, add n where n is the number of times your round or total score have been a prime number.";
         case TrinketType::FIBONACCI:
             return "At each round start, add the next value in 1, 1, 2, 3, 5, 8...";
+        case TrinketType::STAIRCASE:
+            return "Play +N cards in strictly ascending order. When the climb ends, add (sum of climb) x (climb length).";
         default:
             return "Global modifier for your active deck.";
         }

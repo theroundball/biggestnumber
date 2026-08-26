@@ -8,6 +8,7 @@
 #include "card_data.h"
 #include "card.h"
 #include "card_instance.h"
+#include "combo_system.h"
 #include "game_events.h"
 #include "game_ui.h"
 #include "play_resolution.h"
@@ -74,6 +75,11 @@ bool card_has_play_effect(CardType type)
     }
 
     if(data.on_play != nullptr)
+    {
+        return true;
+    }
+
+    if(type == CardType::BONES)
     {
         return true;
     }
@@ -445,22 +451,226 @@ int flashback_ghost_count(const GameState& state)
 
 bool empty_hand_triggers_round_end(const GameState& state)
 {
-    return state.hand.empty() && flashback_ghost_count(state) == 0;
+    if(state.roll_over_substitution_active)
+    {
+        return false;
+    }
+
+    return state.hand.empty() && flashback_ghost_count(state) == 0 && combo_ready_count(state) == 0;
+}
+
+namespace
+{
+    constexpr int bounty_return_threshold = 10;
+
+    int played_card_digit_plus(const GameState& state, CardRef card, PlaySource source)
+    {
+        const CardData& data = card_data(card.type);
+        int plus = (source == PlaySource::FLASHBACK && data.has_flashback) ? data.flashback_plus
+                                                                           : data.immediate_plus;
+
+        if(source != PlaySource::FLASHBACK && card.has_instance())
+        {
+            const CardInstance* instance = instance_at(state.instance_pool, card.instance_id);
+
+            if(instance)
+            {
+                plus = effective_immediate_plus(*instance);
+            }
+        }
+
+        return plus;
+    }
+}
+
+void build_a_number_try_queue_digit_placement(GameState& state, CardRef card, PlaySource source)
+{
+    if(!state.build_a_number_active || card.type == CardType::BUILD_A_NUMBER)
+    {
+        return;
+    }
+
+    const int digit = played_card_digit_plus(state, card, source);
+
+    if(digit < 1 || digit > 9)
+    {
+        return;
+    }
+
+    PendingAction action;
+    action.type = PendingActionType::BUILD_A_NUMBER_PLACE_DIGIT;
+    action.count = digit;
+    state.pending_actions.push_back(action);
+}
+
+void check_bounty_return(GameState& state)
+{
+    int bounty_index = -1;
+
+    for(int index = 0; index < state.graveyard.size(); ++index)
+    {
+        if(state.graveyard[index].type == CardType::BOUNTY)
+        {
+            bounty_index = index;
+            break;
+        }
+    }
+
+    if(bounty_index < 0)
+    {
+        return;
+    }
+
+    if(state.round.running - state.bounty_return_anchor < bounty_return_threshold)
+    {
+        return;
+    }
+
+    const CardRef card = state.graveyard[bounty_index];
+    graveyard_remove_at(state, bounty_index);
+
+    if(!state.hand.full())
+    {
+        hand_add_card(state, card);
+    }
+    else
+    {
+        state.deck.insert_top(card);
+    }
+
+    state.bounty_return_anchor = state.round.running;
+}
+
+void try_finish_roll_over_substitution(GameState& state, int* selected_card)
+{
+    if(!state.roll_over_substitution_active || !state.hand.empty())
+    {
+        return;
+    }
+
+    for(const CardRef& card : state.roll_over_stashed_hand)
+    {
+        if(!state.hand.full())
+        {
+            state.hand.push_back(card);
+        }
+    }
+
+    state.roll_over_stashed_hand.clear();
+    state.roll_over_substitution_active = false;
+
+    if(selected_card)
+    {
+        if(state.hand.empty())
+        {
+            *selected_card = 0;
+        }
+        else if(*selected_card < 0 || *selected_card >= state.hand.size())
+        {
+            *selected_card = state.hand.size() - 1;
+        }
+    }
+}
+
+bool begin_roll_over_substitution(GameState& state, int* selected_card)
+{
+    if(state.roll_over_substitution_active)
+    {
+        return false;
+    }
+
+    bn::vector<int, 50> candidates;
+
+    for(int index = 0; index < state.graveyard.size(); ++index)
+    {
+        if(state.graveyard[index].type != CardType::ROLL_OVER)
+        {
+            candidates.push_back(index);
+        }
+    }
+
+    if(candidates.size() < 2)
+    {
+        return false;
+    }
+
+    const int first_pick = state.rng.get_int(candidates.size());
+    const int first_index = candidates[first_pick];
+    candidates.erase(candidates.begin() + first_pick);
+
+    const int second_pick = state.rng.get_int(candidates.size());
+    const int second_index = candidates[second_pick];
+
+    const CardRef first = state.graveyard[first_index];
+    const CardRef second = state.graveyard[second_index];
+
+    const int remove_high = first_index > second_index ? first_index : second_index;
+    const int remove_low = first_index > second_index ? second_index : first_index;
+    graveyard_remove_at(state, remove_high);
+    graveyard_remove_at(state, remove_low);
+
+    state.roll_over_stashed_hand.clear();
+
+    for(const CardRef& card : state.hand)
+    {
+        if(!state.roll_over_stashed_hand.full())
+        {
+            state.roll_over_stashed_hand.push_back(card);
+        }
+    }
+
+    state.hand.clear();
+    state.hand.push_back(first);
+    state.hand.push_back(second);
+    state.roll_over_substitution_active = true;
+
+    if(selected_card)
+    {
+        *selected_card = 0;
+    }
+
+    return true;
 }
 
 int playable_slot_count(const GameState& state)
 {
-    if(state.hand.empty())
+    if(state.roll_over_substitution_active)
     {
-        return flashback_ghost_count(state);
+        return state.hand.size();
     }
 
-    return state.hand.size() + flashback_ghost_count(state);
+    return state.hand.size() + flashback_ghost_count(state) + combo_ready_count(state);
 }
 
 bool playable_slot_is_flashback(const GameState& state, int visual_index)
 {
-    return visual_index >= state.hand.size();
+    if(visual_index < state.hand.size())
+    {
+        return false;
+    }
+
+    const int ghost_index = visual_index - state.hand.size();
+
+    return ghost_index >= 0 && ghost_index < flashback_ghost_count(state);
+}
+
+bool playable_slot_is_combine_offer(const GameState& state, int visual_index)
+{
+    if(visual_index < state.hand.size())
+    {
+        return false;
+    }
+
+    const int ghost_index = visual_index - state.hand.size();
+    const int flashback_count = flashback_ghost_count(state);
+
+    return ghost_index >= flashback_count &&
+           ghost_index < flashback_count + combo_ready_count(state);
+}
+
+int playable_slot_combine_ordinal(const GameState& state, int visual_index)
+{
+    return visual_index - state.hand.size() - flashback_ghost_count(state);
 }
 
 int playable_slot_hand_index(const GameState& state, int visual_index)
@@ -512,6 +722,13 @@ CardRef playable_slot_card(const GameState& state, int visual_index)
     if(visual_index < state.hand.size())
     {
         return state.hand[visual_index];
+    }
+
+    if(playable_slot_is_combine_offer(state, visual_index))
+    {
+        const int ordinal = playable_slot_combine_ordinal(state, visual_index);
+        const uint8_t combo_id = combo_ready_id_by_ordinal(state, ordinal);
+        return CardRef{combo_ready_display_type(combo_id), NO_INSTANCE};
     }
 
     const int gy_index = playable_slot_graveyard_index(state, visual_index);

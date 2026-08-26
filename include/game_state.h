@@ -32,6 +32,7 @@ enum class TrinketType : uint8_t
     GET_WITH_THE_TIMES,
     PRIME_TIME,
     FIBONACCI,
+    STAIRCASE,
     COUNT,
 };
 
@@ -95,6 +96,7 @@ enum class PendingActionType
     EXILE_FROM_GRAVEYARD_THEN_MULTIPLY,
     EXILE_GRAVEYARD_MULTIPLY_BY_COUNT,
     DISCARD_FROM_HAND_THEN_MULTIPLY,
+    OVERCLOCK_DISCARD_PROMPT,
     DISCARD_FROM_HAND,
     EXILE_FROM_HAND,
     PUT_HAND_ON_DECK_TOP,
@@ -107,6 +109,10 @@ enum class PendingActionType
     DECK_SEARCH,
     PLAY_DECK_TOP,
     PLAY_RANDOM_GRAVEYARD,
+    ROLL_OVER_SUBSTITUTE,
+    BUILD_A_NUMBER_PLACE_DIGIT,
+    PAPER_SWAP_HAND,
+    PEANUT_BUTTER_SCRY,
     MIRACLE_AUTO_PLAY,
     EFFECT_DECK_DRAW,
     COMBO_CINEMATIC,
@@ -168,6 +174,7 @@ struct GameState
     int current_round = 1;
     int cards_played_this_round = 0;
     bool echo_ready = false;
+    RoundModifier round_start_seed = {};
     int round_start_extra_draws = 0;
 
     RoundModifier future_mods[3] = {};
@@ -206,6 +213,19 @@ struct GameState
     int effect_draw_remaining = 0;
     bool effect_draw_miracle_first = false;
     bool effect_draw_miracle_chaining = false;
+    bool roll_over_substitution_active = false;
+    bn::vector<CardRef, 60> roll_over_stashed_hand;
+    int bounty_play_count = 0;
+    int bounty_return_anchor = 0;
+    int paper_swap_hand_index = -1;
+    int staircase_last_plus = 0;
+    int staircase_length = 0;
+    int staircase_sum = 0;
+    bool build_a_number_active = false;
+    bn::array<int, 3> build_digits = {-1, -1, -1};
+    int build_pre_running = 0;
+    int build_pre_end_multiplier = 1;
+    bool applying_build_a_number_payout = false;
 
     bn::array<TrinketType, 3> trinkets = {
         TrinketType::MOREL,
@@ -263,8 +283,11 @@ struct GameState
     void resolve_keep_going_round_start();
     void finish_keep_going_round_start();
 
+    void flush_staircase_climb();
+
     void commit_round()
     {
+        flush_staircase_climb();
         total_score += round.committed();
         round.reset();
     }
@@ -275,12 +298,24 @@ struct GameState
     void mul_from_card(int factor);
     void apply_seed_multiply(int factor);
     void apply_round_start_trinkets();
+    void apply_round_start_adds();
+    void apply_round_start_multiply();
+    bool apply_round_start_turtle_step();
+    void evaluate_apply_next_slot_multiply();
+    void evaluate_apply_all_future_multipliers();
+    void build_a_number_activate();
+    void build_a_number_reset();
+    bool build_a_number_all_digits_filled() const;
+    int build_a_number_assembled_value() const;
+    void build_a_number_complete_payout();
+    int build_a_number_commit_prebuild();
 
     void start_new_round(bool preserve_round_score = false)
     {
+        flush_staircase_climb();
         ++current_round;
 
-        const RoundModifier seed = future_mods[next_mod_index];
+        round_start_seed = future_mods[next_mod_index];
         future_mods[next_mod_index] = RoundModifier{};
         next_mod_index = (next_mod_index + 1) % 3;
 
@@ -289,17 +324,7 @@ struct GameState
             round.reset();
         }
 
-        apply_round_start_trinkets();
-
-        if(seed.positive)
-        {
-            add_from_card(seed.positive);
-        }
-        if(seed.multiply)
-        {
-            apply_seed_multiply(seed.multiply);
-        }
-        round_start_extra_draws = seed.draw_at_start;
+        round_start_extra_draws = round_start_seed.draw_at_start;
         cards_played_this_round = 0;
         battle_stats.cards_drawn_this_round = 0;
         prime_time_round_procs = 0;
@@ -307,6 +332,9 @@ struct GameState
         echo_pending_replay = false;
         echo_replay_card = CardRef{};
         first_deck_draw_this_round = true;
+        roll_over_substitution_active = false;
+        roll_over_stashed_hand.clear();
+        bounty_return_anchor = round.running;
     }
 };
 

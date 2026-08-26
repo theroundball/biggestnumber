@@ -117,6 +117,35 @@ private:
                               int segment_count, int tile_index, int segment_offset);
 };
 
+// Ten-segment bar showing progress toward Bounty's +10 GY return threshold.
+class BountyProgressBar
+{
+public:
+    static constexpr int SEGMENT_COUNT = 10;
+    static constexpr int SEGMENT = 8;
+    static constexpr int WIDTH = SEGMENT_COUNT * SEGMENT;
+    static constexpr int Y = 34;
+
+    BountyProgressBar();
+
+    void sync(int filled_segments);
+    void set_visible(bool visible);
+    void set_x_offset(int panel_offset);
+
+private:
+    bn::sprite_tiles_ptr _track_tile;
+    bn::sprite_tiles_ptr _fill_tile;
+    bn::sprite_palette_ptr _palette;
+    bn::vector<bn::sprite_ptr, SEGMENT_COUNT> _track_sprites;
+    bn::vector<bn::sprite_ptr, SEGMENT_COUNT> _fill_sprites;
+    int _last_filled = -1;
+    int _x_offset = 0;
+    bool _visible = false;
+
+    [[nodiscard]] int segment_center_x(int segment_index) const;
+    void reposition_segments();
+};
+
 // Small 16x16 badge rendered above a hand card (Echo trinket art, Swivel placeholder
 // until hud_effect_swivel.bmp exists — swap CardEffectBadge::sprite_item_for(SWIVEL)).
 class CardEffectBadge

@@ -85,8 +85,10 @@ namespace
         {
             const int hand_index = ctx.hand_index_for_visual_slot(visual_index);
             const bool flashback_slot = playable_slot_is_flashback(ctx.state, visual_index);
+            const bool combine_slot = playable_slot_is_combine_offer(ctx.state, visual_index);
 
-            if(!flashback_slot && (hand_index < 0 || hand_index >= ctx.state.hand.size()))
+            if(!flashback_slot && !combine_slot &&
+               (hand_index < 0 || hand_index >= ctx.state.hand.size()))
             {
                 continue;
             }
@@ -579,6 +581,7 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
             for(int visual_index = 0; visual_index < visual_count; ++visual_index)
             {
                 const bool is_flashback = playable_slot_is_flashback(state, visual_index);
+                const bool is_combine = playable_slot_is_combine_offer(state, visual_index);
                 const int hand_index = playable_slot_hand_index(state, visual_index);
                 const CardRef slot_card = playable_slot_card(state, visual_index);
 
@@ -684,7 +687,7 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                     card.set_position(card_x, card_y);
                     card.clear_visual();
 
-                    if(is_flashback)
+                    if(is_flashback || is_combine)
                     {
                         bn::blending::set_transparency_alpha(bn::fixed(0.45));
                         card.set_blending_enabled(true);
@@ -724,7 +727,15 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                 const int preview_plus = card_preview_plus(state, slot_card, is_flashback);
                 const bool show_overlay = state.pending_double_adds || is_flashback;
 
-                if(show_overlay && preview_plus > 0)
+                if(is_combine)
+                {
+                    const int ordinal = playable_slot_combine_ordinal(state, visual_index);
+                    const uint8_t combo_id = combo_ready_id_by_ordinal(state, ordinal);
+                    bn::string<8> mult_text = "x";
+                    mult_text += bn::to_string<4>(combo_ready_multiplier(combo_id));
+                    card.set_amount_overlay(&hud_count_generator, mult_text);
+                }
+                else if(show_overlay && preview_plus > 0)
                 {
                     bn::string<8> amount_text = "+";
                     amount_text += bn::to_string<4>(preview_plus);
@@ -750,7 +761,8 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
 
                 if(visual_index == selected_card && !center_beat_active)
                 {
-                    const bool echo_preview = !is_flashback && state.echo_first_play_active() &&
+                    const bool echo_preview = !is_flashback && !is_combine &&
+                                              state.echo_first_play_active() &&
                                               card_has_play_effect(state, slot_card);
 
                     if(echo_preview || (echo_play_badge_active && removing_card))
@@ -833,6 +845,12 @@ void GameContext::sync_score_sprite_depth()
     }
 
     for(bn::sprite_ptr& sprite : round_text_sprites)
+    {
+        sprite.set_z_order(score_z);
+        sprite.set_bg_priority(score_bg_priority);
+    }
+
+    for(bn::sprite_ptr& sprite : combo_pip_sprites)
     {
         sprite.set_z_order(score_z);
         sprite.set_bg_priority(score_bg_priority);
@@ -1302,9 +1320,23 @@ void GameContext::render_frame()
         }
 
         sync_score_progress_bar();
+        sync_combo_pips();
+        sync_bounty_progress_bar();
         const bool show_score_bar = score_progress_visible() && !hide_main_scores && !score_swap_is_active(*this);
         score_progress_bar.set_visible(show_score_bar);
         score_progress_bar.set_x_offset(main_panel_offset_x());
+
+        const bool show_combo_pips = show_round_score && !score_swap_is_active(*this);
+        const bool show_bounty_bar =
+            show_round_score && !score_swap_is_active(*this) && bounty_progress_visible();
+
+        for(bn::sprite_ptr& sprite : combo_pip_sprites)
+        {
+            sprite.set_visible(show_combo_pips);
+        }
+
+        bounty_progress_bar.set_visible(show_bounty_bar);
+        bounty_progress_bar.set_x_offset(main_panel_offset_x());
 
         score_pop_render(*this, show_round_score && !inspecting);
         sync_score_sprite_depth();

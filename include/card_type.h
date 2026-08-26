@@ -71,6 +71,10 @@ enum class CardType
     SPECULATIVE,
     FLEX,
     KEEP_GOING,
+    BOUNTY,
+    OVERCLOCK,
+    EVALUATE,
+    BUILD_A_NUMBER,
     COUNT
 };
 

@@ -1,4 +1,5 @@
 #include "trinket_system.h"
+
 #include "score_pop_system.h"
 #include "score_count_system.h"
 
@@ -420,4 +421,64 @@ void trinket_render_fx(GameContext& ctx)
     ctx.round_text_generator.generate(anchor_x, anchor_y, bn::to_string<8>(fx.displayed_roll),
                                       ctx.trinket_fx_sprites);
     ctx.round_text_generator.set_left_alignment();
+}
+
+void staircase_reset(GameState& state)
+{
+    state.staircase_last_plus = 0;
+    state.staircase_length = 0;
+    state.staircase_sum = 0;
+}
+
+void staircase_flush_climb(GameState& state)
+{
+    if(!state.has_trinket(TrinketType::STAIRCASE))
+    {
+        staircase_reset(state);
+        return;
+    }
+
+    if(state.staircase_length < 2)
+    {
+        staircase_reset(state);
+        return;
+    }
+
+    const int bonus = state.staircase_sum * state.staircase_length;
+    const int before = state.round.running;
+    state.round.add(bonus);
+    score_pop_queue_from_trinket(state, bonus, TrinketType::STAIRCASE, TrinketScoreField::ROUND, before,
+                                 state.round.running, true, false);
+    trinket_queue_proc(state, TrinketType::STAIRCASE);
+    trinket_queue_score_check(state, TrinketScoreField::ROUND, before, state.round.running);
+    staircase_reset(state);
+}
+
+void staircase_on_card_plus(GameState& state, int plus)
+{
+    if(!state.has_trinket(TrinketType::STAIRCASE) || plus <= 0)
+    {
+        return;
+    }
+
+    if(state.staircase_length == 0)
+    {
+        state.staircase_length = 1;
+        state.staircase_sum = plus;
+        state.staircase_last_plus = plus;
+        return;
+    }
+
+    if(plus > state.staircase_last_plus)
+    {
+        ++state.staircase_length;
+        state.staircase_sum += plus;
+        state.staircase_last_plus = plus;
+        return;
+    }
+
+    staircase_flush_climb(state);
+    state.staircase_length = 1;
+    state.staircase_sum = plus;
+    state.staircase_last_plus = plus;
 }

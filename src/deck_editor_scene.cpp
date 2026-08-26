@@ -83,6 +83,8 @@ namespace
             return "Prime Time";
         case TrinketType::FIBONACCI:
             return "Fibonacci";
+        case TrinketType::STAIRCASE:
+            return "Staircase";
         default:
             return "none";
         }

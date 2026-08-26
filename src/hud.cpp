@@ -160,6 +160,9 @@ int PersistentHud::HudIcon::solid_color_index(IconKind kind)
     case IconKind::TRINKET_FIBONACCI:
         return COLOR_TRINKET_EQUIPPED;
 
+    case IconKind::TRINKET_STAIRCASE:
+        return COLOR_TRINKET_PRIME_TIME;
+
     case IconKind::TURTLE_TIMER:
         return COLOR_TURTLE;
 
@@ -470,6 +473,7 @@ PersistentHud::PersistentHud(bn::sprite_text_generator& count_text_generator,
     },
     _deck_count(count_text_generator),
     _grave_count(count_text_generator),
+    _climb_pip(count_text_generator),
     _future_mod_lines{
         HudModLine(mod_text_generator),
         HudModLine(mod_text_generator),
@@ -596,12 +600,30 @@ void PersistentHud::update(const GameState& state)
             kind = IconKind::TRINKET_FIBONACCI;
             break;
 
+        case TrinketType::STAIRCASE:
+            kind = IconKind::TRINKET_STAIRCASE;
+            break;
+
         default:
             break;
         }
 
         _trinket_icons[slot].set_kind(kind);
         _trinket_base_y[slot] = RAIL_Y0 + slot * TRINKET_ROW_SPACING;
+    }
+
+    _climb_pip.set_visible(false);
+
+    if(_visible && state.has_trinket(TrinketType::STAIRCASE) && state.staircase_length >= 2)
+    {
+        const int slot = trinket_slot_index(state, TrinketType::STAIRCASE);
+
+        if(slot >= 0)
+        {
+            _climb_pip.set_value(state.staircase_length);
+            _climb_pip.set_position(_trinket_base_x[slot] - 14, _trinket_base_y[slot]);
+            _climb_pip.set_visible(true);
+        }
     }
 
     update_modifier_rows(state,

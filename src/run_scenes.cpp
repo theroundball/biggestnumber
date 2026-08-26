@@ -62,6 +62,8 @@ namespace
             return "Prime Time";
         case TrinketType::FIBONACCI:
             return "Fibonacci";
+        case TrinketType::STAIRCASE:
+            return "Staircase";
         default:
             return "None";
         }
@@ -116,6 +118,8 @@ namespace
         case TrinketType::LUCKY_SEVENS:
             return &bn::sprite_items::hud_lucky7;
         case TrinketType::FIBONACCI:
+            return &bn::sprite_items::hud_lucky7;
+        case TrinketType::STAIRCASE:
             return &bn::sprite_items::hud_lucky7;
         default:
             return nullptr;

@@ -42,6 +42,7 @@ private:
         TRINKET_GET_WITH_THE_TIMES,
         TRINKET_PRIME_TIME,
         TRINKET_FIBONACCI,
+        TRINKET_STAIRCASE,
         TURTLE_TIMER,
     };
 
@@ -132,6 +133,7 @@ private:
     bn::array<HudIcon, 3> _trinket_icons;
     HudCount _deck_count;
     HudCount _grave_count;
+    HudCount _climb_pip;
     bn::array<HudModLine, 3> _future_mod_lines;
     bn::array<HudIcon, 3> _turtle_row_icons;
     bn::array<HudModLine, 3> _details_mod_lines;

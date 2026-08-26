@@ -57,6 +57,33 @@ namespace
         return bn::to_string<12>(end_multiplier).size();
     }
 
+    void apply_bones_gy_entry(GameState& state)
+    {
+        int bones_count = 0;
+
+        for(const CardRef& card : state.graveyard)
+        {
+            if(card.type == CardType::BONES)
+            {
+                ++bones_count;
+            }
+        }
+
+        const int graveyard_count = state.graveyard.size();
+
+        if(graveyard_count > 0)
+        {
+            state.add_from_card(graveyard_count);
+        }
+
+        const int factor = bones_count + 1;
+
+        if(factor > 1)
+        {
+            state.mul_from_card(factor);
+        }
+    }
+
     void apply_tombstones_gy_entry(GameState& state)
     {
         const int factor = count_unique_graveyard_types(state);
@@ -96,9 +123,16 @@ namespace
             apply_post_play_destination(state, card, context.source, dest, context.hand_index,
                                         context.selected_card);
 
-            if(dest == PostPlayDestination::GRAVEYARD && card.type == CardType::TOMBSTONES)
+            if(dest == PostPlayDestination::GRAVEYARD)
             {
-                apply_tombstones_gy_entry(state);
+                if(card.type == CardType::BONES)
+                {
+                    apply_bones_gy_entry(state);
+                }
+                else if(card.type == CardType::TOMBSTONES)
+                {
+                    apply_tombstones_gy_entry(state);
+                }
             }
         }
 
@@ -133,6 +167,7 @@ GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const Battle
     },
     text_generator(fixed_32x64_sprite_font),
     round_text_generator(common::variable_8x16_sprite_font),
+    combo_pip_text_generator(common::variable_8x8_sprite_font),
     inspect_text_generator(common::variable_8x8_sprite_font),
     hud_count_generator(common::variable_8x8_sprite_font),
     hud_mod_generator(common::variable_8x8_sprite_font),
@@ -200,8 +235,9 @@ GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const Battle
         release_card_display_tiles(flight.fx_card);
     }
 
-    state.apply_round_start_trinkets();
     deal_opening_hand();
+    state.apply_round_start_adds();
+    state.apply_round_start_multiply();
     reset_card_animation_state();
     try_start_hand_draw_fx();
     draw_total_score();
@@ -336,6 +372,19 @@ bool GameContext::score_progress_visible() const
     return score_progress_goal() > 0;
 }
 
+bool GameContext::bounty_progress_visible() const
+{
+    for(const CardRef& card : state.graveyard)
+    {
+        if(card.type == CardType::BOUNTY)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void GameContext::sync_score_progress_bar()
 {
     const int goal = score_progress_goal();
@@ -353,6 +402,86 @@ void GameContext::sync_score_progress_bar()
     }
 
     score_progress_bar.sync(display_total, display_round, goal);
+}
+
+void GameContext::sync_combo_pips()
+{
+    bn::vector<ComboPipLine, 3> lines;
+    combo_staging_collect_pip_lines(state, lines);
+
+    bn::string<72> cache_key;
+
+    for(int index = 0; index < lines.size(); ++index)
+    {
+        if(index > 0)
+        {
+            cache_key.append('|');
+        }
+
+        cache_key.append(lines[index].text);
+    }
+
+    if(_combo_pip_initialized && cache_key == _cached_combo_pip_text)
+    {
+        return;
+    }
+
+    _combo_pip_initialized = true;
+    _cached_combo_pip_text = cache_key;
+    combo_pip_sprites.clear();
+    last_combo_pip_sprite_offset = 0;
+
+    if(lines.empty())
+    {
+        return;
+    }
+
+    combo_pip_text_generator.set_center_alignment();
+
+    constexpr int FIRST_Y = 12;
+    constexpr int LINE_STEP = 8;
+
+    for(int index = 0; index < lines.size(); ++index)
+    {
+        combo_pip_text_generator.generate(0, FIRST_Y + index * LINE_STEP, lines[index].text,
+                                          combo_pip_sprites);
+    }
+
+    combo_pip_text_generator.set_left_alignment();
+}
+
+void GameContext::sync_bounty_progress_bar()
+{
+    bool bounty_in_graveyard = false;
+
+    for(const CardRef& card : state.graveyard)
+    {
+        if(card.type == CardType::BOUNTY)
+        {
+            bounty_in_graveyard = true;
+            break;
+        }
+    }
+
+    if(!bounty_in_graveyard)
+    {
+        bounty_progress_bar.sync(0);
+        return;
+    }
+
+    int progress = state.round.running - state.bounty_return_anchor;
+
+    if(progress < 0)
+    {
+        progress = 0;
+    }
+
+    if(progress > 10)
+    {
+        progress = 10;
+    }
+
+    bounty_progress_bar.sync(progress);
 }
 
 // Redraws the current round's running score formula.
@@ -398,6 +527,44 @@ void GameContext::draw_round_score()
 
 void GameContext::show_round_score_running(int running, int end_multiplier)
 {
+    if(state.build_a_number_active)
+    {
+        bn::string<16> builder_text;
+
+        for(int index = 0; index < 3; ++index)
+        {
+            if(index > 0)
+            {
+                builder_text.append(' ');
+            }
+
+            if(state.build_digits[index] >= 0)
+            {
+                builder_text.append(bn::to_string<1>(state.build_digits[index]));
+            }
+            else
+            {
+                builder_text.append('_');
+            }
+        }
+
+        if(_round_score_initialized && builder_text == _cached_round_score_text && !round_text_sprites.empty())
+        {
+            sync_score_progress_bar();
+            return;
+        }
+
+        _cached_round_score_text = builder_text;
+        _round_score_initialized = true;
+        round_text_sprites.clear();
+        last_round_sprite_offset = 0;
+        round_text_generator.set_center_alignment();
+        round_text_generator.generate(0, 0, builder_text, round_text_sprites);
+        round_text_generator.set_left_alignment();
+        sync_score_progress_bar();
+        return;
+    }
+
     // Number Now: non-scoring rounds always display as 0(running) so the ×0 is obvious.
     if(campaign_ui.mode == CampaignMode::NUMBER_NOW &&
        state.current_round != campaign_ui.number_now_scoring_round)
@@ -499,17 +666,34 @@ void GameContext::tick_score_wiggles()
 void GameContext::commit_round_with_checks()
 {
     const int before = state.total_score;
-    const int round_score = state.round.committed();
     const int round_number = state.current_round;
 
-    if(campaign_ui.mode == CampaignMode::NUMBER_NOW && round_number != campaign_ui.number_now_scoring_round)
+    if(state.build_a_number_active)
+    {
+        const int round_score = state.build_a_number_commit_prebuild();
+
+        if(campaign_ui.mode == CampaignMode::NUMBER_NOW && round_number != campaign_ui.number_now_scoring_round)
+        {
+            scene_result.last_round_score = 0;
+            scene_result.last_round_number = round_number;
+        }
+        else
+        {
+            scene_result.last_round_score = round_score;
+            scene_result.last_round_number = round_number;
+        }
+    }
+    else if(campaign_ui.mode == CampaignMode::NUMBER_NOW &&
+            round_number != campaign_ui.number_now_scoring_round)
     {
         scene_result.last_round_score = 0;
         scene_result.last_round_number = round_number;
+        state.flush_staircase_climb();
         state.round.reset();
     }
     else
     {
+        const int round_score = state.round.committed();
         scene_result.last_round_score = round_score;
         scene_result.last_round_number = round_number;
         state.commit_round();
@@ -519,7 +703,7 @@ void GameContext::commit_round_with_checks()
     _cached_round_score_text = "";
     _round_score_initialized = false;
     round_score_wiggle_frames = 0;
-    show_round_score_running(0, 1);
+    show_round_score_running(state.round.running, state.round.end_multiplier);
     score_count_queue(state, TrinketScoreField::TOTAL, before, state.total_score);
     trinket_queue_score_check(state, TrinketScoreField::TOTAL, before, state.total_score);
 }
@@ -1397,6 +1581,19 @@ void GameContext::resolve_play_flight_effects(PlayFlight& flight)
             state.mul_from_card(state.selection.multiply_factor);
             draw_round_score();
         }
+        else if(state.selection.type == PendingActionType::OVERCLOCK_DISCARD_PROMPT)
+        {
+            state.mul_from_card(state.selection.multiply_factor);
+            draw_round_score();
+
+            if(!state.hand.empty())
+            {
+                PendingAction next;
+                next.type = PendingActionType::OVERCLOCK_DISCARD_PROMPT;
+                next.count = state.selection.multiply_factor + 1;
+                state.pending_actions.push_back(next);
+            }
+        }
     }
     else if(flight.is_miracle_bonus)
     {
@@ -1419,6 +1616,7 @@ void GameContext::resolve_play_flight_effects(PlayFlight& flight)
         state.swivel_waiting = flight.swivel_follow;
         apply_card_play(state, flight.played_ref, flight.scoring_source);
         state.swivel_waiting = false;
+        build_a_number_try_queue_digit_placement(state, flight.played_ref, flight.scoring_source);
         draw_round_score();
     }
 
@@ -2038,6 +2236,26 @@ void GameContext::try_begin_keep_going_transfer()
     begin_graveyard_card_fx(GraveyardExilePickKind::TO_DECK_TOP);
 }
 
+void GameContext::apply_round_start_turtle_step()
+{
+    if(!state.apply_round_start_turtle_step())
+    {
+        return;
+    }
+
+    commit_round_with_checks();
+    draw_total_score();
+}
+
+void GameContext::run_round_start_pipeline()
+{
+    // Step 1 (Keep Going GY→deck) runs via begin_keep_going_round_transfers before this.
+    deal_opening_hand();
+    apply_round_start_turtle_step();
+    state.apply_round_start_adds();
+    state.apply_round_start_multiply();
+}
+
 void GameContext::finish_deferred_round_start()
 {
     if(!deferred_round_start_pending)
@@ -2064,7 +2282,7 @@ void GameContext::finish_deferred_round_start()
 
     state.start_new_round(deferred_round_start_turtle_preserve);
     reset_card_animation_state();
-    deal_opening_hand();
+    run_round_start_pipeline();
     try_start_hand_draw_fx();
     process_instant_pending();
     draw_round_score();
@@ -2578,6 +2796,7 @@ void GameContext::tick_echo_pending()
 
     if(!try_drain_echo_replay())
     {
+        try_finish_roll_over_substitution(state, &selected_card);
         swivel_clear_wait_if_hand_empty(*this);
 
         if(empty_hand_triggers_round_end(state) && !removing_card && !presentation_fx_blocking() &&
@@ -2594,6 +2813,8 @@ void GameContext::tick_echo_pending()
         begin_next_pending_or_finish();
         return;
     }
+
+    try_finish_roll_over_substitution(state, &selected_card);
 
     if(empty_hand_triggers_round_end(state))
     {
@@ -3295,6 +3516,8 @@ void GameContext::position_main_score_sprites()
                               main_panel_offset_x(), last_main_sprite_offset);
     apply_sprite_offset_delta(bn::span<bn::sprite_ptr>(round_text_sprites.data(), round_text_sprites.size()),
                               main_panel_offset_x(), last_round_sprite_offset);
+    apply_sprite_offset_delta(bn::span<bn::sprite_ptr>(combo_pip_sprites.data(), combo_pip_sprites.size()),
+                              main_panel_offset_x(), last_combo_pip_sprite_offset);
 }
 
 void GameContext::position_inspect_sprites()
@@ -3470,6 +3693,8 @@ namespace
         case PendingActionType::DISCARD_FROM_HAND:
         case PendingActionType::EXILE_FROM_HAND:
         case PendingActionType::DISCARD_FROM_HAND_THEN_MULTIPLY:
+        case PendingActionType::OVERCLOCK_DISCARD_PROMPT:
+        case PendingActionType::PAPER_SWAP_HAND:
         case PendingActionType::PUT_HAND_ON_DECK_TOP:
             return GameMode::DISCARD_TARGET;
         case PendingActionType::NONE:
@@ -3690,17 +3915,19 @@ bool GameContext::block_round_end_for_combo()
         return true;
     }
 
-    // Last chance before round/run end: re-scan so a just-completed GY combo
-    // (e.g. PB onto Jelly) cannot be skipped by deferred empty-hand finish.
-    if(state.pending_combo.length <= 0)
+    if(!state.hand.empty())
     {
-        combo_check_zone(state, ComboZone::HAND);
-        combo_check_zone(state, ComboZone::GRAVEYARD);
-        combo_check_zone(state, ComboZone::DECK);
+        return false;
     }
 
-    if(try_start_pending_combo())
+    if(combo_ready_count(state) > 0)
     {
+        if(skip_pending_combine)
+        {
+            skip_pending_combine = false;
+            return false;
+        }
+
         round_end_pending = false;
         update_target_scroll();
         return true;
@@ -3719,20 +3946,6 @@ void GameContext::finish_combo_cinematic()
     combo_remove_resolved_cards(state, selected_card);
     browse_cursor = clamp_graveyard_cursor(browse_cursor, state.graveyard.size());
     state.selection.cursor = clamp_graveyard_cursor(state.selection.cursor, state.graveyard.size());
-
-    // Hand removes do not dispatch HAND_CHANGED; cover that and any missed GY scan.
-    if(state.pending_combo.length <= 0)
-    {
-        combo_check_zone(state, ComboZone::HAND);
-        combo_check_zone(state, ComboZone::GRAVEYARD);
-        combo_check_zone(state, ComboZone::DECK);
-
-        if(combo_resume_type == PendingActionType::SCRY ||
-           combo_resume_type == PendingActionType::DECK_SEARCH)
-        {
-            combo_check_zone(state, ComboZone::REVEALED);
-        }
-    }
 
     // Hold the resume until the camera is back on the main view, otherwise the player
     // could act on a hand they cannot see yet.
@@ -3818,6 +4031,7 @@ void GameContext::shutdown_for_exit()
     clear_inspect();
     text_sprites.clear();
     round_text_sprites.clear();
+    combo_pip_sprites.clear();
     details_sprites.clear();
     hud.set_visible(false);
 }
@@ -3888,15 +4102,7 @@ void GameContext::finish_empty_hand_round()
     release_idle_card_pools();
     if(state.turtle_rounds_remaining > 0)
     {
-        --state.turtle_rounds_remaining;
-
-        if(state.turtle_rounds_remaining == 0)
-        {
-            commit_round_with_checks();
-            draw_total_score();
-        }
-
-        begin_keep_going_round_transfers(state.turtle_rounds_remaining > 0);
+        begin_keep_going_round_transfers(true);
 
         if(deferred_round_start_pending)
         {

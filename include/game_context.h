@@ -99,6 +99,7 @@ public:
     bn::array<int, 60> card_raise_offset{};
     bool game_over = false;
     bool round_end_pending = false;
+    bool skip_pending_combine = false;
 
     SidePanel side_panel = SidePanel::NONE;
     PanelTransition panel_transition = PanelTransition::NONE;
@@ -107,6 +108,7 @@ public:
     int panel_slide = 0;
     int last_main_sprite_offset = 0;
     int last_round_sprite_offset = 0;
+    int last_combo_pip_sprite_offset = 0;
     int last_inspect_sprite_offset = 0;
     int last_details_sprite_offset = 0;
     int details_last_library = -1;
@@ -121,6 +123,7 @@ public:
     CardEffectBadge swivel_badge;
     GraveyardPickPlaceholder graveyard_pick_placeholder;
     ScoreProgressBar score_progress_bar;
+    BountyProgressBar bounty_progress_bar;
     bn::array<GameMarker, game_layout::VISIBLE_CARD_COUNT> grave_exclude_markers;
     bn::array<Card, game_layout::HAND_DISPLAY_POOL> hand_display;
     Card echo_ghost_card;
@@ -161,6 +164,8 @@ public:
     bn::vector<bn::sprite_ptr, 32> text_sprites;
     bn::sprite_text_generator round_text_generator;
     bn::vector<bn::sprite_ptr, 32> round_text_sprites;
+    bn::sprite_text_generator combo_pip_text_generator;
+    bn::vector<bn::sprite_ptr, 48> combo_pip_sprites;
     bn::sprite_text_generator inspect_text_generator;
     bn::vector<bn::sprite_ptr, 64> inspect_sprites;
     bn::sprite_text_generator hud_count_generator;
@@ -212,8 +217,10 @@ public:
     int _total_wiggle_x = 0;
     int _total_wiggle_y = 0;
     bool _round_score_initialized = false;
+    bool _combo_pip_initialized = false;
     bool _total_score_initialized = false;
     bn::string<48> _cached_round_score_text;
+    bn::string<72> _cached_combo_pip_text;
     int _cached_total_score = 0;
 
     void shutdown_for_exit();
@@ -260,7 +267,10 @@ public:
     void show_round_score_running(int running, int end_multiplier);
     [[nodiscard]] int score_progress_goal() const;
     [[nodiscard]] bool score_progress_visible() const;
+    [[nodiscard]] bool bounty_progress_visible() const;
     void sync_score_progress_bar();
+    void sync_combo_pips();
+    void sync_bounty_progress_bar();
     void finalize_total_score_display();
     void finalize_round_score_display();
     void tick_score_wiggles();
@@ -275,6 +285,8 @@ public:
     void begin_keep_going_round_transfers(bool turtle_preserve);
     void try_begin_keep_going_transfer();
     void finish_deferred_round_start();
+    void run_round_start_pipeline();
+    void apply_round_start_turtle_step();
     void hand_slot_screen_position(int hand_index, int main_x, int& out_x, int& out_y) const;
     int graveyard_card_fx_frame_count() const;
     void complete_graveyard_card_fx();
@@ -372,6 +384,8 @@ public:
                                      bool row_scrolling);
     void handle_input_scry(int current_direction, bool direction_triggered, int direction_steps,
                            bool row_scrolling);
+    void handle_input_build_number_digit(int current_direction, bool direction_triggered,
+                                         int direction_steps, bool scrolling);
     void sync_inspect_panel();
     void tick_scroll();
     void tick_card_raise();

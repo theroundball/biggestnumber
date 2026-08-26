@@ -20,6 +20,7 @@ namespace
     constexpr int SAVE_DATA_TRINKET_COUNT_V10 = 6;
     static_assert(int(CardType::COUNT) == 62);
     static_assert(int(TrinketType::FIBONACCI) == SAVE_DATA_TRINKET_COUNT_V10);
+    static_assert(int(TrinketType::STAIRCASE) == int(TrinketType::FIBONACCI) + 1);
     constexpr int SAVE_DATA_CARD_COUNT_V9 = 51;
     constexpr int SAVE_DATA_CARD_COUNT_V5 = 53;
     constexpr int SAVE_DATA_REMOVED_CARD_INDEX_V5 = 36;

@@ -187,6 +187,11 @@ void GameContext::handle_input()
                 handle_input_scry(current_direction, direction_triggered, direction_steps, row_scrolling);
                 break;
 
+            case GameMode::BUILD_NUMBER_DIGIT:
+                handle_input_build_number_digit(current_direction, direction_triggered, direction_steps,
+                                                scrolling);
+                break;
+
             case GameMode::COMBO:
             default:
                 break;
@@ -430,7 +435,8 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
 {
     const int slot_count = playable_slot_count(state);
     const bool live_selected = selected_card >= 0 && selected_card < state.hand.size();
-    const bool flashback_selected = selected_card >= state.hand.size() && selected_card < slot_count;
+    const bool flashback_selected = playable_slot_is_flashback(state, selected_card);
+    const bool combine_selected = playable_slot_is_combine_offer(state, selected_card);
     const bool lock_for_scroll = scrolling && !removing_card;
 
     if(!game_over && !scrolling && !inspecting &&
@@ -462,6 +468,13 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
             side_panel == SidePanel::NONE && !panel_transition_active() && bn::keypad::r_pressed())
     {
         cycle_side_panel(-1);
+    }
+    else if(!game_over && !scrolling && !inspecting &&
+            side_panel == SidePanel::NONE && !panel_transition_active() &&
+            state.hand.empty() && combo_ready_count(state) > 0 && bn::keypad::b_pressed())
+    {
+        skip_pending_combine = true;
+        finish_empty_hand_round();
     }
     else if(!game_over && !lock_for_scroll && side_panel == SidePanel::NONE &&
             !panel_transition_active() && slot_count && !bn::keypad::b_held() && direction_triggered)
@@ -496,6 +509,13 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
 
         update_target_scroll();
     }
+    else if(!game_over && !scrolling && !inspecting &&
+            side_panel == SidePanel::NONE && !panel_transition_active() &&
+            state.hand.empty() && combo_ready_count(state) > 0 && bn::keypad::b_pressed())
+    {
+        skip_pending_combine = true;
+        finish_empty_hand_round();
+    }
     else if(!game_over && !lock_for_scroll && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() && live_selected &&
             bn::keypad::down_pressed() &&
@@ -516,6 +536,24 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
         if(inspecting)
         {
             clear_inspect();
+        }
+        else if(combine_selected)
+        {
+            if(removing_card && !play_can_overlap())
+            {
+                return;
+            }
+
+            const int ordinal = playable_slot_combine_ordinal(state, selected_card);
+            const uint8_t combo_id = combo_ready_id_by_ordinal(state, ordinal);
+
+            if(combo_id == 0 || !combo_start_player_triggered(state, combo_id))
+            {
+                return;
+            }
+
+            try_start_pending_combo();
+            update_target_scroll();
         }
         else if(flashback_selected)
         {
@@ -624,10 +662,28 @@ void GameContext::handle_input_discard_target(int current_direction, bool direct
         nudge_cursor(selected_card, current_direction, direction_steps, 0, state.hand.size() - 1);
         update_target_scroll();
     }
+    else if(!scrolling && !inspecting &&
+            state.selection.type == PendingActionType::OVERCLOCK_DISCARD_PROMPT &&
+            bn::keypad::b_pressed())
+    {
+        begin_next_pending_or_finish();
+    }
     else if(!scrolling && !inspecting && state.hand.size() &&
             (confirm_pressed() || bn::keypad::down_pressed()))
     {
-        if(state.selection.type == PendingActionType::PUT_HAND_ON_DECK_TOP)
+        if(state.selection.type == PendingActionType::PAPER_SWAP_HAND)
+        {
+            const int anchor = state.selection.multiply_factor;
+
+            if(anchor >= 0 && anchor < state.hand.size() && selected_card >= 0 &&
+               selected_card < state.hand.size())
+            {
+                hand_swap_cards(state, anchor, selected_card);
+            }
+
+            begin_next_pending_or_finish();
+        }
+        else if(state.selection.type == PendingActionType::PUT_HAND_ON_DECK_TOP)
         {
             capture_removal_start();
             begin_direct_removal(removal_start_x, removal_start_y, RemovalStyle::TO_DECK_TOP, false);
@@ -952,6 +1008,33 @@ void GameContext::handle_input_scry(int current_direction, bool direction_trigge
         row_scroll_x = 0;
         target_row_scroll_x = 0;
         target_row_scroll_index = 0;
+    }
+}
+
+void GameContext::handle_input_build_number_digit(int current_direction, bool direction_triggered,
+                                                  int direction_steps, bool scrolling)
+{
+    if(!scrolling && direction_triggered)
+    {
+        nudge_cursor(state.selection.cursor, current_direction, direction_steps, 0, 2);
+    }
+    else if(!scrolling && !inspecting && confirm_pressed())
+    {
+        const int digit = state.selection.multiply_factor;
+
+        if(digit >= 1 && digit <= 9)
+        {
+            state.build_digits[state.selection.cursor] = digit;
+
+            if(state.build_a_number_all_digits_filled())
+            {
+                state.build_a_number_complete_payout();
+            }
+
+            draw_round_score();
+        }
+
+        begin_next_pending_or_finish();
     }
 }
 

@@ -60,6 +60,33 @@ namespace
         return true;
     }
 
+    void apply_bones_gy_entry(GameState& state)
+    {
+        int bones_count = 0;
+
+        for(const CardRef& card : state.graveyard)
+        {
+            if(card.type == CardType::BONES)
+            {
+                ++bones_count;
+            }
+        }
+
+        const int graveyard_count = state.graveyard.size();
+
+        if(graveyard_count > 0)
+        {
+            state.add_from_card(graveyard_count);
+        }
+
+        const int factor = bones_count + 1;
+
+        if(factor > 1)
+        {
+            state.mul_from_card(factor);
+        }
+    }
+
     void apply_tombstones_gy_entry(GameState& state)
     {
         const int factor = count_unique_graveyard_types(state);
@@ -161,12 +188,24 @@ PlayResolutionResult resolve_played_card(GameState& state, CardRef card,
     }
 
     apply_card_relocated_from_play(state, card.type, context.source);
+
+    if(card.type == CardType::PAPER && context.source == PlaySource::HAND)
+    {
+        state.paper_swap_hand_index = context.hand_index;
+    }
+
     apply_card_play(state, card, context.source);
 
-    if(result.dest == PostPlayDestination::GRAVEYARD && card.type == CardType::TOMBSTONES &&
-       context.source != PlaySource::ECHO)
+    if(result.dest == PostPlayDestination::GRAVEYARD && context.source != PlaySource::ECHO)
     {
-        apply_tombstones_gy_entry(state);
+        if(card.type == CardType::BONES)
+        {
+            apply_bones_gy_entry(state);
+        }
+        else if(card.type == CardType::TOMBSTONES)
+        {
+            apply_tombstones_gy_entry(state);
+        }
     }
 
     if(result.increment_cards_played)

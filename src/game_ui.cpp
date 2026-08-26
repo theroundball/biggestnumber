@@ -431,6 +431,118 @@ void ScoreProgressBar::set_x_offset(int panel_offset)
     reposition_segments();
 }
 
+BountyProgressBar::BountyProgressBar() :
+    _track_tile(bn::sprite_tiles_ptr::allocate(1, bn::bpp_mode::BPP_4)),
+    _fill_tile(bn::sprite_tiles_ptr::allocate(1, bn::bpp_mode::BPP_4)),
+    _palette(ui_palette::shared())
+{
+    auto paint_tile = [](bn::sprite_tiles_ptr& tiles, int color_index) {
+        auto vram = tiles.vram();
+        auto* tile_span = vram.get();
+
+        if(tile_span && !tile_span->empty())
+        {
+            paint_score_bar_tile((*tile_span)[0], color_index);
+        }
+    };
+
+    paint_tile(_track_tile, ui_palette::PLACEHOLDER);
+    paint_tile(_fill_tile, ui_palette::SCORE_BAR_GOLD);
+
+    for(int segment_index = 0; segment_index < SEGMENT_COUNT; ++segment_index)
+    {
+        bn::sprite_ptr track_sprite = bn::sprite_ptr::create(
+            segment_center_x(segment_index), Y, bn::sprite_shape_size(8, 8), _track_tile, _palette);
+        track_sprite.set_z_order(game_layout::PLAY_PRESENTATION_SCORE_Z - 1);
+        track_sprite.set_visible(false);
+        _track_sprites.push_back(track_sprite);
+    }
+}
+
+int BountyProgressBar::segment_center_x(int segment_index) const
+{
+    return -WIDTH / 2 + SEGMENT / 2 + segment_index * SEGMENT + _x_offset;
+}
+
+void BountyProgressBar::reposition_segments()
+{
+    for(int segment_index = 0; segment_index < _track_sprites.size(); ++segment_index)
+    {
+        _track_sprites[segment_index].set_x(segment_center_x(segment_index));
+    }
+
+    for(int segment_index = 0; segment_index < _fill_sprites.size(); ++segment_index)
+    {
+        _fill_sprites[segment_index].set_x(segment_center_x(segment_index));
+    }
+}
+
+void BountyProgressBar::sync(int filled_segments)
+{
+    if(filled_segments < 0)
+    {
+        filled_segments = 0;
+    }
+
+    if(filled_segments > SEGMENT_COUNT)
+    {
+        filled_segments = SEGMENT_COUNT;
+    }
+
+    if(filled_segments == _last_filled)
+    {
+        return;
+    }
+
+    _last_filled = filled_segments;
+
+    while(_fill_sprites.size() > filled_segments)
+    {
+        _fill_sprites.pop_back();
+    }
+
+    while(_fill_sprites.size() < filled_segments)
+    {
+        const int segment_index = _fill_sprites.size();
+        bn::sprite_ptr fill_sprite = bn::sprite_ptr::create(
+            segment_center_x(segment_index), Y, bn::sprite_shape_size(8, 8), _fill_tile, _palette);
+        fill_sprite.set_z_order(game_layout::PLAY_PRESENTATION_SCORE_Z - 1);
+        fill_sprite.set_visible(_visible);
+        _fill_sprites.push_back(fill_sprite);
+    }
+}
+
+void BountyProgressBar::set_visible(bool visible)
+{
+    if(_visible == visible)
+    {
+        return;
+    }
+
+    _visible = visible;
+
+    for(bn::sprite_ptr& sprite : _track_sprites)
+    {
+        sprite.set_visible(visible);
+    }
+
+    for(bn::sprite_ptr& sprite : _fill_sprites)
+    {
+        sprite.set_visible(visible);
+    }
+}
+
+void BountyProgressBar::set_x_offset(int panel_offset)
+{
+    if(_x_offset == panel_offset)
+    {
+        return;
+    }
+
+    _x_offset = panel_offset;
+    reposition_segments();
+}
+
 CardEffectBadge::CardEffectBadge()
 {
     clear();

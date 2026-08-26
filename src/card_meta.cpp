@@ -116,6 +116,10 @@ namespace
         {CardRarity::RARE, 1},     // SPECULATIVE
         {CardRarity::RARE, 1},     // FLEX
         {CardRarity::UNCOMMON, 3}, // KEEP_GOING
+        {CardRarity::UNCOMMON, 1}, // BOUNTY
+        {CardRarity::RARE, 1},     // OVERCLOCK
+        {CardRarity::RARE, 1},     // EVALUATE
+        {CardRarity::UNCOMMON, 1}, // BUILD_A_NUMBER
     };
 
     static_assert(sizeof(META_TABLE) / sizeof(META_TABLE[0]) == int(CardType::COUNT),

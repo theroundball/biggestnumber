@@ -5,6 +5,7 @@
 #include "card_data.h"
 #include "combo_system.h"
 #include "game_state.h"
+#include "trinket_system.h"
 
 namespace
 {
@@ -437,6 +438,11 @@ void necromancy_shuffle_graveyard_to_deck(GameState& state)
 void battle_stats_reset(GameState& state)
 {
     state.battle_stats = BattleStats{};
+    state.bounty_play_count = 0;
+    state.bounty_return_anchor = 0;
+    state.paper_swap_hand_index = -1;
+    staircase_reset(state);
+    state.build_a_number_reset();
 }
 
 void battle_stat_record_exile(GameState& state)

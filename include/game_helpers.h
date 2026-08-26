@@ -30,12 +30,18 @@ bool mill_reveal_card_hits(const GameState& state, CardRef card, bool waterfall)
 bool waterfall_would_make_bigger(const GameState& state, CardRef card);
 int card_preview_plus(const GameState& state, CardRef card, bool flashback);
 int flashback_ghost_count(const GameState& state);
+bool playable_slot_is_combine_offer(const GameState& state, int visual_index);
+int playable_slot_combine_ordinal(const GameState& state, int visual_index);
 bool empty_hand_triggers_round_end(const GameState& state);
+void try_finish_roll_over_substitution(GameState& state, int* selected_card);
+bool begin_roll_over_substitution(GameState& state, int* selected_card);
 int playable_slot_count(const GameState& state);
 bool playable_slot_is_flashback(const GameState& state, int visual_index);
 int playable_slot_hand_index(const GameState& state, int visual_index);
 int playable_slot_graveyard_index(const GameState& state, int visual_index);
 CardRef playable_slot_card(const GameState& state, int visual_index);
+void build_a_number_try_queue_digit_placement(GameState& state, CardRef card, PlaySource source);
+void check_bounty_return(GameState& state);
 void queue_effect_draw(GameState& state, int count, bool miracle_on_first);
 bool try_draw_one_to_hand(GameState& state);
 void maybe_draw_if_solo(GameState& state, CardType type);
