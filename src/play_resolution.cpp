@@ -109,7 +109,7 @@ PostPlayDestination route_played_card(const GameState& state, CardType type, Pla
         return PostPlayDestination::NONE;
     }
 
-    if(source == PlaySource::FLASHBACK)
+    if(source == PlaySource::GHOST)
     {
         return PostPlayDestination::EXILE;
     }
@@ -138,7 +138,7 @@ void apply_post_play_destination(GameState& state, CardRef card, PlaySource sour
         {
             hand_remove(state, hand_index, selected_card, false, false);
         }
-        else if(source == PlaySource::FLASHBACK)
+        else if(source == PlaySource::GHOST)
         {
             if(hand_index >= 0 && hand_index < state.graveyard.size())
             {
@@ -175,6 +175,8 @@ void apply_post_play_destination(GameState& state, CardRef card, PlaySource sour
 PlayResolutionResult resolve_played_card(GameState& state, CardRef card,
                                          const PlayResolutionContext& context)
 {
+    bind_bounty_copy(state, card);
+
     const bool swivel_follow = state.swivel_waiting;
 
     PlayResolutionResult result;

@@ -12,7 +12,17 @@
 #include "game_events.h"
 #include "game_ui.h"
 #include "play_resolution.h"
+#include "score_count_system.h"
+#include "trinket_system.h"
 #include "ui_common.h"
+
+bool selection_sends_to_library(PendingActionType type)
+{
+    return type == PendingActionType::RETRIEVE_FROM_GRAVEYARD_TO_TOP ||
+           type == PendingActionType::GRAVEYARD_PICK_TO_TOP ||
+           type == PendingActionType::GRAVEYARD_PICK_TO_BOTTOM ||
+           type == PendingActionType::PUT_HAND_ON_DECK_TOP;
+}
 
 int initial_graveyard_cursor(const GameState& state, CardType exclude)
 {
@@ -88,7 +98,8 @@ bool card_has_play_effect(CardType type)
     {
         const RoundModifier& mod = data.future[index];
 
-        if(mod.positive != 0 || mod.multiply != 0 || mod.draw_at_start != 0)
+        if(mod.positive != 0 || mod.multiply != 0 || mod.draw_at_start != 0 ||
+           mod.opening_draw_count != 0)
         {
             return true;
         }
@@ -129,9 +140,9 @@ bool card_has_cycle(CardType type)
     return card_data(type).has_cycle;
 }
 
-bool card_has_flashback(CardType type)
+bool card_has_ghost(CardType type)
 {
-    return card_data(type).has_flashback;
+    return card_data(type).has_ghost;
 }
 
 bool card_numeric_play_override(CardType type)
@@ -141,6 +152,7 @@ bool card_numeric_play_override(CardType type)
     case CardType::MIRACLE:
     case CardType::JOURNAL:
     case CardType::TIME_IS_TOO_EXPENSIVE:
+    case CardType::TIME_IS_MONEY:
     case CardType::DILLA:
     case CardType::SEMAPHORE:
     case CardType::THRESHOLD:
@@ -245,48 +257,6 @@ namespace
         return false;
     }
 
-    bool total_score_is_palindrome(int total)
-    {
-        const bn::string<12> digits = bn::to_string<12>(total);
-
-        if(digits.size() > 9)
-        {
-            return false;
-        }
-
-        for(int left = 0, right = digits.size() - 1; left < right; ++left, --right)
-        {
-            if(digits[left] != digits[right])
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    bool palindrome_would_increase_total(int total, bool applying_double_adds)
-    {
-        if(!total_score_is_palindrome(total))
-        {
-            return false;
-        }
-
-        const bn::string<12> digits = bn::to_string<12>(total);
-        long long outer_place = 10;
-
-        for(int index = 0; index < digits.size(); ++index)
-        {
-            outer_place *= 10;
-        }
-
-        const int wrapper = applying_double_adds ? 2 : 1;
-        const long long after = static_cast<long long>(wrapper) * outer_place +
-                                static_cast<long long>(total) * 10 + wrapper;
-
-        return after <= 2147483647 && after > total;
-    }
-
     bool roundup_would_increase_total(const GameState& state)
     {
         const int count = state.roundup_play_count + 1;
@@ -346,16 +316,19 @@ bool waterfall_would_make_bigger(const GameState& state, CardRef card)
     case CardType::NECROMANCY:
     case CardType::JACKS:
     case CardType::FISHING_POLE:
-    case CardType::CUPS:
+    case CardType::SHELLS:
     case CardType::ROLL_OVER:
     case CardType::FLEX:
     case CardType::SPECULATIVE:
-    case CardType::KEEP_GOING:
-    case CardType::LIFELINE:
+    case CardType::DEAD_RISING:
+    case CardType::SEVEN_FEET_DEEP:
     case CardType::SWIVEL:
     case CardType::TURTLE_MODE:
     case CardType::RAGS_TO_RICHES:
         return false;
+
+    case CardType::LIFELINE:
+        return count_lifeline_pickable_graveyard(state) > 0;
 
     case CardType::MIRACLE:
         return true;
@@ -367,7 +340,9 @@ bool waterfall_would_make_bigger(const GameState& state, CardRef card)
         return score_contains_digit_below(state.total_score, 5);
 
     case CardType::PALINDROME:
-        return palindrome_would_increase_total(state.total_score, state.applying_double_adds);
+    case CardType::MINOR_FALL:
+    case CardType::MAJOR_LIFT:
+        return true;
 
     case CardType::ROUNDUP:
         return roundup_would_increase_total(state);
@@ -382,6 +357,7 @@ bool waterfall_would_make_bigger(const GameState& state, CardRef card)
     case CardType::TOMBSTONES:
     case CardType::BIRDS_OF_A_FEATHER:
     case CardType::TIME_IS_TOO_EXPENSIVE:
+    case CardType::TIME_IS_MONEY:
         return true;
 
     case CardType::BONES:
@@ -413,12 +389,24 @@ bool waterfall_would_make_bigger(const GameState& state, CardRef card)
     return waterfall_immediate_round_increase(state, card);
 }
 
-int card_preview_plus(const GameState& state, CardRef card, bool flashback)
+int card_preview_plus(const GameState& state, CardRef card, bool ghost)
 {
-    const CardData& data = card_data(card.type);
-    int plus = (flashback && data.has_flashback) ? data.flashback_plus : data.immediate_plus;
+    if(!ghost && card.type == CardType::BOUNTY)
+    {
+        int plus = bounty_play_plus_for_card(state, card);
 
-    if(!flashback)
+        if(state.pending_double_adds && plus > 0)
+        {
+            plus *= 2;
+        }
+
+        return plus;
+    }
+
+    const CardData& data = card_data(card.type);
+    int plus = (ghost && data.has_ghost) ? data.ghost_plus : data.immediate_plus;
+
+    if(!ghost)
     {
         if(const CardInstance* instance = instance_at(state.instance_pool, card.instance_id))
         {
@@ -434,19 +422,24 @@ int card_preview_plus(const GameState& state, CardRef card, bool flashback)
     return plus;
 }
 
-int flashback_ghost_count(const GameState& state)
+int ghost_count(const GameState& state)
 {
     int count = 0;
 
     for(int index = 0; index < state.graveyard.size(); ++index)
     {
-        if(card_has_flashback(state.graveyard[index].type))
+        if(card_has_ghost(state.graveyard[index].type))
         {
             ++count;
         }
     }
 
     return count;
+}
+
+bool has_optional_ghost_plays(const GameState& state)
+{
+    return ghost_count(state) > 0 || combo_ready_count(state) > 0;
 }
 
 bool empty_hand_triggers_round_end(const GameState& state)
@@ -456,20 +449,26 @@ bool empty_hand_triggers_round_end(const GameState& state)
         return false;
     }
 
-    return state.hand.empty() && flashback_ghost_count(state) == 0 && combo_ready_count(state) == 0;
+    if(state.waive_optional_ghost_plays)
+    {
+        return state.hand.empty();
+    }
+
+    return state.hand.empty() && ghost_count(state) == 0 && combo_ready_count(state) == 0;
 }
 
 namespace
 {
-    constexpr int bounty_return_threshold = 10;
+    constexpr int bounty_return_threshold_base = 10;
+    constexpr int bounty_escalation_cap = 100000000;
 
     int played_card_digit_plus(const GameState& state, CardRef card, PlaySource source)
     {
         const CardData& data = card_data(card.type);
-        int plus = (source == PlaySource::FLASHBACK && data.has_flashback) ? data.flashback_plus
+        int plus = (source == PlaySource::GHOST && data.has_ghost) ? data.ghost_plus
                                                                            : data.immediate_plus;
 
-        if(source != PlaySource::FLASHBACK && card.has_instance())
+        if(source != PlaySource::GHOST && card.has_instance())
         {
             const CardInstance* instance = instance_at(state.instance_pool, card.instance_id);
 
@@ -503,42 +502,405 @@ void build_a_number_try_queue_digit_placement(GameState& state, CardRef card, Pl
     state.pending_actions.push_back(action);
 }
 
-void check_bounty_return(GameState& state)
+namespace
 {
-    int bounty_index = -1;
-
-    for(int index = 0; index < state.graveyard.size(); ++index)
+    bool bounty_copy_bound(const CardRef& card)
     {
-        if(state.graveyard[index].type == CardType::BOUNTY)
-        {
-            bounty_index = index;
-            break;
-        }
+        return card.type == CardType::BOUNTY && card.bounty_id != NO_INSTANCE &&
+               card.bounty_id < InstancePool::CAPACITY;
     }
+}
 
-    if(bounty_index < 0)
+void bind_bounty_copy(GameState& state, CardRef& card)
+{
+    if(card.type != CardType::BOUNTY || bounty_copy_bound(card))
     {
         return;
     }
 
-    if(state.round.running - state.bounty_return_anchor < bounty_return_threshold)
+    if(state.bounty_next_id >= InstancePool::CAPACITY)
     {
         return;
     }
 
-    const CardRef card = state.graveyard[bounty_index];
-    graveyard_remove_at(state, bounty_index);
+    card.bounty_id = state.bounty_next_id;
+    ++state.bounty_next_id;
+}
 
-    if(!state.hand.full())
+int bounty_instance_play_count(const GameState& state, CardRef card)
+{
+    if(bounty_copy_bound(card))
     {
-        hand_add_card(state, card);
+        return state.bounty_instance_plays[card.bounty_id];
+    }
+
+    return 0;
+}
+
+int bounty_play_plus(const GameState& state)
+{
+    return bounty_play_plus_for_card(state, state.play_effect_card);
+}
+
+int bounty_play_plus_for_card(const GameState& state, CardRef card)
+{
+    return bounty_instance_play_count(state, card) + 1;
+}
+
+int bounty_increment_play(GameState& state, CardRef card)
+{
+    if(!bounty_copy_bound(card))
+    {
+        return 1;
+    }
+
+    uint8_t& plays = state.bounty_instance_plays[card.bounty_id];
+
+    if(plays < 255)
+    {
+        ++plays;
+    }
+
+    return plays;
+}
+
+void sync_bounty_card_overlay(const GameState& state, Card& card, CardRef ref, bool in_graveyard,
+                              bn::sprite_text_generator* generator)
+{
+    if(ref.type != CardType::BOUNTY || generator == nullptr)
+    {
+        return;
+    }
+
+    bn::string<8> text;
+
+    if(in_graveyard)
+    {
+        text = bn::to_string<4>(bounty_return_progress_for(state, ref));
+        text.append('/');
+        text.append(bn::to_string<4>(bounty_return_threshold_for(state, ref)));
     }
     else
     {
-        state.deck.insert_top(card);
+        text = bn::to_string<4>(bounty_play_plus_for_card(state, ref));
     }
 
-    state.bounty_return_anchor = state.round.running;
+    card.set_amount_overlay(generator, text);
+}
+
+namespace
+{
+    int parse_score_digits(const bn::string_view& digits)
+    {
+        int value = 0;
+
+        for(int index = 0; index < digits.size(); ++index)
+        {
+            value = value * 10 + (digits[index] - '0');
+        }
+
+        return value;
+    }
+
+    bool compute_shifted_digit_total(const bn::string<12>& digits, int source_index, int dest_index, int& out_total)
+    {
+        if(source_index < 0 || dest_index < 0 || source_index >= digits.size() || dest_index >= digits.size() ||
+           source_index == dest_index)
+        {
+            return false;
+        }
+
+        bn::string<12> shifted = digits;
+        const char moved = shifted[source_index];
+
+        if(source_index < dest_index)
+        {
+            for(int index = source_index; index < dest_index; ++index)
+            {
+                shifted[index] = shifted[index + 1];
+            }
+        }
+        else
+        {
+            for(int index = source_index; index > dest_index; --index)
+            {
+                shifted[index] = shifted[index - 1];
+            }
+        }
+
+        shifted[dest_index] = moved;
+        out_total = parse_score_digits(shifted);
+        return true;
+    }
+}
+
+bool plan_minor_fall(int score, DigitMovePlan& plan)
+{
+    const bn::string<12> digits = bn::to_string<12>(score);
+
+    if(digits.empty())
+    {
+        return false;
+    }
+
+    int smallest = 10;
+    int source_index = -1;
+
+    for(int index = digits.size() - 1; index >= 0; --index)
+    {
+        const int digit = digits[index] - '0';
+
+        if(digit <= smallest)
+        {
+            smallest = digit;
+            source_index = index;
+        }
+    }
+
+    const int dest_index = digits.size() - 1;
+
+    if(source_index < 0 || source_index == dest_index)
+    {
+        return false;
+    }
+
+    plan.source_digit_index = source_index;
+    plan.dest_digit_index = dest_index;
+
+    return compute_shifted_digit_total(digits, source_index, dest_index, plan.new_total);
+}
+
+bool plan_major_lift(int score, DigitMovePlan& plan)
+{
+    const bn::string<12> digits = bn::to_string<12>(score);
+
+    if(digits.empty())
+    {
+        return false;
+    }
+
+    int largest = -1;
+    int source_index = -1;
+
+    for(int index = 0; index < digits.size(); ++index)
+    {
+        const int digit = digits[index] - '0';
+
+        if(digit >= largest)
+        {
+            largest = digit;
+            source_index = index;
+        }
+    }
+
+    if(source_index <= 0)
+    {
+        return false;
+    }
+
+    plan.source_digit_index = source_index;
+    plan.dest_digit_index = 0;
+
+    return compute_shifted_digit_total(digits, source_index, 0, plan.new_total);
+}
+
+bool plan_palindrome_wrap(int score, bool applying_double_adds, int& out_new_score)
+{
+    const bn::string<12> digits = bn::to_string<12>(score);
+
+    if(digits.size() > 9)
+    {
+        return false;
+    }
+
+    for(int left = 0, right = digits.size() - 1; left < right; ++left, --right)
+    {
+        if(digits[left] != digits[right])
+        {
+            return false;
+        }
+    }
+
+    long long outer_place = 10;
+
+    for(int index = 0; index < digits.size(); ++index)
+    {
+        outer_place *= 10;
+    }
+
+    const int wrapper = applying_double_adds ? 2 : 1;
+    const long long after = static_cast<long long>(wrapper) * outer_place +
+                            static_cast<long long>(score) * 10 + wrapper;
+
+    if(after > 2147483647 || after <= score)
+    {
+        return false;
+    }
+
+    out_new_score = int(after);
+    return true;
+}
+
+bool try_palindrome_play(GameState& state)
+{
+    int new_score = 0;
+
+    if(plan_palindrome_wrap(state.total_score, state.applying_double_adds, new_score))
+    {
+        const int before = state.total_score;
+        state.total_score = new_score;
+        score_count_queue(state, TrinketScoreField::TOTAL, before, new_score);
+        trinket_queue_score_check(state, TrinketScoreField::TOTAL, before, new_score);
+        return true;
+    }
+
+    if(plan_palindrome_wrap(state.round.running, state.applying_double_adds, new_score))
+    {
+        const int before = state.round.running;
+        state.round.running = new_score;
+        score_count_queue(state, TrinketScoreField::ROUND, before, new_score);
+        trinket_queue_score_check(state, TrinketScoreField::ROUND, before, new_score);
+        return true;
+    }
+
+    return false;
+}
+
+bool try_minor_fall(GameState& state)
+{
+    DigitMovePlan plan;
+
+    if(!plan_minor_fall(state.total_score, plan))
+    {
+        return false;
+    }
+
+    const int before = state.total_score;
+    state.total_score = plan.new_total;
+    score_count_queue(state, TrinketScoreField::TOTAL, before, plan.new_total);
+    trinket_queue_score_check(state, TrinketScoreField::TOTAL, before, plan.new_total);
+    return true;
+}
+
+bool try_major_lift(GameState& state)
+{
+    DigitMovePlan plan;
+
+    if(!plan_major_lift(state.total_score, plan))
+    {
+        return false;
+    }
+
+    const int before = state.total_score;
+    state.total_score = plan.new_total;
+    score_count_queue(state, TrinketScoreField::TOTAL, before, plan.new_total);
+    trinket_queue_score_check(state, TrinketScoreField::TOTAL, before, plan.new_total);
+    return true;
+}
+
+int bounty_return_threshold_for(const GameState& state, CardRef card)
+{
+    if(bounty_copy_bound(card))
+    {
+        const int threshold = state.bounty_instance_return_threshold[card.bounty_id];
+
+        return threshold > 0 ? threshold : bounty_return_threshold_base;
+    }
+
+    return bounty_return_threshold_base;
+}
+
+int bounty_return_progress_for(const GameState& state, CardRef card)
+{
+    int anchor = 0;
+
+    if(bounty_copy_bound(card))
+    {
+        anchor = state.bounty_instance_return_anchor[card.bounty_id];
+    }
+
+    int progress = state.round.running - anchor;
+
+    if(progress < 0)
+    {
+        progress = 0;
+    }
+
+    return progress;
+}
+
+void bounty_on_enter_graveyard(GameState& state, CardRef card)
+{
+    if(card.type != CardType::BOUNTY)
+    {
+        return;
+    }
+
+    if(bounty_copy_bound(card))
+    {
+        state.bounty_instance_return_anchor[card.bounty_id] = state.round.running;
+    }
+}
+
+void bounty_on_round_start(GameState& state)
+{
+    for(const CardRef& card : state.graveyard)
+    {
+        if(card.type == CardType::BOUNTY)
+        {
+            bounty_on_enter_graveyard(state, card);
+        }
+    }
+}
+
+void bounty_update_return_threshold_for_plays(GameState& state, CardRef card)
+{
+    if(!bounty_copy_bound(card))
+    {
+        return;
+    }
+
+    const int plays = bounty_instance_play_count(state, card);
+    int& threshold = state.bounty_instance_return_threshold[card.bounty_id];
+
+    if(threshold <= 0)
+    {
+        threshold = bounty_return_threshold_base;
+    }
+
+    while(plays >= threshold && threshold <= bounty_escalation_cap / 10)
+    {
+        threshold *= 10;
+    }
+}
+
+void check_bounty_return(GameState& state)
+{
+    for(int index = state.graveyard.size() - 1; index >= 0; --index)
+    {
+        const CardRef card = state.graveyard[index];
+
+        if(card.type != CardType::BOUNTY)
+        {
+            continue;
+        }
+
+        if(bounty_return_progress_for(state, card) < bounty_return_threshold_for(state, card))
+        {
+            continue;
+        }
+
+        graveyard_remove_at(state, index);
+
+        if(!state.hand.full())
+        {
+            hand_add_card(state, card);
+        }
+        else
+        {
+            state.deck.insert_top(card);
+        }
+    }
 }
 
 void try_finish_roll_over_substitution(GameState& state, int* selected_card)
@@ -632,6 +994,29 @@ bool begin_roll_over_substitution(GameState& state, int* selected_card)
     return true;
 }
 
+namespace
+{
+    int visible_ghost_count(const GameState& state)
+    {
+        if(state.waive_optional_ghost_plays)
+        {
+            return 0;
+        }
+
+        return ghost_count(state);
+    }
+
+    int visible_combo_ready_count(const GameState& state)
+    {
+        if(state.waive_optional_ghost_plays)
+        {
+            return 0;
+        }
+
+        return combo_ready_count(state);
+    }
+}
+
 int playable_slot_count(const GameState& state)
 {
     if(state.roll_over_substitution_active)
@@ -639,10 +1024,11 @@ int playable_slot_count(const GameState& state)
         return state.hand.size();
     }
 
-    return state.hand.size() + flashback_ghost_count(state) + combo_ready_count(state);
+    return state.hand.size() + visible_ghost_count(state) +
+           visible_combo_ready_count(state);
 }
 
-bool playable_slot_is_flashback(const GameState& state, int visual_index)
+bool playable_slot_is_ghost(const GameState& state, int visual_index)
 {
     if(visual_index < state.hand.size())
     {
@@ -651,7 +1037,7 @@ bool playable_slot_is_flashback(const GameState& state, int visual_index)
 
     const int ghost_index = visual_index - state.hand.size();
 
-    return ghost_index >= 0 && ghost_index < flashback_ghost_count(state);
+    return ghost_index >= 0 && ghost_index < visible_ghost_count(state);
 }
 
 bool playable_slot_is_combine_offer(const GameState& state, int visual_index)
@@ -662,15 +1048,15 @@ bool playable_slot_is_combine_offer(const GameState& state, int visual_index)
     }
 
     const int ghost_index = visual_index - state.hand.size();
-    const int flashback_count = flashback_ghost_count(state);
+    const int ghost_offer_count = visible_ghost_count(state);
 
-    return ghost_index >= flashback_count &&
-           ghost_index < flashback_count + combo_ready_count(state);
+    return ghost_index >= ghost_offer_count &&
+           ghost_index < ghost_offer_count + visible_combo_ready_count(state);
 }
 
 int playable_slot_combine_ordinal(const GameState& state, int visual_index)
 {
-    return visual_index - state.hand.size() - flashback_ghost_count(state);
+    return visual_index - state.hand.size() - visible_ghost_count(state);
 }
 
 int playable_slot_hand_index(const GameState& state, int visual_index)
@@ -696,7 +1082,7 @@ int playable_slot_graveyard_index(const GameState& state, int visual_index)
 
     for(int index = 0; index < state.graveyard.size(); ++index)
     {
-        if(!card_has_flashback(state.graveyard[index].type))
+        if(!card_has_ghost(state.graveyard[index].type))
         {
             continue;
         }
@@ -787,14 +1173,14 @@ void remove_selected_card(GameState &state, int &selected_card)
     hand_remove_at_to_graveyard(state, selected_card, selected_card);
 }
 
-void finish_played_card_from_hand(int& selected_card, GameState& state)
+void finish_played_card_from_hand(int hand_index, int& selected_card, GameState& state)
 {
-    if(selected_card < 0 || selected_card >= state.hand.size())
+    if(hand_index < 0 || hand_index >= state.hand.size())
     {
         return;
     }
 
-    hand_remove_at_to_deck_top(state, selected_card, selected_card);
+    hand_remove_at_to_deck_top(state, hand_index, selected_card);
 }
 
 RemovalStyle removal_style_for_hand_play(CardType type)
@@ -942,7 +1328,8 @@ CardRowResult render_card_row(bn::span<Card> pool, bn::span<const CardRef> sourc
                               int cursor, int spacing, int y, int scroll_x, int target_scroll_x,
                               int x_offset, bn::span<const int> raise_offsets,
                               const InstancePool* instances, bn::sprite_text_generator* pip_generator,
-                              int visible_window)
+                              int visible_window, const GameState* bounty_overlay_state,
+                              bool bounty_graveyard_overlay)
 {
     const int window = visible_window > 0 ? visible_window : pool.size();
     const int count = source.size();
@@ -997,6 +1384,19 @@ CardRowResult render_card_row(bn::span<Card> pool, bn::span<const CardRef> sourc
         {
             pool[slot].clear_upgrade_pips();
         }
+
+        if(bounty_overlay_state != nullptr && bounty_graveyard_overlay)
+        {
+            if(source[index].type == CardType::BOUNTY)
+            {
+                sync_bounty_card_overlay(*bounty_overlay_state, pool[slot], source[index], true,
+                                         pip_generator);
+            }
+            else
+            {
+                pool[slot].clear_amount_overlay();
+            }
+        }
     }
 
     CardRowResult result;
@@ -1039,7 +1439,8 @@ void deal_next_hand(Deck &deck, GameState &state, int &selected_card)
 {
     state.hand.clear();
 
-    int draw_count = deck.remaining() < 5 ? deck.remaining() : 5;
+    const int opening_n = state.round_start_seed.effective_opening_draw();
+    int draw_count = deck.remaining() < opening_n ? deck.remaining() : opening_n;
 
     for (int card_index = 0; card_index < draw_count; ++card_index)
     {

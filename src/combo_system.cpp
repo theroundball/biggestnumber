@@ -8,8 +8,6 @@
 #include "trinket_system.h"
 
 #include "bn_span.h"
-#include "bn_string.h"
-#include "bn_to_string.h"
 
 namespace
 {
@@ -36,6 +34,29 @@ namespace
         { kPbJellySequence, 2, 2, 2, true },
         { kStrawSticksBricksSequence, 3, 3, 3, true },
     };
+
+    // Right-rail row order: RPS top, straw/sticks/bricks middle, PB&J bottom.
+    constexpr int kDisplayRowComboIndices[3] = { 0, 2, 1 };
+
+    bool deck_has_all_combo_pieces(bn::span<const CardRef> cards, const ComboDef& combo)
+    {
+        int counts[int(CardType::COUNT)] = {};
+
+        for(const CardRef& card : cards)
+        {
+            ++counts[int(card.type)];
+        }
+
+        for(int index = 0; index < combo.length; ++index)
+        {
+            if(counts[int(combo.sequence[index])] <= 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     bool window_matches(bn::span<const CardRef> cards, int start, const ComboDef& combo)
     {
@@ -297,6 +318,14 @@ namespace
         }
     }
 
+    void exile_combo_cards(GameState& state, const bn::array<CardRef, 4>& cards, int count)
+    {
+        for(int index = 0; index < count; ++index)
+        {
+            exile_push(state, cards[index]);
+        }
+    }
+
     void relocate_resolved_combo_cards(GameState& state, const bn::array<CardRef, 4>& cards, int count)
     {
         exile_combo_cards(state, cards, count);
@@ -374,14 +403,6 @@ namespace
             {
                 out_cards[out_count++] = cards[index];
             }
-        }
-    }
-
-    void exile_combo_cards(GameState& state, const bn::array<CardRef, 4>& cards, int count)
-    {
-        for(int index = 0; index < count; ++index)
-        {
-            exile_push(state, cards[index]);
         }
     }
 
@@ -644,93 +665,56 @@ bool combo_graveyard_has_type(const GameState& state, CardType type)
     return false;
 }
 
-const char* combo_piece_abbrev(CardType type)
+void combo_init_progress_availability(GameState& state)
 {
-    switch(type)
+    const bn::span<const CardRef> cards = state.deck.undrawn_span();
+
+    for(int combo_index = 0; combo_index < 3; ++combo_index)
     {
-    case CardType::ROCK:
-        return "R";
-    case CardType::PAPER:
-        return "P";
-    case CardType::SCISSORS:
-        return "Sc";
-    case CardType::SHOOT:
-        return "Sh";
-    case CardType::PEANUT_BUTTER:
-        return "PB";
-    case CardType::JELLY:
-        return "J";
-    case CardType::STRAW:
-        return "Sr";
-    case CardType::STICKS:
-        return "St";
-    case CardType::BRICKS:
-        return "Br";
-    default:
-        return "?";
+        state.combo_progress_enabled[combo_index] =
+            deck_has_all_combo_pieces(cards, kCombos[combo_index]);
     }
 }
 
-void combo_format_pip_line(const GameState& state, const ComboDef& combo, ComboPipLine& out)
+bool combo_any_progress_bar_enabled(const GameState& state)
 {
-    out.text.clear();
-
-    for(int index = 0; index < combo.length; ++index)
+    for(int combo_index = 0; combo_index < 3; ++combo_index)
     {
-        if(index > 0)
+        if(state.combo_progress_enabled[combo_index])
         {
-            out.text.append(' ');
-        }
-
-        out.text.append(combo_piece_abbrev(combo.sequence[index]));
-
-        if(combo_graveyard_has_type(state, combo.sequence[index]))
-        {
-            out.text.append('+');
-        }
-        else
-        {
-            out.text.append('?');
+            return true;
         }
     }
 
-    PendingCombo match{};
-
-    if(find_graveyard_multiset_match(state, combo, match))
-    {
-        out.text.append(" x");
-        out.text.append(bn::to_string<1>(combo.total_score_multiplier));
-    }
+    return false;
 }
 
-int combo_staging_collect_pip_lines(const GameState& state, bn::vector<ComboPipLine, 3>& out)
+void combo_collect_bar_states(const GameState& state, bn::array<ComboBarState, 3>& out)
 {
-    out.clear();
-
-    for(const ComboDef& combo : kCombos)
+    for(int row_index = 0; row_index < 3; ++row_index)
     {
-        bool has_piece = false;
+        const int combo_index = kDisplayRowComboIndices[row_index];
+        ComboBarState& bar = out[row_index];
 
-        for(int index = 0; index < combo.length; ++index)
+        if(!state.combo_progress_enabled[combo_index])
         {
-            if(combo_graveyard_has_type(state, combo.sequence[index]))
-            {
-                has_piece = true;
-                break;
-            }
-        }
-
-        if(!has_piece)
-        {
+            bar.length = 0;
+            bar.filled = 0;
             continue;
         }
 
-        ComboPipLine line;
-        combo_format_pip_line(state, combo, line);
-        out.push_back(line);
-    }
+        const ComboDef& combo = kCombos[combo_index];
+        bar.length = uint8_t(combo.length);
+        bar.filled = 0;
 
-    return out.size();
+        for(int piece_index = 0; piece_index < combo.length; ++piece_index)
+        {
+            if(combo_graveyard_has_type(state, combo.sequence[piece_index]))
+            {
+                ++bar.filled;
+            }
+        }
+    }
 }
 
 bool combo_start_player_triggered(GameState& state, uint8_t combo_id)

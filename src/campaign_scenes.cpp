@@ -29,7 +29,7 @@ MenuSceneResult run_campaign_starter_pick_scene(CardType& out_utility)
     PrizeOffer offers[3] = {
         {PrizeOfferKind::CARD, CardType::FISHING_POLE, 0},
         {PrizeOfferKind::CARD, CardType::JACKS, 0},
-        {PrizeOfferKind::CARD, CardType::CUPS, 0},
+        {PrizeOfferKind::CARD, CardType::SHELLS, 0},
     };
 
     const PrizeRowResult pick =

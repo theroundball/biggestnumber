@@ -21,7 +21,7 @@ public:
     PersistentHud(bn::sprite_text_generator& count_text_generator,
                   bn::sprite_text_generator& mod_text_generator);
 
-    void update(const GameState& state);
+    void update(const GameState& state, int deck_display_count);
     void set_visible(bool visible);
     void sync_details_modifiers(const GameState& state, int panel_x, bool visible,
                                 CampaignMode campaign_mode = CampaignMode::NONE,

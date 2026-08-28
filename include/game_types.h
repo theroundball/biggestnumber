@@ -74,6 +74,7 @@ enum class GraveyardExilePickKind : uint8_t
     TO_DECK_TOP,
     TO_HAND,
     SHUFFLE_TO_DECK,
+    BIRDS_TO_DECK,
 };
 
 namespace game_layout
@@ -127,6 +128,15 @@ namespace game_layout
     constexpr int SCORE_BAR_WIDTH = 192;
     constexpr int SCORE_BAR_SEGMENT = 8;
     constexpr int SCORE_BAR_SEGMENT_COUNT = SCORE_BAR_WIDTH / SCORE_BAR_SEGMENT;
+    // Right-rail stack (below tombstone): compact trinkets, combo bars, bounty bar, then hand.
+    constexpr int COMBO_BAR_X = 108;
+    constexpr int TRINKET_ROW_Y0 = -52;
+    constexpr int TRINKET_ROW_STEP = 10;
+    constexpr int COMBO_BAR_Y0 = TRINKET_ROW_Y0 + TRINKET_ROW_STEP * 3 + 4;
+    constexpr int COMBO_BAR_ROW_STEP = 4;
+    constexpr int COMBO_BAR_SEGMENT = 5;
+    constexpr int COMBO_BAR_MAX_SEGMENTS = 4;
+    constexpr int COMBO_BAR_ROW_COUNT = 3;
     constexpr int CARD_BODY_HEIGHT = 64;
     // Play beat: sit above raised hand row with a small gap (card position is top-left).
     constexpr int PLAY_PRESENTATION_CENTER_Y =

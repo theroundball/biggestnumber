@@ -17,6 +17,10 @@
 #include "deck.h"
 #include "play_resolution.h"
 
+constexpr int DEAD_RISING_GY_RETURNS_PER_ROUND = 2;
+
+void bounty_on_round_start(GameState& state);
+
 enum class TrinketScoreField : uint8_t
 {
     ROUND,
@@ -119,12 +123,16 @@ enum class PendingActionType
     SWAP_TOTAL_SCORE_DIGITS,
     MOVE_FOUR_TOTAL_DIGIT,
     REPLACE_TOTAL_DIGIT_WITH_FIVE,
+    MAJOR_LIFT_TOTAL_DIGIT,
+    MINOR_FALL_TOTAL_DIGIT,
     // Birds of a Feather: animate a qualifying GY run onto the deck.
     BIRDS_RETURN,
     // Lifeline: shuffle GY→deck after the played card has entered the GY.
     RECLAIM_GRAVEYARD,
     NECROMANCY_SHUFFLE,
     MILL_REVEAL,
+    // Evaluate ghost: one queued step per UI row/component.
+    EVALUATE_GHOST_STEP,
 };
 
 struct PendingAction
@@ -147,7 +155,7 @@ struct BattleStats
     int cards_drawn_this_round = 0;
     int keyword_discards = 0;
     int cycles = 0;
-    int flashbacks = 0;
+    int ghost_plays = 0;
 };
 
 struct SelectionSession
@@ -190,10 +198,14 @@ struct GameState
     SelectionSession selection;
     PendingCombo pending_combo;
     ComboCinematicState combo_cinematic;
+    // Combo progress bars: set at battle start from starting-deck composition (kCombos index).
+    bool combo_progress_enabled[3] = {};
 
     int roundup_play_count = 0;
     int turtle_rounds_remaining = 0;
     bool swivel_waiting = false;
+    // B skips optional ghost/combo offers and ends the round (commit → round start → draw).
+    bool waive_optional_ghost_plays = false;
     // Armed on first play-effect while Echo is ready; drained by idle gate
     // (try_drain_echo_replay) — not via second-pass removal or card-specific flags.
     bool echo_pending_replay = false;
@@ -215,8 +227,13 @@ struct GameState
     bool effect_draw_miracle_chaining = false;
     bool roll_over_substitution_active = false;
     bn::vector<CardRef, 60> roll_over_stashed_hand;
-    int bounty_play_count = 0;
-    int bounty_return_anchor = 0;
+    // Per physical Bounty copy (CardRef.bounty_id), not save instance_id.
+    bn::array<uint8_t, InstancePool::CAPACITY> bounty_instance_plays{};
+    bn::array<int, InstancePool::CAPACITY> bounty_instance_return_anchor{};
+    bn::array<int, InstancePool::CAPACITY> bounty_instance_return_threshold{};
+    uint8_t bounty_next_id = 0;
+    CardRef play_effect_card{};
+    bool finale_active = false;
     int paper_swap_hand_index = -1;
     int staircase_last_plus = 0;
     int staircase_length = 0;
@@ -301,8 +318,10 @@ struct GameState
     void apply_round_start_adds();
     void apply_round_start_multiply();
     bool apply_round_start_turtle_step();
-    void evaluate_apply_next_slot_multiply();
-    void evaluate_apply_all_future_multipliers();
+    // clear_after: false = hand play (next slot only); true = ghost (all 3 slots, then clear).
+    void evaluate_apply_future_modifiers(bool clear_after);
+    void evaluate_apply_ui_slot(int ui_slot_offset, bool clear_after);
+    void queue_evaluate_ghost_steps();
     void build_a_number_activate();
     void build_a_number_reset();
     bool build_a_number_all_digits_filled() const;
@@ -334,7 +353,9 @@ struct GameState
         first_deck_draw_this_round = true;
         roll_over_substitution_active = false;
         roll_over_stashed_hand.clear();
-        bounty_return_anchor = round.running;
+        // waive_optional_ghost_plays stays set until the round-finish pipeline
+        // has committed and run end_run_if_needed (Option B: B always ends the round).
+        bounty_on_round_start(*this);
     }
 };
 

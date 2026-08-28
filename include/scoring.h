@@ -3,6 +3,8 @@
 
 #include "bn_string.h"
 
+constexpr int DEFAULT_OPENING_DRAW_COUNT = 5;
+
 // A future-round effect (also used as a card's immediate effect payload).
 // `multiply == 0` means "no multiplier"; stacked future seeds add (x5 + x5 = x10).
 struct RoundModifier
@@ -10,12 +12,40 @@ struct RoundModifier
     int positive = 0;
     int multiply = 0;        // 0 = none; becomes the seeded round's end-multiplier
     int draw_at_start = 0;   // extra cards drawn when the seeded round begins
+    // 0 = default 5. Non-zero is an absolute opening size; stacking uses deltas from 5
+    // (1+1→1 after floor, 7+7→9). HUD shows the resulting count, never a negative.
+    int opening_draw_count = 0;
 
     void accumulate(const RoundModifier& o)
     {
         positive += o.positive;
         multiply += o.multiply;
         draw_at_start += o.draw_at_start;
+
+        if(opening_draw_count != 0 || o.opening_draw_count != 0)
+        {
+            const int self_count = opening_draw_count == 0 ? DEFAULT_OPENING_DRAW_COUNT
+                                                          : opening_draw_count;
+            const int other_count = o.opening_draw_count == 0 ? DEFAULT_OPENING_DRAW_COUNT
+                                                             : o.opening_draw_count;
+            const int stacked = self_count + other_count - DEFAULT_OPENING_DRAW_COUNT;
+            opening_draw_count = stacked < 1 ? 1 : stacked;
+        }
+    }
+
+    int effective_opening_draw() const
+    {
+        if(opening_draw_count == 0)
+        {
+            return DEFAULT_OPENING_DRAW_COUNT;
+        }
+
+        return opening_draw_count < 1 ? 1 : opening_draw_count;
+    }
+
+    bool has_opening_draw_override() const
+    {
+        return opening_draw_count != 0;
     }
 };
 

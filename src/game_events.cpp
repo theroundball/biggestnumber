@@ -4,6 +4,7 @@
 #include "card.h"
 #include "card_data.h"
 #include "combo_system.h"
+#include "game_helpers.h"
 #include "game_state.h"
 #include "trinket_system.h"
 
@@ -103,6 +104,51 @@ int hand_scheduled_count(const GameState& state, bool include_in_flight_draw)
     return count;
 }
 
+bool run_should_end(const GameState& state, bool hand_draw_fx_active)
+{
+    // Aligned with empty_hand_triggers_round_end() for ghosts, but this is the
+    // run-level check (deck empty + no scheduled hand). Call only from the
+    // round-finish pipeline or after opening-deal FX, never while round_end_pending.
+    if(!state.deck.empty())
+    {
+        return false;
+    }
+
+    if(hand_scheduled_count(state, hand_draw_fx_active) > 0)
+    {
+        return false;
+    }
+
+    if(!state.hand.empty())
+    {
+        return false;
+    }
+
+    if(state.roll_over_substitution_active)
+    {
+        return false;
+    }
+
+    if(has_optional_ghost_plays(state) && !state.waive_optional_ghost_plays)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+int deck_hud_display_count(const GameState& state, bool hand_draw_fx_active)
+{
+    int in_transit = state.pending_hand_draws.size();
+
+    if(hand_draw_fx_active)
+    {
+        ++in_transit;
+    }
+
+    return state.deck.remaining() + in_transit;
+}
+
 bool hand_add_card(GameState& state, CardRef card, bool from_deck_draw, bool miracle_auto_play)
 {
     if(state.hand.full())
@@ -117,11 +163,13 @@ bool hand_add_card(GameState& state, CardRef card, bool from_deck_draw, bool mir
             return false;
         }
 
+        bind_bounty_copy(state, card);
         state.first_deck_draw_this_round = false;
         state.pending_hand_draws.push_back(PendingHandDraw{card, miracle_auto_play});
         return true;
     }
 
+    bind_bounty_copy(state, card);
     state.hand.push_back(card);
     game_events_dispatch(state, GameEvent::HAND_CHANGED);
 
@@ -215,6 +263,7 @@ void graveyard_push(GameState& state, CardRef card)
     }
 
     state.graveyard.push_back(card);
+    bounty_on_enter_graveyard(state, card);
     graveyard_apply_gravity(state);
     game_events_dispatch(state, GameEvent::GRAVEYARD_CHANGED);
 }
@@ -438,8 +487,11 @@ void necromancy_shuffle_graveyard_to_deck(GameState& state)
 void battle_stats_reset(GameState& state)
 {
     state.battle_stats = BattleStats{};
-    state.bounty_play_count = 0;
-    state.bounty_return_anchor = 0;
+    state.bounty_instance_plays = {};
+    state.bounty_instance_return_anchor = {};
+    state.bounty_instance_return_threshold = {};
+    state.bounty_next_id = 0;
+    state.finale_active = false;
     state.paper_swap_hand_index = -1;
     staircase_reset(state);
     state.build_a_number_reset();
@@ -465,9 +517,9 @@ void battle_stat_record_cycle(GameState& state)
     ++state.battle_stats.cycles;
 }
 
-void battle_stat_record_flashback(GameState& state)
+void battle_stat_record_ghost(GameState& state)
 {
-    ++state.battle_stats.flashbacks;
+    ++state.battle_stats.ghost_plays;
 }
 
 void game_events_dispatch(GameState& state, GameEvent event)

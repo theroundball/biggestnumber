@@ -34,9 +34,14 @@ public:
     void exile_random_undrawn(int count, bn::seed_random& random_engine, bn::vector<CardRef, 50>& exile_out);
     // Remove undrawn from the deck end into `exile_out` (Lifeline-style).
     void exile_undrawn_end(int count, bn::vector<CardRef, 50>& exile_out);
+    // Remove undrawn from the deck top into `exile_out`.
+    void exile_undrawn_from_top(int count, bn::vector<CardRef, 50>& exile_out);
 
     // After shuffle / insert — Yeast toward top (low undrawn index), Lead toward bottom.
     void apply_gravity(const InstancePool& pool);
+
+    // Unique save instances for upgrades, plus unique battle-local bounty_id per copy.
+    void ensure_unique_bounty_instances(InstancePool& pool, uint8_t& next_bounty_id);
 
 private:
     static constexpr int MAX_CARD_COUNT = 50;

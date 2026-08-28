@@ -39,15 +39,18 @@ bn::string<16> format_round_modifier(const RoundModifier& modifier)
         out.append(bn::to_string<8>(modifier.multiply));
     }
 
-    if(modifier.draw_at_start)
+    if(modifier.draw_at_start || modifier.has_opening_draw_override())
     {
         if(! out.empty())
         {
             out.append(" ");
         }
 
+        const int draw_shown = modifier.has_opening_draw_override()
+                                   ? modifier.effective_opening_draw() + modifier.draw_at_start
+                                   : modifier.draw_at_start;
         out.append("draw ");
-        out.append(bn::to_string<8>(modifier.draw_at_start));
+        out.append(bn::to_string<8>(draw_shown));
     }
 
     return out;

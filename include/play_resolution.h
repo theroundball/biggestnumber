@@ -15,7 +15,7 @@ enum class PlaySource : uint8_t
     DECK_SEARCH,
     DECK_TOP,
     ECHO,
-    FLASHBACK,
+    GHOST,
 };
 
 enum class PostPlayDestination : uint8_t

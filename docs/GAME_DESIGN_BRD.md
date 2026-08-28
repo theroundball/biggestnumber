@@ -2,7 +2,7 @@
 
 **Status:** Living document — describes **current behavior in code**, not future RPG/overworld plans.  
 **Purpose:** High-level design reference for refactoring, playtesting, and clarifying intent.  
-**Last synced with codebase:** August 2026 (52 cards, save v3).
+**Last synced with codebase:** August 2026 (71 cards, save v14).
 
 > **How to use this doc:** Edit freely. Mark sections `[CONFIRMED]`, `[CHANGE REQUEST]`, or `[OPEN]` as you review. Ambiguities and open questions are collected in §16.
 
@@ -22,7 +22,7 @@ There is **no opponent** and **no lose state** in the current build — only run
 |------|--------|
 | **Primary** | Maximize `total_score` by the end of the run |
 | **Secondary** | Beat the saved high score for the chosen deck |
-| **Collection** | Build decks from up to 5 copies of each of 52 card types |
+| **Collection** | Build decks from up to 5 copies of each of 71 card types |
 
 ---
 
@@ -49,9 +49,11 @@ stateDiagram-v2
 | Rule | Value | Notes |
 |------|-------|-------|
 | Starting deck | Player's saved deck, shuffled | Battle deck is a **disposable copy** — in-run changes do not persist |
-| Round start draw | Up to **5** cards | Fewer if deck is low; plus any `draw_at_start` seeds |
-| Round end | **Hand is empty** and all pending actions resolved | Not a fixed round count |
-| Run end | **Draw pile empty** at round boundary | `game_over` / `run_finished`; `final_score = total_score` |
+| Round start draw | **N attempts** (default **5**) | `opening_draw_count` replaces 5 when seeded (floor 1). Extra `draw_at_start` still adds on top. Miracle consumes one attempt; it does not keep dealing until hand size is N. Fewer if deck is low after GY fill. |
+| Round end | **Hand is empty** and all pending actions resolved | Not a fixed round count. Optional **ghost**/combo offers delay round end until played or waived with **B**. |
+| B with optional ghosts | **Always ends the round** (Option B) | Waive ghosts → commit round score → round-start pipeline → opening deal. Not a same-round refill. |
+| Run end | **Deck empty**, no cards in hand/pending draws/in-flight draw FX, and no optional ghost/combo plays (unless waived with B) | `run_should_end()`; `final_score = total_score`. Not `deck.empty()` alone before draws settle. |
+| Deck HUD count | `deck.remaining()` + cards in `pending_hand_draws` + in-flight draw | Matches physical cards not yet visible in hand. |
 | Hand size cap | 60 | `bn::vector` limit |
 | Graveyard cap | 50 | |
 | Deck size cap | 25 | |
@@ -88,7 +90,8 @@ Cards can seed effects for the **next 3 rounds** (`future_mods[3]`):
 |------------|------------------------|
 | `positive` | `add_from_card` to new round |
 | `multiply` | `apply_seed_multiply` (end multiplier seed) |
-| `draw_at_start` | Extra cards drawn with the normal 5 |
+| `draw_at_start` | Extra cards drawn on top of the opening deal |
+| `opening_draw_count` | Absolute opening size instead of 5 (0 = default 5). Stacking uses deltas from 5 with floor **1**. HUD shows the resulting count (`draw 1`), never a negative. |
 
 Slots rotate each round (`next_mod_index`).
 
@@ -97,6 +100,7 @@ Slots rotate each round (`next_mod_index`).
 - Playing **Turtle Mode** sets `turtle_rounds_remaining = 3`.
 - While active: round score is **not committed** each round; `round` score **carries** across sub-rounds.
 - When counter reaches 0: commit once, then normal flow resumes.
+- Pressing **B** during turtle still waives optional ghosts and advances to the next sub-round, but does **not** bank round score until turtle expires.
 
 ### 4.5 Score display
 
@@ -136,7 +140,7 @@ So if a card adds 1 and the post-add total would proc Lucky Sevens, Lucky resolv
 |-------------|-------------|
 | Default play | Graveyard, then discard effect |
 | `exiles_self_on_play` (Necromancy) | Exile; never GY |
-| `defer_graveyard_until_pending` (Clover, Jacks, Fishing Pole, Cups, Seeds) | Held until pending queue empty, then GY + discard |
+| `defer_graveyard_until_pending` (Clover, Jacks, Fishing Pole, Shells, Seeds) | Held until pending queue empty, then GY + discard |
 | **Swivel waiting** | Next played card → **deck top** instead of GY |
 | Combo resolution | Matched cards **removed** from zone (not discarded) |
 
@@ -191,7 +195,7 @@ Within **play resolution**, pending actions fall into two buckets:
 
 | Bucket | Meaning | Card must wait in limbo? | Examples |
 |--------|---------|--------------------------|----------|
-| **Play cost (held)** | Cost must complete before the playing card enters any zone | **Yes** — `defer_graveyard_until_pending` | Clover (exile 3 GY → ×3), Jacks / Fishing Pole / Cups, Seeds |
+| **Play cost (held)** | Cost must complete before the playing card enters any zone | **Yes** — `defer_graveyard_until_pending` | Clover (exile 3 GY → ×3), Jacks / Fishing Pole / Shells, Seeds |
 | **Play cost (early GY)** | Discard cost must complete before payoff; playing card **already in GY** during cost UI | **No** — route to GY immediately after `on_play` | **Big Kurosawa Burger** (discard 1 → ×4) |
 | **Play follow-up** | Extra steps after the card leaves hand; payoff not gated on a cost | **Usually no** | Pilot / Librarian (scry), Hacker (deck search), Rags (exile loop), Swap |
 
@@ -237,7 +241,7 @@ Play Burger → Burger to GY → [pick discard] → Cost card to GY (+ on_discar
 | Pattern | Cards | defer? |
 |---------|-------|--------|
 | Immediate play only | Longboard…Bike, Catnip, Wishes, most +N | No |
-| Play cost → held → GY | **Clover**, **Jacks**, **Fishing Pole**, **Cups**, **Seeds** | **Yes** |
+| Play cost → held → GY | **Clover**, **Jacks**, **Fishing Pole**, **Shells**, **Seeds** | **Yes** |
 | Play cost → early GY | **Big Kurosawa Burger** (discard → ×4) | **No** |
 | Play follow-up (scry/search) | Pilot, Librarian, Hacker | No (played card routes separately) |
 | Play follow-up (post-route GY) | **Lifeline** — reclaim after self is in GY (pending, not held) | No |
@@ -273,13 +277,20 @@ Echo, Miracle, and Swivel attach to **specific pipeline steps** (replay `on_play
 Within a round, the player acts in `GameMode::NORMAL` unless a pending action opens a selection mode.
 
 ```
-deal hand (≤5)
+deal hand (N opening-draw attempts, default 5)
 loop until hand empty:
     player: browse hand, play card, open panels
     on play: apply effects → optional pending UI chain → removal animation
-    on empty hand: resolve pending → commit round (unless Turtle) → deal next hand
-when deck empty at round boundary: run complete
+    on empty hand with optional ghosts: wait (play ghost or press B)
+    on empty hand / B: resolve pending/combos → commit round (unless Turtle or Finale) → round-start pipeline → opening deal
+    end run if deck empty and no scheduled hand cards (after draws settle)
 ```
+
+**Finale:** when `finale_active`, empty hand or B ends the run without committing the current round score.
+
+**B (Option B):** skipping optional ghosts always **ends the round** — commit round score to total, then the same beginning-of-turn pipeline as a natural empty-hand round end. It is not a same-round hand refill.
+
+**Round boundary pipeline:** Dead Rising / opening-draw GY→deck transfers (if any) → `start_new_round` → N-attempt opening deal → round-start modifiers → game-over check.
 
 **Pending actions** queue multi-step card effects (scry, graveyard picks, etc.) and process **FIFO** (`pending_actions` vector).
 
@@ -291,7 +302,7 @@ when deck empty at round boundary: run complete
 
 | Mode | Trigger | Player action |
 |------|---------|---------------|
-| **NORMAL** | Default | D-pad: move hand cursor; A: play; B+L/R: swap; L: details panel; R: graveyard panel |
+| **NORMAL** | Default | D-pad: move hand cursor; A: play; B+L/R: swap; B (empty hand + ghosts): waive and **end the round**; L: details panel; R: graveyard panel |
 | **DISCARD_TARGET** | Discard-cost pending | Pick hand card to discard or put on deck top |
 | **GRAVEYARD_TARGET** | GY interaction pending | Pick GY card: exile, retrieve, swap pairs |
 | **GRAVEYARD_PICK** | Multi-pick to deck | Pick N GY cards (Seeds → top) |
@@ -317,14 +328,14 @@ Defined in `include/game_state.h`; resolved in `GameContext::begin_next_pending_
 
 | Type | Driven by | Player flow |
 |------|-----------|-------------|
-| `EXILE_FROM_GRAVEYARD` | Cups | Pick exactly 1 GY card to exile |
+| `EXILE_FROM_GRAVEYARD` | Clover / Rags | Pick GY cards to exile |
+| `RETRIEVE_FROM_GRAVEYARD_TO_TOP` | Fishing Pole, Shells | Pick 1 GY card onto deck top |
 | `EXILE_FROM_GRAVEYARD_THEN_MULTIPLY` | Clover | Pick exactly N GY cards to exile; ×N when done; B cancels partial |
 | `EXILE_GRAVEYARD_MULTIPLY_BY_COUNT` | Rags to Riches | Exile GY cards one-by-one; B when done → × exiled count |
 | `DISCARD_FROM_HAND_THEN_MULTIPLY` | Big Kurosawa Burger | Discard 1 hand → ×factor |
-| `DISCARD_FROM_HAND` | Jacks, Fishing Pole, Cups | Discard 1 hand card (cost) |
+| `DISCARD_FROM_HAND` | Jacks, Fishing Pole, Shells | Discard 1 hand card (cost) |
 | `PUT_HAND_ON_DECK_TOP` | (unused pending; was It's Comin' Up) | Put 1 hand card on deck top |
 | `RETRIEVE_FROM_GRAVEYARD` | Jacks | GY card → hand |
-| `RETRIEVE_FROM_GRAVEYARD_TO_TOP` | Fishing Pole | GY card → deck top |
 | `GRAVEYARD_PICK_TO_BOTTOM` | *(none currently)* | Enum exists, no card uses |
 | `GRAVEYARD_PICK_TO_TOP` | Seeds | Pick 3 GY cards → deck top |
 | `GRAVEYARD_PAIR_SWAP` | Roll Over (discard) | Pick 2 GY cards to swap; repeat 3 times |
@@ -448,7 +459,7 @@ sequenceDiagram
 
 ---
 
-## 11. Card catalog (52 cards)
+## 11. Card catalog (71 cards)
 
 Cards are listed in `CardType` enum order (`include/card_type.h`). Copy counts in deck editor: max **5** per type.
 
@@ -503,7 +514,7 @@ Cards are listed in `CardType` enum order (`include/card_type.h`). Copy counts i
 | Rags to Riches | Exile GY one-by-one; × exiled count when done |
 | Jacks | Discard 1 other → GY card to hand |
 | Fishing Pole | Discard 1 → GY card to deck top |
-| Cups | Draw 1, discard 1, exile 1 from GY; unavailable steps are skipped |
+| Shells | Draw 1, discard 1, put 1 GY card on deck top; unavailable steps are skipped |
 | Roll Over (discard) | Swap two GY cards, 3 times |
 
 ### 11.5 Discard-only effects
@@ -526,6 +537,8 @@ Cards are listed in `CardType` enum order (`include/card_type.h`). Copy counts i
 | Roundup | Round **total** up: 1st → nearest 10, 2nd → 100, 3rd+ → 1000 |
 | Swap | Swap two digits in total score |
 | Turtle Mode | Delay round commit 3 rounds |
+| Dead Rising | Exile self; next 3 round starts, 2 random GY cards → deck top each (HUD `rise` / `rise 2`) |
+| 7 Feet Deep | Next 3 rounds draw 1, then 2, then 7 instead of 5; short deals GY-fill via Dead Rising movie |
 
 ### 11.7 Combo pieces (no standalone play effect)
 
@@ -544,7 +557,7 @@ Rock, Paper, Scissors, Shoot, Peanut Butter, Jelly, Straw, Sticks, Bricks — se
 
 | Rule | Value |
 |------|-------|
-| Save format | SRAM, magic `BNUM`, version **3** |
+| Save format | SRAM, magic `BNUM`, version **14** |
 | Saved decks | Up to **8** |
 | Deck size | 1–25 cards |
 | Copy limit | 5 per card type |

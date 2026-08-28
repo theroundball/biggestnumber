@@ -305,7 +305,8 @@ namespace
         }
 
         begin_selection(ctx, action.type);
-        ctx.state.selection.cursor = ctx.state.graveyard.size() - 1;
+        ctx.state.selection.graveyard_exclude = action.graveyard_exclude;
+        ctx.state.selection.cursor = initial_graveyard_cursor(ctx.state, action.graveyard_exclude);
         ctx.state.selection.remaining_picks = action.count;
         ctx.sync_row_scroll_for_mode(ctx.state.selection.cursor, ctx.state.graveyard.size(),
                                      game_layout::GRAVE_SPACING);
@@ -508,9 +509,19 @@ namespace
         }
 
         begin_selection(ctx, action.type);
-        ctx.state.selection.cursor = 0;
+
+        for(int slot = 0; slot < 3; ++slot)
+        {
+            if(ctx.state.build_digits[slot] < 0)
+            {
+                ctx.state.selection.cursor = slot;
+                break;
+            }
+        }
+
         ctx.state.selection.multiply_factor = action.count;
         ctx.mode = GameMode::BUILD_NUMBER_DIGIT;
+        ctx.draw_round_score();
         return PendingStartResult::ENTERED_MODE;
     }
 
@@ -550,6 +561,32 @@ namespace
         return PendingStartResult::FIZZLE;
     }
 
+    PendingStartResult start_major_lift_total_digit(GameContext& ctx, const PendingAction&)
+    {
+        if(score_major_lift_try_begin(ctx))
+        {
+            ctx.mode = GameMode::SCORE_SWAP;
+            return PendingStartResult::ENTERED_MODE;
+        }
+
+        ctx.state.add_from_card(3);
+        ctx.draw_round_score();
+        return PendingStartResult::INSTANT_DONE;
+    }
+
+    PendingStartResult start_minor_fall_total_digit(GameContext& ctx, const PendingAction&)
+    {
+        if(score_minor_fall_try_begin(ctx))
+        {
+            ctx.mode = GameMode::SCORE_SWAP;
+            return PendingStartResult::ENTERED_MODE;
+        }
+
+        ctx.state.add_from_card(3);
+        ctx.draw_round_score();
+        return PendingStartResult::INSTANT_DONE;
+    }
+
     // Lifeline — runs after the played card is already in the GY so it is shuffled too.
     PendingStartResult start_necromancy_shuffle(GameContext& ctx, const PendingAction&)
     {
@@ -577,11 +614,6 @@ namespace
 
         ctx.state.birds_return_start = return_start;
         ctx.state.birds_return_count = return_end - return_start;
-        begin_selection(ctx, PendingActionType::BIRDS_RETURN);
-        ctx.state.selection.cursor = return_start;
-        ctx.sync_row_scroll_for_mode(ctx.state.selection.cursor, ctx.state.graveyard.size(),
-                                     game_layout::GRAVE_SPACING);
-        ctx.mode = GameMode::GRAVEYARD_TARGET;
 
         if(ctx.try_begin_birds_return_fx())
         {
@@ -594,8 +626,57 @@ namespace
 
     PendingStartResult start_reclaim_graveyard(GameContext& ctx, const PendingAction&)
     {
-        reclaim_graveyard_into_deck(ctx.state);
-        combo_check_zone(ctx.state, ComboZone::DECK);
+        (void)ctx;
+        return PendingStartResult::FIZZLE;
+    }
+
+    PendingStartResult start_evaluate_ghost_step(GameContext& ctx, const PendingAction& action)
+    {
+        const int step = action.hand_index;
+
+        if(step == 4)
+        {
+            for(int index = 0; index < 3; ++index)
+            {
+                ctx.state.future_mods[index] = RoundModifier{};
+                ctx.state.keep_going_returns[index] = 0;
+            }
+
+            if(ctx.state.turtle_rounds_remaining > 0)
+            {
+                ctx.state.turtle_rounds_remaining = 0;
+                ctx.state.flush_staircase_climb();
+            }
+        }
+        else if(step == 3)
+        {
+            const int slot_index = (ctx.state.next_mod_index + action.count) % 3;
+            ctx.state.future_mods[slot_index] = RoundModifier{};
+            ctx.state.keep_going_returns[slot_index] = 0;
+        }
+        else
+        {
+            const int slot_index = (ctx.state.next_mod_index + action.count) % 3;
+            RoundModifier& mod = ctx.state.future_mods[slot_index];
+
+            if(step == 0 && mod.positive)
+            {
+                ctx.state.add_from_card(mod.positive);
+                mod.positive = 0;
+            }
+            else if(step == 1 && mod.multiply)
+            {
+                ctx.state.apply_seed_multiply(mod.multiply);
+                mod.multiply = 0;
+            }
+            else if(step == 2 && mod.draw_at_start)
+            {
+                queue_effect_draw(ctx.state, mod.draw_at_start, false);
+                mod.draw_at_start = 0;
+            }
+        }
+
+        ctx.draw_round_score();
         return PendingStartResult::INSTANT_DONE;
     }
 
@@ -658,8 +739,14 @@ namespace
             return start_move_four_total_digit(ctx, action);
         case PendingActionType::REPLACE_TOTAL_DIGIT_WITH_FIVE:
             return start_replace_total_digit_with_five(ctx, action);
+        case PendingActionType::MAJOR_LIFT_TOTAL_DIGIT:
+            return start_major_lift_total_digit(ctx, action);
+        case PendingActionType::MINOR_FALL_TOTAL_DIGIT:
+            return start_minor_fall_total_digit(ctx, action);
         case PendingActionType::BUILD_A_NUMBER_PLACE_DIGIT:
             return start_build_number_place_digit(ctx, action);
+        case PendingActionType::EVALUATE_GHOST_STEP:
+            return start_evaluate_ghost_step(ctx, action);
         case PendingActionType::PAPER_SWAP_HAND:
             return start_paper_swap_hand(ctx, action);
         case PendingActionType::PEANUT_BUTTER_SCRY:
@@ -723,20 +810,7 @@ namespace
 
                 if(empty_hand_triggers_round_end(ctx.state))
                 {
-                    if(ctx.block_round_end_for_combo())
-                    {
-                        ctx.update_target_scroll();
-                        return;
-                    }
-
-                    if(ctx.presentation_fx_blocking() || ctx.hand_draw_fx_blocking() || ctx.removing_card)
-                    {
-                        ctx.round_end_pending = true;
-                    }
-                    else
-                    {
-                        ctx.finish_empty_hand_round();
-                    }
+                    ctx.finish_empty_hand_round();
                 }
 
                 ctx.update_target_scroll();
@@ -755,19 +829,6 @@ namespace
         if(empty_hand_triggers_round_end(ctx.state))
         {
             swivel_clear_wait_if_hand_empty(ctx);
-
-            if(ctx.block_round_end_for_combo())
-            {
-                return;
-            }
-
-            if(ctx.presentation_fx_blocking() || ctx.hand_draw_fx_blocking() || ctx.removing_card)
-            {
-                ctx.round_end_pending = true;
-                ctx.update_target_scroll();
-                return;
-            }
-
             ctx.finish_empty_hand_round();
         }
 
@@ -793,7 +854,35 @@ void GameContext::begin_next_pending_or_finish()
         {
             return;
         }
+
+        // Draw-then-select chains (Shells) must wait for the card to land in hand.
+        if(hand_draw_fx_blocking() || removing_card)
+        {
+            return;
+        }
+
+        if(action.type == PendingActionType::EVALUATE_GHOST_STEP &&
+           !state.pending_actions.empty())
+        {
+            return;
+        }
     }
 
     finish_pending_queue(*this);
+}
+
+void GameContext::tick_evaluate_ghost_steps()
+{
+    if(state.pending_actions.empty() ||
+       state.pending_actions.front().type != PendingActionType::EVALUATE_GHOST_STEP)
+    {
+        return;
+    }
+
+    if(presentation_fx_blocking() || hand_draw_fx_blocking() || removing_card)
+    {
+        return;
+    }
+
+    begin_next_pending_or_finish();
 }

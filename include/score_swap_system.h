@@ -16,6 +16,8 @@ enum class ScoreDigitEditMode : uint8_t
     SWAP,
     MOVE_FOUR,
     REPLACE_WITH_FIVE,
+    // Major Lift / Minor Fall: auto-play digit slide (no player picks).
+    AUTO_MOVE_DIGIT,
 };
 
 struct ScoreSwapDigitSlot
@@ -30,6 +32,7 @@ struct ScoreSwapFxState
     bool active = false;
     bool swapping = false;
     ScoreDigitEditMode edit_mode = ScoreDigitEditMode::SWAP;
+    SwapScoreField auto_move_field = SwapScoreField::TOTAL;
     int cursor_slot = 0;
     int selected_count = 0;
     int selected_slots[2] = {-1, -1};
@@ -48,6 +51,8 @@ struct ScoreSwapFxState
 bool score_swap_try_begin(GameContext& ctx);
 bool score_fourth_try_begin(GameContext& ctx);
 bool score_fifth_try_begin(GameContext& ctx);
+bool score_major_lift_try_begin(GameContext& ctx);
+bool score_minor_fall_try_begin(GameContext& ctx);
 void score_swap_handle_input(GameContext& ctx);
 void score_swap_tick(GameContext& ctx);
 bool score_swap_is_active(const GameContext& ctx);

@@ -22,7 +22,7 @@ Discard effects (`on_discard`) fire only on **cost discards** via `hand_remove_a
 | `DECK_SEARCH` | No | Hacker pick |
 | `DECK_TOP` | No | Toppings deck-top play / mill-reveal |
 | `ECHO` | No (card already left) | Idle-gate replay after first play |
-| `FLASHBACK` | No (GY exile) | Ghost play from graveyard |
+| `GHOST` | No (GY exile) | Ghost play from graveyard |
 
 ## 3. PostPlayDestination (first match wins)
 
@@ -31,7 +31,7 @@ Discard effects (`on_discard`) fire only on **cost discards** via `hand_remove_a
 | Priority | Condition | Dest |
 |----------|-----------|------|
 | 1 | `PlaySource::ECHO` | `NONE` |
-| 2 | `PlaySource::FLASHBACK` | `EXILE` (from GY) |
+| 2 | `PlaySource::GHOST` | `EXILE` (from GY) |
 | 3 | `exiles_self_on_play` | `EXILE` (hand) or `NONE` (scry/search/deck-top) |
 | 4 | pre-play `swivel_follow` | `DECK_TOP` (presentation owns move when `apply_destination = false`) |
 | 5 | else | `GRAVEYARD` |
@@ -62,3 +62,18 @@ Discard effects (`on_discard`) fire only on **cost discards** via `hand_remove_a
 | 20 | The Fifth | Play | Pick one total-score digit; it becomes 5 |
 | 21 | Palindrome + palindromic total | Play | Wrap total in 1s, or 2s after Double Time (single digits included) |
 | 22 | Necromancy as final hand/deck card | Play | Shuffle fully resolves before empty-hand/deck end check |
+
+## 5. Round-end / B-press (Option B)
+
+B with optional ghosts always **ends the round**: waive → `commit_round_with_checks` → Dead Rising / GY-fill transfers → `start_new_round` → N-attempt `deal_opening_hand`. Same-round `draw_up_to_full_hand_from_deck` refill is gone.
+
+| # | Setup | Action | Assert |
+|---|-------|--------|--------|
+| R1 | Empty hand, 2 Lifeline ghosts in GY, round score 50, 2 cards in deck | Press B | Round score **commits to total**; `current_round` increments; round score resets; 2 cards drawn via `deal_opening_hand` (new round) |
+| R2 | After R1, play both hand cards | — | Hand empty; if ghosts remain, wait; deck empty → run can end after ghosts waived or played |
+| R3 | After R2, ghosts still in GY, deck empty | Press B | Remaining round score (if any) commits; run ends with correct `final_score` |
+| R4 | Empty hand, ghosts, empty deck | Press B during score-count FX | Round commits after FX finishes; total correct |
+| R5 | Empty hand, ghosts, empty deck | Press B | `total_score` increases by `round.committed()` before `run_finished` |
+| R6 | Empty hand, no ghosts, deck empty | Play last card | Auto round end + commit without B |
+| R7 | Finale active, empty hand | Press B | Run ends **without** round commit (existing finale rule) |
+| R8 | Turtle active, empty hand + ghosts | Press B | No commit; turtle preserved |

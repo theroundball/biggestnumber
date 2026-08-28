@@ -13,7 +13,11 @@
 #include "scoring.h"
 
 #include "campaign_types.h"
+#include "game_types.h"
 #include "trinket_system.h"
+
+#include "bn_sprite_items_hud_deck.h"
+#include "bn_sprite_items_hud_graveyard.h"
 
 namespace
 {
@@ -40,9 +44,10 @@ namespace
     constexpr int MOD_DRAW_COLUMN_WIDTH = 44;
     constexpr int MOD_SEGMENT_GAP = 6;
     constexpr int TRINKET_X = TOMB_X;
-    constexpr int RAIL_Y0 = DECK_Y + HUD_ICON_HALF + HUD_ROW_GAP + HUD_ICON_HALF;
+    constexpr int TRINKET_ROW_SPACING = game_layout::TRINKET_ROW_STEP;
+    constexpr int TRINKET_ROW_Y0 = game_layout::TRINKET_ROW_Y0;
+    constexpr int RAIL_Y0 = TRINKET_ROW_Y0;
     constexpr int RAIL_ROW_SPACING = 6 + HUD_ROW_GAP;
-    constexpr int TRINKET_ROW_SPACING = HUD_ICON_HALF * 2 + HUD_ROW_GAP;
 
     constexpr bn::fixed MOD_TEXT_SCALE = bn::fixed(3) / 4;
     constexpr bn::fixed MOD_EMPHASIZED_TEXT_SCALE = bn::fixed(1);
@@ -67,12 +72,14 @@ namespace
 
     bool modifier_is_empty(const RoundModifier& modifier)
     {
-        return modifier.positive == 0 && modifier.multiply == 0 && modifier.draw_at_start == 0;
+        return modifier.positive == 0 && modifier.multiply == 0 && modifier.draw_at_start == 0 &&
+               modifier.opening_draw_count == 0;
     }
 
     bool modifier_equals(const RoundModifier& a, const RoundModifier& b)
     {
-        return a.positive == b.positive && a.multiply == b.multiply && a.draw_at_start == b.draw_at_start;
+        return a.positive == b.positive && a.multiply == b.multiply && a.draw_at_start == b.draw_at_start &&
+               a.opening_draw_count == b.opening_draw_count;
     }
 
     // GBA BPP_4 palettes hold exactly 16 colors — indices match ui_palette::shared().
@@ -125,8 +132,17 @@ namespace
 
 const bn::sprite_item* PersistentHud::HudIcon::sprite_item_for(IconKind kind)
 {
-    (void)kind;
-    return nullptr;
+    switch(kind)
+    {
+    case IconKind::DECK_STACK:
+        return &bn::sprite_items::hud_deck;
+
+    case IconKind::TOMBSTONE:
+        return &bn::sprite_items::hud_graveyard;
+
+    default:
+        return nullptr;
+    }
 }
 
 int PersistentHud::HudIcon::solid_color_index(IconKind kind)
@@ -188,6 +204,13 @@ PersistentHud::HudIcon::HudIcon(IconKind kind, bool compact) :
 void PersistentHud::HudIcon::apply_kind(IconKind kind)
 {
     _kind = kind;
+
+    if(const bn::sprite_item* item = sprite_item_for(kind))
+    {
+        _sprite.set_item(*item);
+        return;
+    }
+
     _sprite.set_tiles(_tiles);
     _sprite.set_palette(_palette);
     paint(kind);
@@ -369,17 +392,20 @@ void PersistentHud::HudModLine::redraw()
         draw_x = mul_x + MOD_MULTIPLY_COLUMN_WIDTH + MOD_SEGMENT_GAP;
     }
 
-    if(_last_modifier.draw_at_start)
+    if(_last_modifier.has_opening_draw_override() || _last_modifier.draw_at_start)
     {
+        const int draw_shown = _last_modifier.has_opening_draw_override()
+                                   ? _last_modifier.effective_opening_draw() + _last_modifier.draw_at_start
+                                   : _last_modifier.draw_at_start;
         segment = "draw ";
-        segment.append(bn::to_string<8>(_last_modifier.draw_at_start));
+        segment.append(bn::to_string<8>(draw_shown));
         append_segment_at(draw_x, segment, MOD_EMPHASIZED_TEXT_SCALE);
         draw_x += MOD_DRAW_COLUMN_WIDTH + MOD_SEGMENT_GAP;
     }
 
     if(_keep_going > 0)
     {
-        segment = "keep";
+        segment = "rise";
 
         if(_keep_going > 1)
         {
@@ -467,9 +493,9 @@ PersistentHud::PersistentHud(bn::sprite_text_generator& count_text_generator,
     _deck_icon(IconKind::DECK_STACK),
     _tomb_icon(IconKind::TOMBSTONE),
     _trinket_icons{
-        HudIcon(IconKind::TRINKET_MOREL),
-        HudIcon(IconKind::TRINKET_LUCKY_SEVENS),
-        HudIcon(IconKind::TRINKET_PRIME_TIME),
+        HudIcon(IconKind::TRINKET_MOREL, true),
+        HudIcon(IconKind::TRINKET_LUCKY_SEVENS, true),
+        HudIcon(IconKind::TRINKET_PRIME_TIME, true),
     },
     _deck_count(count_text_generator),
     _grave_count(count_text_generator),
@@ -503,7 +529,7 @@ PersistentHud::PersistentHud(bn::sprite_text_generator& count_text_generator,
     for(int slot = 0; slot < 3; ++slot)
     {
         const int mod_row_y = RAIL_Y0 + slot * RAIL_ROW_SPACING;
-        const int trinket_row_y = RAIL_Y0 + slot * TRINKET_ROW_SPACING;
+        const int trinket_row_y = TRINKET_ROW_Y0 + slot * TRINKET_ROW_SPACING;
         _future_mod_lines[slot].set_position(MOD_TEXT_X, mod_row_y);
         _turtle_row_icons[slot].set_position(MOD_TURTLE_ICON_X, mod_row_y);
         _turtle_row_icons[slot].set_visible(false);
@@ -565,9 +591,9 @@ void PersistentHud::update_modifier_rows(const GameState& state,
     }
 }
 
-void PersistentHud::update(const GameState& state)
+void PersistentHud::update(const GameState& state, int deck_display_count)
 {
-    _deck_count.set_value(state.deck.remaining());
+    _deck_count.set_value(deck_display_count);
     _grave_count.set_value(state.graveyard.size());
 
     for(int slot = 0; slot < 3; ++slot)
@@ -609,7 +635,7 @@ void PersistentHud::update(const GameState& state)
         }
 
         _trinket_icons[slot].set_kind(kind);
-        _trinket_base_y[slot] = RAIL_Y0 + slot * TRINKET_ROW_SPACING;
+        _trinket_base_y[slot] = TRINKET_ROW_Y0 + slot * TRINKET_ROW_SPACING;
     }
 
     _climb_pip.set_visible(false);

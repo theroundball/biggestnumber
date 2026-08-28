@@ -16,6 +16,21 @@
 
 namespace
 {
+    void purge_pending_overclock_discard_prompts(GameState& state)
+    {
+        for(int index = 0; index < state.pending_actions.size(); )
+        {
+            if(state.pending_actions[index].type == PendingActionType::OVERCLOCK_DISCARD_PROMPT)
+            {
+                state.pending_actions.erase(state.pending_actions.begin() + index);
+            }
+            else
+            {
+                ++index;
+            }
+        }
+    }
+
     bool side_panel_escape_pressed()
     {
         return bn::keypad::a_pressed() || bn::keypad::b_pressed();
@@ -37,6 +52,31 @@ namespace
         else if(cursor > max_index)
         {
             cursor = max_index;
+        }
+    }
+
+    void nudge_build_digit_cursor(int& cursor, int direction, int steps, const GameState& state)
+    {
+        if(direction == 0 || steps <= 0)
+        {
+            return;
+        }
+
+        for(int step = 0; step < steps; ++step)
+        {
+            int next = cursor + direction;
+
+            while(next >= 0 && next < 3 && state.build_digits[next] >= 0)
+            {
+                next += direction;
+            }
+
+            if(next < 0 || next >= 3 || state.build_digits[next] >= 0)
+            {
+                return;
+            }
+
+            cursor = next;
         }
     }
 }
@@ -149,7 +189,7 @@ void GameContext::handle_input()
     }
     else if(!panel_transition_active() && side_panel != SidePanel::NONE)
     {
-        handle_input_side_panel(current_direction, direction_triggered, direction_steps, row_scrolling);
+        handle_input_side_panel(current_direction, direction_triggered, direction_steps);
     }
     else if(handle_input_presentation())
     {
@@ -227,7 +267,7 @@ void GameContext::handle_input_inspect_toggle()
 }
 
 void GameContext::handle_input_side_panel(int current_direction, bool direction_triggered,
-                                          int direction_steps, bool row_scrolling)
+                                          int direction_steps)
 {
     if(bn::keypad::l_pressed())
     {
@@ -262,7 +302,7 @@ void GameContext::handle_input_side_panel(int current_direction, bool direction_
     }
 
     if((side_panel == SidePanel::GRAVEYARD || side_panel == SidePanel::EXILE) &&
-       mode == GameMode::NORMAL && !game_over && !row_scrolling && direction_triggered)
+       mode == GameMode::NORMAL && !game_over && direction_triggered)
     {
         const bn::span<const CardRef> cards = active_browse_cards();
 
@@ -270,6 +310,7 @@ void GameContext::handle_input_side_panel(int current_direction, bool direction_
         {
             nudge_cursor(browse_cursor, current_direction, direction_steps, 0, cards.size() - 1);
             sync_target_row_scroll(browse_cursor, cards.size());
+            snap_row_scroll(game_layout::GRAVE_SPACING);
         }
     }
 }
@@ -290,7 +331,14 @@ bool GameContext::handle_input_presentation()
             complete_graveyard_card_fx();
         }
 
-        return true;
+        if(!graveyard_exile_spam_select())
+        {
+            return true;
+        }
+    }
+    else
+    {
+        try_start_graveyard_exile_fx();
     }
 
     if(removing_card)
@@ -435,7 +483,7 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
 {
     const int slot_count = playable_slot_count(state);
     const bool live_selected = selected_card >= 0 && selected_card < state.hand.size();
-    const bool flashback_selected = playable_slot_is_flashback(state, selected_card);
+    const bool ghost_selected = playable_slot_is_ghost(state, selected_card);
     const bool combine_selected = playable_slot_is_combine_offer(state, selected_card);
     const bool lock_for_scroll = scrolling && !removing_card;
 
@@ -471,8 +519,15 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
     }
     else if(!game_over && !scrolling && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() &&
-            state.hand.empty() && combo_ready_count(state) > 0 && bn::keypad::b_pressed())
+            state.finale_active && bn::keypad::b_pressed())
     {
+        finish_finale_run();
+    }
+    else if(!game_over && !scrolling && !inspecting &&
+            side_panel == SidePanel::NONE && !panel_transition_active() &&
+            state.hand.empty() && has_optional_ghost_plays(state) && bn::keypad::b_pressed())
+    {
+        state.waive_optional_ghost_plays = true;
         skip_pending_combine = true;
         finish_empty_hand_round();
     }
@@ -508,13 +563,6 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
         }
 
         update_target_scroll();
-    }
-    else if(!game_over && !scrolling && !inspecting &&
-            side_panel == SidePanel::NONE && !panel_transition_active() &&
-            state.hand.empty() && combo_ready_count(state) > 0 && bn::keypad::b_pressed())
-    {
-        skip_pending_combine = true;
-        finish_empty_hand_round();
     }
     else if(!game_over && !lock_for_scroll && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() && live_selected &&
@@ -555,7 +603,7 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
             try_start_pending_combo();
             update_target_scroll();
         }
-        else if(flashback_selected)
+        else if(ghost_selected)
         {
             if(removing_card && !play_can_overlap())
             {
@@ -572,7 +620,7 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
 
             capture_removal_start();
             PlayResolutionContext context;
-            context.source = PlaySource::FLASHBACK;
+            context.source = PlaySource::GHOST;
             context.hand_index = gy_index;
             context.selected_card = &selected_card;
             context.apply_destination = false;
@@ -585,7 +633,8 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
                 removal_start_y,
                 PlayPresentOrigin::GRAVEYARD, context, RemovalStyle::EXILE_DISSIPATE);
         }
-        else if(swivel_is_waiting(*this) && live_selected)
+        else if(swivel_is_waiting(*this) && live_selected &&
+                state.hand[selected_card].type != CardType::SWIVEL)
         {
             if(removing_card)
             {
@@ -666,6 +715,7 @@ void GameContext::handle_input_discard_target(int current_direction, bool direct
             state.selection.type == PendingActionType::OVERCLOCK_DISCARD_PROMPT &&
             bn::keypad::b_pressed())
     {
+        purge_pending_overclock_discard_prompts(state);
         begin_next_pending_or_finish();
     }
     else if(!scrolling && !inspecting && state.hand.size() &&
@@ -716,8 +766,11 @@ void GameContext::handle_input_graveyard_target(int current_direction, bool dire
         return;
     }
 
+    const bool rags_spam = graveyard_exile_spam_select();
+    const bool gy_fx_blocks_input = graveyard_card_fx_active && !rags_spam;
+
     // --- GRAVEYARD_TARGET: pick a graveyard card to return to hand (Up) ---
-    if(!row_scrolling && !graveyard_card_fx_active && direction_triggered && current_direction != 0)
+    if(!row_scrolling && !gy_fx_blocks_input && direction_triggered && current_direction != 0)
     {
         for(int step = 0; step < direction_steps; ++step)
         {
@@ -743,9 +796,10 @@ void GameContext::handle_input_graveyard_target(int current_direction, bool dire
             draw_round_score();
         }
 
+        clear_graveyard_exile_fx();
         begin_next_pending_or_finish();
     }
-    else if(!inspecting && !graveyard_card_fx_active &&
+    else if(!inspecting && !gy_fx_blocks_input &&
             !state.graveyard.empty() && confirm_pressed())
     {
         state.selection.cursor = clamp_graveyard_cursor(state.selection.cursor, state.graveyard.size());
@@ -758,7 +812,7 @@ void GameContext::handle_input_graveyard_target(int current_direction, bool dire
         }
         else if(state.selection.type == PendingActionType::EXILE_GRAVEYARD_MULTIPLY_BY_COUNT)
         {
-            begin_graveyard_card_fx(GraveyardExilePickKind::MULTIPLY_BY_COUNT);
+            confirm_graveyard_multiply_exile_pick();
         }
         else if(state.selection.type == PendingActionType::EXILE_FROM_GRAVEYARD_THEN_MULTIPLY)
         {
@@ -880,13 +934,32 @@ void GameContext::handle_input_graveyard_pick(int current_direction, bool direct
     // --- GRAVEYARD_PICK: pick up to N graveyard cards, in order, to the bottom of the deck ---
     if(!row_scrolling && direction_triggered)
     {
-        nudge_cursor(state.selection.cursor, current_direction, direction_steps, 0,
-                     state.graveyard.size() - 1);
+        if(state.selection.graveyard_exclude != CardType::COUNT)
+        {
+            for(int step = 0; step < direction_steps; ++step)
+            {
+                state.selection.cursor = advance_graveyard_cursor(
+                    state, state.selection.cursor, current_direction, state.selection.graveyard_exclude);
+            }
+        }
+        else
+        {
+            nudge_cursor(state.selection.cursor, current_direction, direction_steps, 0,
+                         state.graveyard.size() - 1);
+        }
+
         sync_target_row_scroll(state.selection.cursor, state.graveyard.size());
     }
     else if(!inspecting && !state.graveyard.empty() && confirm_pressed())
     {
+        state.selection.cursor = clamp_graveyard_cursor(state.selection.cursor, state.graveyard.size());
         const CardRef picked = state.graveyard[state.selection.cursor];
+
+        if(picked.type == state.selection.graveyard_exclude)
+        {
+            return;
+        }
+
         graveyard_remove_at(state, state.selection.cursor);
         state.selection.picked_ordered.push_back(picked);
         --state.selection.remaining_picks;
@@ -900,6 +973,12 @@ void GameContext::handle_input_graveyard_pick(int current_direction, bool direct
 
         if(state.selection.remaining_picks > 0 && !state.graveyard.empty())
         {
+            if(state.selection.graveyard_exclude != CardType::COUNT)
+            {
+                state.selection.cursor =
+                    initial_graveyard_cursor(state, state.selection.graveyard_exclude);
+            }
+
             if(try_start_pending_combo())
             {
                 return;
@@ -1016,19 +1095,33 @@ void GameContext::handle_input_build_number_digit(int current_direction, bool di
 {
     if(!scrolling && direction_triggered)
     {
-        nudge_cursor(state.selection.cursor, current_direction, direction_steps, 0, 2);
+        nudge_build_digit_cursor(state.selection.cursor, current_direction, direction_steps, state);
+        draw_round_score();
     }
     else if(!scrolling && !inspecting && confirm_pressed())
     {
         const int digit = state.selection.multiply_factor;
+        const int slot = state.selection.cursor;
 
-        if(digit >= 1 && digit <= 9)
+        if(digit >= 1 && digit <= 9 && slot >= 0 && slot < 3 && state.build_digits[slot] < 0)
         {
-            state.build_digits[state.selection.cursor] = digit;
+            state.build_digits[slot] = digit;
 
             if(state.build_a_number_all_digits_filled())
             {
                 state.build_a_number_complete_payout();
+                draw_round_score();
+                begin_next_pending_or_finish();
+                return;
+            }
+
+            for(int index = slot + 1; index < 3; ++index)
+            {
+                if(state.build_digits[index] < 0)
+                {
+                    state.selection.cursor = index;
+                    break;
+                }
             }
 
             draw_round_score();

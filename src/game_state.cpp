@@ -125,41 +125,97 @@ void GameState::flush_staircase_climb()
     staircase_flush_climb(*this);
 }
 
-void GameState::evaluate_apply_next_slot_multiply()
+void GameState::evaluate_apply_ui_slot(int ui_slot_offset, bool clear_after)
 {
-    RoundModifier& slot = mod_next();
-
-    if(slot.multiply <= 1)
+    if(ui_slot_offset < 0 || ui_slot_offset >= 3)
     {
         return;
     }
 
-    apply_seed_multiply(slot.multiply);
-    slot.multiply = 0;
+    const int slot_index = (next_mod_index + ui_slot_offset) % 3;
+    RoundModifier& mod = future_mods[slot_index];
+
+    if(mod.positive)
+    {
+        add_from_card(mod.positive);
+
+        if(clear_after)
+        {
+            mod.positive = 0;
+        }
+    }
+
+    if(mod.multiply)
+    {
+        apply_seed_multiply(mod.multiply);
+
+        if(clear_after)
+        {
+            mod.multiply = 0;
+        }
+    }
+
+    if(mod.draw_at_start)
+    {
+        queue_effect_draw(*this, mod.draw_at_start, false);
+
+        if(clear_after)
+        {
+            mod.draw_at_start = 0;
+        }
+    }
 }
 
-void GameState::evaluate_apply_all_future_multipliers()
+void GameState::evaluate_apply_future_modifiers(bool clear_after)
 {
-    for(int index = 0; index < 3; ++index)
-    {
-        RoundModifier& slot = future_mods[index];
+    evaluate_apply_ui_slot(0, clear_after);
+}
 
-        if(slot.multiply <= 1)
+void GameState::queue_evaluate_ghost_steps()
+{
+    for(int ui_slot = 0; ui_slot < 3; ++ui_slot)
+    {
+        const int slot_index = (next_mod_index + ui_slot) % 3;
+        const RoundModifier& mod = future_mods[slot_index];
+
+        if(mod.positive)
         {
-            continue;
+            PendingAction action;
+            action.type = PendingActionType::EVALUATE_GHOST_STEP;
+            action.count = ui_slot;
+            action.hand_index = 0;
+            pending_actions.push_back(action);
         }
 
-        apply_seed_multiply(slot.multiply);
-        slot.multiply = 0;
+        if(mod.multiply)
+        {
+            PendingAction action;
+            action.type = PendingActionType::EVALUATE_GHOST_STEP;
+            action.count = ui_slot;
+            action.hand_index = 1;
+            pending_actions.push_back(action);
+        }
+
+        if(mod.draw_at_start)
+        {
+            PendingAction action;
+            action.type = PendingActionType::EVALUATE_GHOST_STEP;
+            action.count = ui_slot;
+            action.hand_index = 2;
+            pending_actions.push_back(action);
+        }
+
+        PendingAction clear_row;
+        clear_row.type = PendingActionType::EVALUATE_GHOST_STEP;
+        clear_row.count = ui_slot;
+        clear_row.hand_index = 3;
+        pending_actions.push_back(clear_row);
     }
 
-    if(turtle_rounds_remaining > 0)
-    {
-        turtle_rounds_remaining = 0;
-        const int before = total_score;
-        commit_round();
-        trinket_queue_score_check(*this, TrinketScoreField::TOTAL, before, total_score);
-    }
+    PendingAction finish;
+    finish.type = PendingActionType::EVALUATE_GHOST_STEP;
+    finish.hand_index = 4;
+    pending_actions.push_back(finish);
 }
 
 void GameState::build_a_number_activate()
@@ -250,11 +306,8 @@ void GameState::schedule_keep_going()
     for(int offset = 0; offset < 3; ++offset)
     {
         uint8_t& returns = keep_going_returns[(next_mod_index + offset) % 3];
-
-        if(returns < 255)
-        {
-            ++returns;
-        }
+        const int next = int(returns) + DEAD_RISING_GY_RETURNS_PER_ROUND;
+        returns = next > 255 ? 255 : uint8_t(next);
     }
 }
 

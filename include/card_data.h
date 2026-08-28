@@ -34,8 +34,8 @@ struct CardData
     bool defer_graveyard_until_pending = false;   // e.g. Clover: exile picks before this hits GY
     bool exiles_self_on_play = false;             // e.g. Necromancy: leaves the game on play
     bool has_cycle = false;
-    bool has_flashback = false;
-    int flashback_plus = 0;
+    bool has_ghost = false;
+    int ghost_plus = 0;
     // Renders a shared blank frame plus on-card name/stat text instead of card art.
     bool text_only = false;
 };
@@ -45,10 +45,11 @@ const CardData& card_data(CardType type);
 
 int count_unique_graveyard_types(const GameState& state);
 
-// Lifeline reclaim: merge entire graveyard into deck (including Lifeline if already
-// routed there), shuffle, exile 5 undrawn cards from deck bottom.
-constexpr int LIFELINE_EXILE_COUNT = 3;
+// Lifeline ghost play exiles this many cards from the top of the deck after shuffling.
+constexpr int LIFELINE_GHOST_EXILE_COUNT = 3;
 
-void reclaim_graveyard_into_deck(GameState& state);
+int count_lifeline_pickable_graveyard(const GameState& state);
+void shuffle_graveyard_into_deck(GameState& state, CardType exclude = CardType::COUNT);
+void lifeline_ghost_play(GameState& state);
 
 #endif

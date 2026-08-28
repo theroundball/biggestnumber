@@ -11,6 +11,7 @@
 #include "bn_sprite_affine_mat_ptr.h"
 #include "bn_sprite_palette_item.h"
 #include "bn_sprite_palette_ptr.h"
+#include "bn_sprite_items_hud_deck.h"
 
 #include "card_data.h"
 #include "campaign_types.h"
@@ -24,6 +25,7 @@
 #include "scoring.h"
 #include "save_data.h"
 #include "score_count_system.h"
+#include "score_pop_system.h"
 #include "score_swap_system.h"
 #include "swivel_system.h"
 #include "trinket_system.h"
@@ -112,9 +114,9 @@ namespace
 
         if(style == RemovalStyle::TO_DECK_TOP)
         {
-            if(context.selected_card)
+            if(context.hand_index >= 0 && context.hand_index < state.hand.size() && context.selected_card)
             {
-                finish_played_card_from_hand(*context.selected_card, state);
+                finish_played_card_from_hand(context.hand_index, *context.selected_card, state);
             }
         }
         else
@@ -156,6 +158,7 @@ GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const Battle
     },
     x_marker(),
     swap_lock_marker(GameMarker::Style::LOCK),
+    library_marker(bn::sprite_items::hud_deck.create_sprite(0, 0)),
     grave_exclude_markers{
         GameMarker(),
         GameMarker(),
@@ -167,17 +170,20 @@ GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const Battle
     },
     text_generator(fixed_32x64_sprite_font),
     round_text_generator(common::variable_8x16_sprite_font),
-    combo_pip_text_generator(common::variable_8x8_sprite_font),
     inspect_text_generator(common::variable_8x8_sprite_font),
     hud_count_generator(common::variable_8x8_sprite_font),
     hud_mod_generator(common::variable_8x8_sprite_font),
     details_text_generator(common::variable_8x16_sprite_font),
     hud(hud_count_generator, hud_mod_generator)
 {
+    library_marker.set_visible(false);
+    library_marker.set_z_order(game_layout::CARD_FACE_TEXT_Z);
+    library_marker.set_bg_priority(0);
     state.trinkets = launch.trinkets;
     state.echo_ready = state.has_trinket(TrinketType::ECHO);
     battle_stats_reset(state);
     state.instance_pool = launch.instance_pool;
+    deck.ensure_unique_bounty_instances(state.instance_pool, state.bounty_next_id);
     campaign_ui = launch.campaign_ui;
 
     switch(campaign_ui.mode)
@@ -206,6 +212,8 @@ GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const Battle
     {
         score_to_beat = launch.score_to_beat;
     }
+
+    combo_init_progress_availability(state);
 
     for(Card& card : grave_row_display)
     {
@@ -242,7 +250,7 @@ GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const Battle
     try_start_hand_draw_fx();
     draw_total_score();
     draw_round_score();
-    hud.update(state);
+    hud.update(state, deck_hud_display_count(state, hand_draw_fx_active));
     bn::blending::set_transparency_alpha(game_layout::EDGE_FADE_ALPHA);
     update_target_scroll();
     process_instant_pending();
@@ -372,19 +380,6 @@ bool GameContext::score_progress_visible() const
     return score_progress_goal() > 0;
 }
 
-bool GameContext::bounty_progress_visible() const
-{
-    for(const CardRef& card : state.graveyard)
-    {
-        if(card.type == CardType::BOUNTY)
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 void GameContext::sync_score_progress_bar()
 {
     const int goal = score_progress_goal();
@@ -404,84 +399,54 @@ void GameContext::sync_score_progress_bar()
     score_progress_bar.sync(display_total, display_round, goal);
 }
 
-void GameContext::sync_combo_pips()
+void GameContext::sync_combo_progress_bars()
 {
-    bn::vector<ComboPipLine, 3> lines;
-    combo_staging_collect_pip_lines(state, lines);
+    bn::array<ComboBarState, game_layout::COMBO_BAR_ROW_COUNT> states{};
+    combo_collect_bar_states(state, states);
 
-    bn::string<72> cache_key;
+    bn::array<uint8_t, game_layout::COMBO_BAR_ROW_COUNT> lengths{};
+    bn::array<uint8_t, game_layout::COMBO_BAR_ROW_COUNT> filled{};
 
-    for(int index = 0; index < lines.size(); ++index)
+    for(int row_index = 0; row_index < game_layout::COMBO_BAR_ROW_COUNT; ++row_index)
     {
-        if(index > 0)
-        {
-            cache_key.append('|');
-        }
-
-        cache_key.append(lines[index].text);
+        lengths[row_index] = states[row_index].length;
+        filled[row_index] = states[row_index].filled;
     }
 
-    if(_combo_pip_initialized && cache_key == _cached_combo_pip_text)
-    {
-        return;
-    }
-
-    _combo_pip_initialized = true;
-    _cached_combo_pip_text = cache_key;
-    combo_pip_sprites.clear();
-    last_combo_pip_sprite_offset = 0;
-
-    if(lines.empty())
-    {
-        return;
-    }
-
-    combo_pip_text_generator.set_center_alignment();
-
-    constexpr int FIRST_Y = 12;
-    constexpr int LINE_STEP = 8;
-
-    for(int index = 0; index < lines.size(); ++index)
-    {
-        combo_pip_text_generator.generate(0, FIRST_Y + index * LINE_STEP, lines[index].text,
-                                          combo_pip_sprites);
-    }
-
-    combo_pip_text_generator.set_left_alignment();
+    combo_progress_bars.sync(lengths, filled);
 }
 
-void GameContext::sync_bounty_progress_bar()
+bool GameContext::should_end_run() const
 {
-    bool bounty_in_graveyard = false;
-
-    for(const CardRef& card : state.graveyard)
+    if(round_end_pending)
     {
-        if(card.type == CardType::BOUNTY)
-        {
-            bounty_in_graveyard = true;
-            break;
-        }
+        return false;
     }
 
-    if(!bounty_in_graveyard)
+    return run_should_end(state, hand_draw_fx_active);
+}
+
+void GameContext::end_run_if_needed()
+{
+    if(!should_end_run())
     {
-        bounty_progress_bar.sync(0);
         return;
     }
 
-    int progress = state.round.running - state.bounty_return_anchor;
+    // Round-finish pipeline commits before this. If round.running is still
+    // non-zero here (and turtle/finale are off), the commit was skipped.
+    game_over = true;
+    run_finished = true;
+    scene_result.final_score = state.total_score;
+}
 
-    if(progress < 0)
-    {
-        progress = 0;
-    }
-
-    if(progress > 10)
-    {
-        progress = 10;
-    }
-
-    bounty_progress_bar.sync(progress);
+void GameContext::finish_finale_run()
+{
+    state.finale_active = false;
+    state.round.reset();
+    game_over = true;
+    run_finished = true;
+    scene_result.final_score = state.total_score;
 }
 
 // Redraws the current round's running score formula.
@@ -501,6 +466,12 @@ void GameContext::draw_round_score()
 
     if(score_count_is_active(*this, TrinketScoreField::ROUND))
     {
+        return;
+    }
+
+    if(state.build_a_number_active)
+    {
+        show_round_score_running(state.round.running, state.round.end_multiplier);
         return;
     }
 
@@ -541,6 +512,13 @@ void GameContext::show_round_score_running(int running, int end_multiplier)
             if(state.build_digits[index] >= 0)
             {
                 builder_text.append(bn::to_string<1>(state.build_digits[index]));
+            }
+            else if(mode == GameMode::BUILD_NUMBER_DIGIT && state.selection.cursor == index &&
+                    state.selection.multiply_factor >= 1 && state.selection.multiply_factor <= 9)
+            {
+                builder_text.append('[');
+                builder_text.append(bn::to_string<1>(state.selection.multiply_factor));
+                builder_text.append(']');
             }
             else
             {
@@ -832,7 +810,10 @@ void GameContext::reset_card_animation_state()
     graveyard_card_fx_active = false;
     graveyard_card_fx_frame = 0;
     graveyard_card_fx_kind = GraveyardExilePickKind::NONE;
+    graveyard_card_fx_state_applied = false;
     graveyard_card_fx_instance_id = NO_INSTANCE;
+    pending_graveyard_exile_fx.clear();
+    rags_exile_deferred_finish = false;
     deck_search_resolve_fx.active = false;
     deck_search_resolve_fx.frame = 0;
     for(int& offset : card_raise_offset)
@@ -1028,7 +1009,7 @@ bool GameContext::play_hides_hand_index(int hand_index) const
 {
     for(const PlayFlight& flight : play_flights)
     {
-        if(!flight.active || flight.hand_committed || !flight.center_beat)
+        if(!flight.active || flight.hand_committed || flight.play_resolved || !flight.center_beat)
         {
             continue;
         }
@@ -1045,7 +1026,7 @@ bool GameContext::play_hides_hand_index(int hand_index) const
 
 bool GameContext::play_hides_graveyard_visual(int visual_index) const
 {
-    if(!playable_slot_is_flashback(state, visual_index))
+    if(!playable_slot_is_ghost(state, visual_index))
     {
         return false;
     }
@@ -1161,6 +1142,34 @@ void GameContext::begin_direct_removal(int start_x, int start_y, RemovalStyle st
     flight->cycle_exile = cycle_exile;
     flight->cycle_draw = cycle_exile;
 
+    if(is_discard && selected_card >= 0 && selected_card < state.hand.size())
+    {
+        flight->played_ref = state.hand[selected_card];
+        flight->origin = PlayPresentOrigin::HAND;
+        flight->play_context = PlayResolutionContext{};
+        flight->play_context.source = PlaySource::HAND;
+        flight->play_context.hand_index = selected_card;
+        flight->play_context.selected_card = &selected_card;
+        flight->scoring_source = PlaySource::HAND;
+
+        flight->fx_card.set_type(flight->played_ref.type);
+
+        if(flight->played_ref.has_instance())
+        {
+            flight->fx_card.set_upgrade_pips(
+                &hud_count_generator, instance_at(state.instance_pool, flight->played_ref.instance_id));
+        }
+        else
+        {
+            flight->fx_card.clear_upgrade_pips();
+        }
+
+        const int removed_index = selected_card;
+        discard_card(state, selected_card);
+        shift_card_raise_after_remove(removed_index);
+        flight->hand_committed = true;
+    }
+
     if(!is_discard && selected_card >= 0 && selected_card < state.hand.size())
     {
         flight->played_ref = state.hand[selected_card];
@@ -1228,6 +1237,19 @@ void GameContext::begin_play_presentation(CardRef card, int start_x, int start_y
 
     removal_start_x = start_x;
     removal_start_y = start_y;
+    bind_bounty_copy(state, card);
+
+    if(origin == PlayPresentOrigin::HAND && context.hand_index >= 0 &&
+       context.hand_index < state.hand.size())
+    {
+        state.hand[context.hand_index].bounty_id = card.bounty_id;
+    }
+    else if(origin == PlayPresentOrigin::GRAVEYARD && context.hand_index >= 0 &&
+            context.hand_index < state.graveyard.size())
+    {
+        state.graveyard[context.hand_index].bounty_id = card.bounty_id;
+    }
+
     flight->played_ref = card;
     flight->play_context = context;
     flight->origin = origin;
@@ -1572,28 +1594,46 @@ void GameContext::resolve_play_flight_effects(PlayFlight& flight)
     if(flight.is_discard)
     {
         const int discard_index = flight.hand_index >= 0 ? flight.hand_index : selected_card;
-        selected_card = discard_index;
-        discard_card(state, selected_card);
+        bool discarded = flight.hand_committed;
+
+        if(!discarded && discard_index >= 0 && discard_index < state.hand.size())
+        {
+            flight.played_ref = state.hand[discard_index];
+            selected_card = discard_index;
+            discard_card(state, selected_card);
+            shift_card_raise_after_remove(discard_index);
+            discarded = true;
+            flight.hand_committed = true;
+        }
+
         draw_round_score();
 
         if(state.selection.type == PendingActionType::DISCARD_FROM_HAND_THEN_MULTIPLY)
         {
-            state.mul_from_card(state.selection.multiply_factor);
-            draw_round_score();
+            if(discarded)
+            {
+                state.mul_from_card(state.selection.multiply_factor);
+                draw_round_score();
+            }
         }
         else if(state.selection.type == PendingActionType::OVERCLOCK_DISCARD_PROMPT)
         {
-            state.mul_from_card(state.selection.multiply_factor);
-            draw_round_score();
-
-            if(!state.hand.empty())
+            if(discarded)
             {
-                PendingAction next;
-                next.type = PendingActionType::OVERCLOCK_DISCARD_PROMPT;
-                next.count = state.selection.multiply_factor + 1;
-                state.pending_actions.push_back(next);
+                state.mul_from_card(state.selection.multiply_factor);
+                draw_round_score();
+
+                if(!state.hand.empty())
+                {
+                    PendingAction next;
+                    next.type = PendingActionType::OVERCLOCK_DISCARD_PROMPT;
+                    next.count = state.selection.multiply_factor + 1;
+                    state.pending_actions.push_back(next);
+                }
             }
         }
+
+        flight.play_resolved = true;
     }
     else if(flight.is_miracle_bonus)
     {
@@ -1613,9 +1653,7 @@ void GameContext::resolve_play_flight_effects(PlayFlight& flight)
         flight.mill_reveal_round_before = state.round.running;
         flight.mill_reveal_total_before = state.total_score;
         apply_card_relocated_from_play(state, flight.played_ref.type, flight.play_context.source);
-        state.swivel_waiting = flight.swivel_follow;
         apply_card_play(state, flight.played_ref, flight.scoring_source);
-        state.swivel_waiting = false;
         build_a_number_try_queue_digit_placement(state, flight.played_ref, flight.scoring_source);
         draw_round_score();
     }
@@ -1654,7 +1692,7 @@ void GameContext::commit_play_flight_destination(PlayFlight& flight)
     }
 
     if(flight.origin != PlayPresentOrigin::GRAVEYARD &&
-       flight.play_context.source != PlaySource::FLASHBACK)
+       flight.play_context.source != PlaySource::GHOST)
     {
         return;
     }
@@ -1771,7 +1809,7 @@ void GameContext::complete_play_flight(PlayFlight& flight)
         }
     }
 
-    if(discard_resolved)
+    if(discard_resolved && !flight.hand_committed)
     {
         shift_card_raise_after_remove(discard_index >= 0 ? discard_index : selected_card);
     }
@@ -1800,33 +1838,7 @@ void GameContext::complete_play_flight(PlayFlight& flight)
     if(pending_opening_hand_deal)
     {
         pending_opening_hand_deal = false;
-
-        while(state.hand.size() < 5 && state.deck.remaining() > 0)
-        {
-            CardRef card;
-
-            if(!deck.draw(card))
-            {
-                break;
-            }
-
-            hand_add_card(state, card, true);
-        }
-
-        for(int extra_draw = 0; extra_draw < state.round_start_extra_draws; ++extra_draw)
-        {
-            CardRef card;
-
-            if(!deck.draw(card))
-            {
-                break;
-            }
-
-            hand_add_card(state, card, true);
-        }
-
-        state.round_start_extra_draws = 0;
-        selected_card = 0;
+        continue_opening_hand_deal();
     }
 
     const int cycle_draws = pending_cycle_draws + (cycle_draw ? 1 : 0);
@@ -1904,7 +1916,7 @@ void GameContext::tick_one_play_flight(PlayFlight& flight)
             return;
         }
 
-        if(flight.hand_committed)
+        if(flight.hand_committed && !flight.is_discard)
         {
             complete_play_flight(flight);
             return;
@@ -1912,7 +1924,17 @@ void GameContext::tick_one_play_flight(PlayFlight& flight)
 
         if(flight.is_discard)
         {
-            resolve_play_flight_effects(flight);
+            if(!flight.play_resolved)
+            {
+                resolve_play_flight_effects(flight);
+            }
+
+            complete_play_flight(flight);
+            return;
+        }
+
+        if(flight.hand_committed)
+        {
             complete_play_flight(flight);
             return;
         }
@@ -1929,16 +1951,16 @@ void GameContext::tick_one_play_flight(PlayFlight& flight)
             flight.play_resolved = true;
         }
         else if(flight.style == RemovalStyle::TO_DECK_TOP && !flight.swivel_follow &&
-                selected_card >= 0 && selected_card < state.hand.size())
+                flight.hand_index >= 0 && flight.hand_index < state.hand.size())
         {
-            const int removed_index = flight.hand_index >= 0 ? flight.hand_index : selected_card;
+            const int removed_index = flight.hand_index;
 
             if(state.selection.type == PendingActionType::PUT_HAND_ON_DECK_TOP)
             {
-                apply_card_relocated(state, state.hand[selected_card].type);
+                apply_card_relocated(state, state.hand[removed_index].type);
             }
 
-            hand_remove_at_to_deck_top(state, selected_card, selected_card);
+            hand_remove_at_to_deck_top(state, removed_index, selected_card);
             shift_card_raise_after_remove(removed_index);
             flight.hand_committed = true;
             flight.play_resolved = true;
@@ -2058,20 +2080,33 @@ void GameContext::deal_opening_hand()
 {
     state.hand.clear();
     state.first_deck_draw_this_round = true;
+    opening_draw_attempts_remaining = state.round_start_seed.effective_opening_draw();
+    continue_opening_hand_deal();
+}
 
-    CardRef first;
-
-    if(deck.draw(first))
+void GameContext::continue_opening_hand_deal()
+{
+    while(opening_draw_attempts_remaining > 0 && deck.remaining() > 0)
     {
-        if(first.type == CardType::MIRACLE)
+        --opening_draw_attempts_remaining;
+        const bool first_attempt = state.first_deck_draw_this_round;
+        CardRef card;
+
+        if(!deck.draw(card))
         {
+            break;
+        }
+
+        if(first_attempt && card.type == CardType::MIRACLE)
+        {
+            state.first_deck_draw_this_round = false;
             const int main_x = main_panel_offset_x();
             PlayResolutionContext context;
             context.source = PlaySource::DECK_TOP;
             context.apply_destination = false;
             pending_opening_hand_deal = true;
             begin_play_presentation(
-                first,
+                card,
                 card_target_x_for_hud_icon(game_layout::HUD_DECK_X, main_x),
                 card_target_y_for_hud_icon(game_layout::HUD_DECK_Y),
                 PlayPresentOrigin::DECK,
@@ -2082,20 +2117,10 @@ void GameContext::deal_opening_hand()
             return;
         }
 
-        hand_add_card(state, first, true);
-    }
-
-    while(scheduled_hand_count() < 5 && deck.remaining() > 0)
-    {
-        CardRef card;
-
-        if(!deck.draw(card))
-        {
-            break;
-        }
-
         hand_add_card(state, card, true);
     }
+
+    opening_draw_attempts_remaining = 0;
 
     for(int extra_draw = 0; extra_draw < state.round_start_extra_draws; ++extra_draw)
     {
@@ -2144,6 +2169,7 @@ int GameContext::graveyard_card_fx_frame_count() const
     case GraveyardExilePickKind::TO_HAND:
     case GraveyardExilePickKind::TO_DECK_TOP:
     case GraveyardExilePickKind::SHUFFLE_TO_DECK:
+    case GraveyardExilePickKind::BIRDS_TO_DECK:
         return game_layout::ZONE_TRANSFER_FRAMES;
 
     case GraveyardExilePickKind::MULTIPLY_BY_COUNT:
@@ -2172,6 +2198,7 @@ void GameContext::begin_graveyard_card_fx(GraveyardExilePickKind pick_kind)
 
     graveyard_card_fx_active = true;
     graveyard_card_fx_frame = 0;
+    graveyard_card_fx_state_applied = false;
     graveyard_card_fx_start_x = start_x;
     graveyard_card_fx_start_y = start_y;
     const CardRef picked = state.graveyard[state.selection.cursor];
@@ -2200,6 +2227,129 @@ void GameContext::begin_graveyard_card_fx(GraveyardExilePickKind pick_kind)
     }
 }
 
+bool GameContext::graveyard_exile_spam_select() const
+{
+    return mode == GameMode::GRAVEYARD_TARGET &&
+           state.selection.type == PendingActionType::EXILE_GRAVEYARD_MULTIPLY_BY_COUNT;
+}
+
+void GameContext::clear_graveyard_exile_fx()
+{
+    pending_graveyard_exile_fx.clear();
+    rags_exile_deferred_finish = false;
+
+    if(graveyard_card_fx_active)
+    {
+        graveyard_card_fx_active = false;
+        graveyard_card_fx_frame = 0;
+        graveyard_card_fx_kind = GraveyardExilePickKind::NONE;
+        graveyard_card_fx_state_applied = false;
+        graveyard_card_fx_instance_id = NO_INSTANCE;
+        release_card_display_tiles(exclusive_fx_card());
+    }
+}
+
+void GameContext::try_start_graveyard_exile_fx()
+{
+    if(graveyard_card_fx_active || pending_graveyard_exile_fx.empty())
+    {
+        return;
+    }
+
+    const PendingGraveyardExileFx pending = pending_graveyard_exile_fx.front();
+    pending_graveyard_exile_fx.erase(pending_graveyard_exile_fx.begin());
+
+    const int main_x = main_panel_offset_x();
+
+    graveyard_card_fx_active = true;
+    graveyard_card_fx_frame = 0;
+    graveyard_card_fx_start_x = pending.start_x;
+    graveyard_card_fx_start_y = pending.start_y;
+    graveyard_card_fx_type = pending.card.type;
+    graveyard_card_fx_instance_id = pending.card.instance_id;
+    graveyard_card_fx_index = -1;
+    graveyard_card_fx_kind = pending.kind;
+    graveyard_card_fx_state_applied = true;
+
+    if(pending.kind == GraveyardExilePickKind::TO_HAND)
+    {
+        graveyard_card_fx_style = RemovalStyle::TO_GRAVEYARD;
+        hand_slot_screen_position(state.hand.size(), main_x, graveyard_card_fx_dest_x, graveyard_card_fx_dest_y);
+    }
+    else if(pending.kind == GraveyardExilePickKind::TO_DECK_TOP ||
+            pending.kind == GraveyardExilePickKind::SHUFFLE_TO_DECK)
+    {
+        graveyard_card_fx_style = RemovalStyle::TO_DECK_TOP;
+        graveyard_card_fx_dest_x = card_target_x_for_hud_icon(game_layout::HUD_DECK_X, main_x);
+        graveyard_card_fx_dest_y = card_target_y_for_hud_icon(game_layout::HUD_DECK_Y);
+    }
+    else
+    {
+        graveyard_card_fx_style = RemovalStyle::EXILE_DISSIPATE;
+        graveyard_card_fx_dest_x = card_target_x_for_score_center(main_x);
+        graveyard_card_fx_dest_y = card_target_y_for_score_center();
+    }
+}
+
+void GameContext::confirm_graveyard_multiply_exile_pick()
+{
+    if(state.graveyard.empty())
+    {
+        return;
+    }
+
+    state.selection.cursor = clamp_graveyard_cursor(state.selection.cursor, state.graveyard.size());
+    const int picked_index = state.selection.cursor;
+    const int main_x = main_panel_offset_x();
+    int start_x = 0;
+    int start_y = 0;
+    const int cursor_raise = picked_index < card_raise_offset.size() ? card_raise_offset[picked_index] : 0;
+
+    if(!graveyard_cursor_screen_position(picked_index, state.graveyard.size(), game_layout::GRAVE_SPACING,
+                                         game_layout::GRAVEYARD_BROWSE_Y, cursor_raise, row_scroll_x, main_x,
+                                         start_x, start_y))
+    {
+        return;
+    }
+
+    const CardRef card = state.graveyard[picked_index];
+    graveyard_remove_at(state, picked_index);
+    exile_push(state, card, true);
+    ++state.selection.exiled_count;
+
+    if(state.graveyard.empty())
+    {
+        state.selection.cursor = 0;
+    }
+    else
+    {
+        state.selection.cursor = clamp_graveyard_cursor(picked_index, state.graveyard.size());
+    }
+
+    sync_target_row_scroll(state.selection.cursor, state.graveyard.size());
+
+    if(!pending_graveyard_exile_fx.full())
+    {
+        pending_graveyard_exile_fx.push_back(
+            PendingGraveyardExileFx{card, start_x, start_y, GraveyardExilePickKind::MULTIPLY_BY_COUNT});
+    }
+
+    if(combo_try_start_pending(state))
+    {
+        enter_combo_mode();
+        return;
+    }
+
+    if(state.graveyard.empty())
+    {
+        state.mul_from_card(state.selection.exiled_count);
+        draw_round_score();
+        rags_exile_deferred_finish = true;
+    }
+
+    try_start_graveyard_exile_fx();
+}
+
 void GameContext::begin_keep_going_round_transfers(bool turtle_preserve)
 {
     deferred_round_start_pending = true;
@@ -2207,6 +2357,31 @@ void GameContext::begin_keep_going_round_transfers(bool turtle_preserve)
 
     keep_going_transfers_remaining = state.keep_going_returns[state.next_mod_index];
     state.keep_going_returns[state.next_mod_index] = 0;
+
+    // GY fill is only for 7 Feet Deep's opening-draw override. A default 5-card
+    // deal with a short deck must deal short and let the run end — not recycle GY.
+    const RoundModifier& upcoming = state.future_mods[state.next_mod_index];
+
+    if(upcoming.has_opening_draw_override())
+    {
+        const int opening_n = upcoming.effective_opening_draw();
+        const int gy_size = state.graveyard.size();
+        const int keep_actual = keep_going_transfers_remaining < gy_size ? keep_going_transfers_remaining
+                                                                        : gy_size;
+        const int deck_after_keep = state.deck.remaining() + keep_actual;
+        const int fill_needed = opening_n - deck_after_keep;
+
+        if(fill_needed > 0)
+        {
+            const int gy_left = gy_size - keep_actual;
+            const int fill_actual = fill_needed < gy_left ? fill_needed : gy_left;
+
+            if(fill_actual > 0)
+            {
+                keep_going_transfers_remaining += fill_actual;
+            }
+        }
+    }
 
     if(keep_going_transfers_remaining <= 0 || state.graveyard.empty())
     {
@@ -2249,7 +2424,7 @@ void GameContext::apply_round_start_turtle_step()
 
 void GameContext::run_round_start_pipeline()
 {
-    // Step 1 (Keep Going GY→deck) runs via begin_keep_going_round_transfers before this.
+    // Step 1 (Dead Rising / opening-draw GY fill) runs via begin_keep_going_round_transfers before this.
     deal_opening_hand();
     apply_round_start_turtle_step();
     state.apply_round_start_adds();
@@ -2267,19 +2442,6 @@ void GameContext::finish_deferred_round_start()
     keep_going_transfer_active = false;
     keep_going_transfers_remaining = 0;
 
-    if(deck.empty())
-    {
-        if(state.turtle_rounds_remaining > 0)
-        {
-            state.round.reset();
-        }
-
-        game_over = true;
-        run_finished = true;
-        scene_result.final_score = state.total_score;
-        return;
-    }
-
     state.start_new_round(deferred_round_start_turtle_preserve);
     reset_card_animation_state();
     run_round_start_pipeline();
@@ -2287,6 +2449,16 @@ void GameContext::finish_deferred_round_start()
     process_instant_pending();
     draw_round_score();
     draw_total_score();
+
+    if(!hand_draw_fx_blocking())
+    {
+        end_run_if_needed();
+
+        if(!run_finished)
+        {
+            state.waive_optional_ghost_plays = false;
+        }
+    }
 }
 
 void GameContext::complete_graveyard_card_fx()
@@ -2296,8 +2468,23 @@ void GameContext::complete_graveyard_card_fx()
     release_card_display_tiles(exclusive_fx_card());
 
     const GraveyardExilePickKind kind = graveyard_card_fx_kind;
+    const bool state_applied = graveyard_card_fx_state_applied;
     graveyard_card_fx_kind = GraveyardExilePickKind::NONE;
+    graveyard_card_fx_state_applied = false;
     graveyard_card_fx_instance_id = NO_INSTANCE;
+
+    if(state_applied)
+    {
+        try_start_graveyard_exile_fx();
+
+        if(rags_exile_deferred_finish && !graveyard_card_fx_active && pending_graveyard_exile_fx.empty())
+        {
+            rags_exile_deferred_finish = false;
+            begin_next_pending_or_finish();
+        }
+
+        return;
+    }
 
     if(kind == GraveyardExilePickKind::SHUFFLE_TO_DECK)
     {
@@ -2329,10 +2516,12 @@ void GameContext::complete_graveyard_card_fx()
         return;
     }
 
-    if(kind == GraveyardExilePickKind::TO_DECK_TOP)
+    if(kind == GraveyardExilePickKind::TO_DECK_TOP || kind == GraveyardExilePickKind::BIRDS_TO_DECK)
     {
         apply_card_relocated(state, card.type);
-        if(state.selection.type == PendingActionType::BIRDS_RETURN)
+
+        if(kind == GraveyardExilePickKind::BIRDS_TO_DECK ||
+           state.selection.type == PendingActionType::BIRDS_RETURN)
         {
             state.deck.add_card(card);
         }
@@ -2355,6 +2544,28 @@ void GameContext::complete_graveyard_card_fx()
 
             state.deck.apply_gravity(state.instance_pool);
             finish_deferred_round_start();
+            return;
+        }
+
+        if(kind == GraveyardExilePickKind::BIRDS_TO_DECK)
+        {
+            --state.birds_return_count;
+
+            if(try_begin_birds_return_fx())
+            {
+                return;
+            }
+
+            if(state.birds_return_count > 0)
+            {
+                resolve_birds_return_instantly();
+            }
+            else
+            {
+                complete_birds_return();
+            }
+
+            begin_next_pending_or_finish();
             return;
         }
 
@@ -2439,6 +2650,37 @@ void GameContext::complete_graveyard_card_fx()
     }
 }
 
+void GameContext::begin_birds_return_fx()
+{
+    if(state.birds_return_count <= 0)
+    {
+        return;
+    }
+
+    const int index = state.birds_return_start;
+
+    if(index < 0 || index >= state.graveyard.size() ||
+       state.graveyard[index].type != CardType::BIRDS_OF_A_FEATHER)
+    {
+        return;
+    }
+
+    const int main_x = main_panel_offset_x();
+    const CardRef picked = state.graveyard[index];
+
+    graveyard_card_fx_active = true;
+    graveyard_card_fx_frame = 0;
+    graveyard_card_fx_start_x = card_target_x_for_hud_icon(game_layout::HUD_GRAVEYARD_X, main_x);
+    graveyard_card_fx_start_y = card_target_y_for_hud_icon(game_layout::HUD_GRAVEYARD_Y);
+    graveyard_card_fx_type = picked.type;
+    graveyard_card_fx_instance_id = picked.instance_id;
+    graveyard_card_fx_index = index;
+    graveyard_card_fx_kind = GraveyardExilePickKind::BIRDS_TO_DECK;
+    graveyard_card_fx_style = RemovalStyle::TO_DECK_TOP;
+    graveyard_card_fx_dest_x = card_target_x_for_hud_icon(game_layout::HUD_DECK_X, main_x);
+    graveyard_card_fx_dest_y = card_target_y_for_hud_icon(game_layout::HUD_DECK_Y);
+}
+
 bool GameContext::try_begin_birds_return_fx()
 {
     if(state.birds_return_count <= 0)
@@ -2454,9 +2696,7 @@ bool GameContext::try_begin_birds_return_fx()
         return false;
     }
 
-    state.selection.cursor = index;
-    sync_row_scroll_for_mode(index, state.graveyard.size(), game_layout::GRAVE_SPACING);
-    begin_graveyard_card_fx(GraveyardExilePickKind::TO_DECK_TOP);
+    begin_birds_return_fx();
     return graveyard_card_fx_active;
 }
 
@@ -2574,6 +2814,7 @@ void GameContext::complete_hand_draw_fx()
     hand_draw_fx_miracle_auto = false;
 
     const bool was_empty = state.hand.empty();
+    bind_bounty_copy(state, hand_draw_fx_card);
     state.hand.push_back(hand_draw_fx_card);
     battle_stat_record_draw_to_hand(state);
     game_events_dispatch(state, GameEvent::HAND_CHANGED);
@@ -2602,6 +2843,13 @@ void GameContext::complete_hand_draw_fx()
         if(!hand_draw_fx_blocking() && !removing_card)
         {
             begin_next_pending_or_finish();
+        }
+
+        end_run_if_needed();
+
+        if(!run_finished)
+        {
+            state.waive_optional_ghost_plays = false;
         }
     }
 }
@@ -2799,8 +3047,7 @@ void GameContext::tick_echo_pending()
         try_finish_roll_over_substitution(state, &selected_card);
         swivel_clear_wait_if_hand_empty(*this);
 
-        if(empty_hand_triggers_round_end(state) && !removing_card && !presentation_fx_blocking() &&
-           !hand_draw_fx_blocking() && !block_round_end_for_combo())
+        if(empty_hand_triggers_round_end(state))
         {
             finish_empty_hand_round();
         }
@@ -2818,19 +3065,7 @@ void GameContext::tick_echo_pending()
 
     if(empty_hand_triggers_round_end(state))
     {
-        if(block_round_end_for_combo())
-        {
-            return;
-        }
-
-        if(presentation_fx_blocking())
-        {
-            round_end_pending = true;
-        }
-        else
-        {
-            finish_empty_hand_round();
-        }
+        finish_empty_hand_round();
     }
 
     update_target_scroll();
@@ -2963,10 +3198,22 @@ void GameContext::clear_inspect()
     inspect_shown_index = -1;
     last_inspect_sprite_offset = 0;
     hide_inspect_card(inspect_card);
+    draw_round_score();
+    draw_total_score();
 }
 
 void GameContext::draw_inspect(CardType type)
 {
+    // Inspect text needs many sprite slots; release hidden score labels and pops first.
+    round_text_sprites.clear();
+    text_sprites.clear();
+    _round_score_initialized = false;
+    _total_score_initialized = false;
+    score_count_cancel(*this, TrinketScoreField::ROUND);
+    score_count_cancel(*this, TrinketScoreField::TOTAL);
+    score_pops.clear();
+
+    release_card_display_tiles(inspect_card);
     const CardInstance* instance = nullptr;
     CardRef ref{};
     bool have_ref = false;
@@ -3055,6 +3302,11 @@ bool GameContext::show_graveyard_layer() const
 bool GameContext::graveyard_pick_active() const
 {
     return mode == GameMode::GRAVEYARD_TARGET || mode == GameMode::GRAVEYARD_PICK;
+}
+
+bool GameContext::graveyard_library_pick_active() const
+{
+    return graveyard_pick_active() && selection_sends_to_library(state.selection.type);
 }
 
 bool GameContext::card_selection_ui_active() const
@@ -3516,8 +3768,6 @@ void GameContext::position_main_score_sprites()
                               main_panel_offset_x(), last_main_sprite_offset);
     apply_sprite_offset_delta(bn::span<bn::sprite_ptr>(round_text_sprites.data(), round_text_sprites.size()),
                               main_panel_offset_x(), last_round_sprite_offset);
-    apply_sprite_offset_delta(bn::span<bn::sprite_ptr>(combo_pip_sprites.data(), combo_pip_sprites.size()),
-                              main_panel_offset_x(), last_combo_pip_sprite_offset);
 }
 
 void GameContext::position_inspect_sprites()
@@ -3585,7 +3835,7 @@ CardRowResult GameContext::render_graveyard_view(int panel_x, int cursor)
         cards,
         cursor, game_layout::GRAVE_SPACING, game_layout::GRAVEYARD_BROWSE_Y,
         row_scroll_x, target_row_scroll_x, panel_x, grave_raises,
-        &state.instance_pool, &hud_count_generator);
+        &state.instance_pool, &hud_count_generator, 0, &state, true);
 
     apply_row_fade_bands(fade_bands, game_layout::GRAVEYARD_BROWSE_Y, row.has_left, row.has_right);
 
@@ -3596,13 +3846,54 @@ CardRowResult GameContext::render_graveyard_view(int panel_x, int cursor)
         fade_bands[band_index].set_position_x(fade_band_x[band_index] + panel_x);
     }
 
-    if(row.cursor_slot >= 0)
+    if(row.cursor_slot >= 0 && !graveyard_library_pick_active())
     {
         graveyard_pick_placeholder.set_position(panel_x, game_layout::GRAVEYARD_BROWSE_PLACEHOLDER_Y);
         graveyard_pick_placeholder.set_visible(true);
     }
 
     return row;
+}
+
+void GameContext::sync_graveyard_library_marker(int main_x)
+{
+    if(!graveyard_library_pick_active())
+    {
+        return;
+    }
+
+    const int grave_cursor = state.selection.cursor;
+    const int grave_count = state.graveyard.size();
+
+    if(grave_count <= 0 || grave_cursor < 0 || grave_cursor >= grave_count)
+    {
+        return;
+    }
+
+    constexpr int window = game_layout::VISIBLE_CARD_COUNT;
+    const int visible_count = grave_count < window ? grave_count : window;
+    const int row_start_x = -(visible_count * game_layout::GRAVE_SPACING) / 2;
+    const int logical_first = first_visible_index(grave_cursor, grave_count, window);
+    const int first_visible = row_scroll_x / game_layout::GRAVE_SPACING;
+    const int scroll_sub = row_scroll_x - first_visible * game_layout::GRAVE_SPACING;
+    const int cursor_slot = grave_cursor - logical_first;
+
+    if(cursor_slot < 0 || cursor_slot >= visible_count)
+    {
+        return;
+    }
+
+    const int grave_cursor_raise =
+        grave_cursor < card_raise_offset.size() ? card_raise_offset[grave_cursor] : 0;
+    const int grave_cursor_wave = row_scroll_pair_raise(
+        grave_cursor, grave_cursor, row_scroll_x, target_row_scroll_x, game_layout::GRAVE_SPACING,
+        grave_count);
+    const int card_x = row_start_x + cursor_slot * game_layout::GRAVE_SPACING - scroll_sub + main_x;
+    const int selected_card_top = game_layout::GRAVEYARD_BROWSE_Y - grave_cursor_raise - grave_cursor_wave;
+
+    graveyard_pick_placeholder.set_visible(false);
+    library_marker.set_position(card_x + 16, selected_card_top + 32);
+    library_marker.set_visible(true);
 }
 
 void GameContext::render_graveyard_browse(int panel_x)
@@ -3920,14 +4211,14 @@ bool GameContext::block_round_end_for_combo()
         return false;
     }
 
+    if(skip_pending_combine)
+    {
+        skip_pending_combine = false;
+        return false;
+    }
+
     if(combo_ready_count(state) > 0)
     {
-        if(skip_pending_combine)
-        {
-            skip_pending_combine = false;
-            return false;
-        }
-
         round_end_pending = false;
         update_target_scroll();
         return true;
@@ -4031,7 +4322,7 @@ void GameContext::shutdown_for_exit()
     clear_inspect();
     text_sprites.clear();
     round_text_sprites.clear();
-    combo_pip_sprites.clear();
+    combo_progress_bars.set_visible(false);
     details_sprites.clear();
     hud.set_visible(false);
 }
@@ -4072,13 +4363,13 @@ void GameContext::release_idle_card_pools()
     release_card_display_tiles(exclusive_fx_card());
 }
 
-void GameContext::finish_empty_hand_round()
+GameContext::RoundFinishResult GameContext::try_finish_round_after_empty_hand()
 {
-    if(!empty_hand_triggers_round_end(state))
+    if(!skip_pending_combine && !empty_hand_triggers_round_end(state))
     {
         round_end_pending = false;
         clamp_hand_cursor();
-        return;
+        return RoundFinishResult::Blocked;
     }
 
     // Empty hand/deck is only meaningful after the played card has completely
@@ -4087,41 +4378,32 @@ void GameContext::finish_empty_hand_round()
     if(card_resolution_blocking_round_end())
     {
         round_end_pending = true;
-        return;
+        return RoundFinishResult::Blocked;
     }
 
     // Combos resolve after the card's full effect but before round/run end.
     if(block_round_end_for_combo())
     {
-        return;
+        return RoundFinishResult::Blocked;
     }
 
     round_end_pending = false;
     swivel_clear_wait_if_hand_empty(*this);
 
-    release_idle_card_pools();
-    if(state.turtle_rounds_remaining > 0)
+    if(state.finale_active)
     {
-        begin_keep_going_round_transfers(true);
-
-        if(deferred_round_start_pending)
-        {
-            return;
-        }
-
-        if(deck.empty())
-        {
-            if(state.turtle_rounds_remaining > 0)
-            {
-                state.round.reset();
-            }
-
-            game_over = true;
-            run_finished = true;
-            scene_result.final_score = state.total_score;
-        }
+        state.waive_optional_ghost_plays = false;
+        skip_pending_combine = false;
+        finish_finale_run();
+        return RoundFinishResult::EndedRun;
     }
-    else
+
+    skip_pending_combine = false;
+
+    release_idle_card_pools();
+    const bool turtle_preserve = state.turtle_rounds_remaining > 0;
+
+    if(!turtle_preserve)
     {
         commit_round_with_checks();
         draw_total_score();
@@ -4129,26 +4411,38 @@ void GameContext::finish_empty_hand_round()
         if(campaign_ui.mode == CampaignMode::NUMBER_NOW &&
            state.current_round == campaign_ui.number_now_scoring_round)
         {
+            state.waive_optional_ghost_plays = false;
             game_over = true;
             run_finished = true;
             scene_result.final_score = state.total_score;
-            return;
-        }
-
-        begin_keep_going_round_transfers(false);
-
-        if(deferred_round_start_pending)
-        {
-            return;
-        }
-
-        if(deck.empty())
-        {
-            game_over = true;
-            run_finished = true;
-            scene_result.final_score = state.total_score;
+            return RoundFinishResult::EndedRun;
         }
     }
+
+    begin_keep_going_round_transfers(turtle_preserve);
+
+    if(deferred_round_start_pending)
+    {
+        // Keep waive true until finish_deferred_round_start runs end_run_if_needed.
+        return RoundFinishResult::CommittedNewRound;
+    }
+
+    if(!hand_draw_fx_blocking())
+    {
+        end_run_if_needed();
+    }
+
+    if(!run_finished)
+    {
+        state.waive_optional_ghost_plays = false;
+    }
+
+    return run_finished ? RoundFinishResult::EndedRun : RoundFinishResult::CommittedNewRound;
+}
+
+void GameContext::finish_empty_hand_round()
+{
+    try_finish_round_after_empty_hand();
 }
 
 void GameContext::tick_round_end_pending()
@@ -4158,18 +4452,6 @@ void GameContext::tick_round_end_pending()
         return;
     }
 
-    if(!empty_hand_triggers_round_end(state))
-    {
-        round_end_pending = false;
-        return;
-    }
-
-    if(card_resolution_blocking_round_end())
-    {
-        return;
-    }
-
-    round_end_pending = false;
     finish_empty_hand_round();
     update_target_scroll();
 }

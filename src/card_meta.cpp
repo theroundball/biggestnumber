@@ -92,7 +92,7 @@ namespace
         {CardRarity::RARE, 1},     // RAGS_TO_RICHES
         {CardRarity::RARE, 1},     // JACKS
         {CardRarity::RARE, 1},     // FISHING_POLE
-        {CardRarity::RARE, 1},     // CUPS
+        {CardRarity::RARE, 1},     // SHELLS
         {CardRarity::RARE, 1},     // SWAP
         {CardRarity::COMMON, 3},   // CATNIP
         {CardRarity::UNCOMMON, 5}, // JOURNAL
@@ -115,11 +115,16 @@ namespace
         {CardRarity::UNCOMMON, 3}, // SOLO
         {CardRarity::RARE, 1},     // SPECULATIVE
         {CardRarity::RARE, 1},     // FLEX
-        {CardRarity::UNCOMMON, 3}, // KEEP_GOING
+        {CardRarity::UNCOMMON, 3}, // DEAD_RISING
         {CardRarity::UNCOMMON, 1}, // BOUNTY
         {CardRarity::RARE, 1},     // OVERCLOCK
         {CardRarity::RARE, 1},     // EVALUATE
         {CardRarity::UNCOMMON, 1}, // BUILD_A_NUMBER
+        {CardRarity::UNCOMMON, 1}, // MINOR_FALL
+        {CardRarity::UNCOMMON, 1}, // MAJOR_LIFT
+        {CardRarity::RARE, 1},     // FINALE
+        {CardRarity::UNCOMMON, 2}, // TIME_IS_MONEY
+        {CardRarity::RARE, 1},     // SEVEN_FEET_DEEP
     };
 
     static_assert(sizeof(META_TABLE) / sizeof(META_TABLE[0]) == int(CardType::COUNT),

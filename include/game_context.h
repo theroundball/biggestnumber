@@ -75,6 +75,7 @@ public:
     int browse_cursor = 0;
     bool removing_card = false;
     bool pending_opening_hand_deal = false;
+    int opening_draw_attempts_remaining = 0;
     bool echo_play_badge_active = false;
     bool swivel_follow_pending = false;
     int removal_start_x = 0;
@@ -108,7 +109,6 @@ public:
     int panel_slide = 0;
     int last_main_sprite_offset = 0;
     int last_round_sprite_offset = 0;
-    int last_combo_pip_sprite_offset = 0;
     int last_inspect_sprite_offset = 0;
     int last_details_sprite_offset = 0;
     int details_last_library = -1;
@@ -119,11 +119,12 @@ public:
     bn::array<GameFadeBand, 4> fade_bands;
     GameMarker x_marker;
     GameMarker swap_lock_marker;
+    bn::sprite_ptr library_marker;
     CardEffectBadge echo_badge;
     CardEffectBadge swivel_badge;
     GraveyardPickPlaceholder graveyard_pick_placeholder;
     ScoreProgressBar score_progress_bar;
-    BountyProgressBar bounty_progress_bar;
+    ComboProgressBars combo_progress_bars;
     bn::array<GameMarker, game_layout::VISIBLE_CARD_COUNT> grave_exclude_markers;
     bn::array<Card, game_layout::HAND_DISPLAY_POOL> hand_display;
     Card echo_ghost_card;
@@ -141,6 +142,18 @@ public:
     int graveyard_card_fx_dest_y = 0;
     GraveyardExilePickKind graveyard_card_fx_kind = GraveyardExilePickKind::NONE;
     RemovalStyle graveyard_card_fx_style = RemovalStyle::EXILE_DISSIPATE;
+    bool graveyard_card_fx_state_applied = false;
+    bool rags_exile_deferred_finish = false;
+
+    struct PendingGraveyardExileFx
+    {
+        CardRef card;
+        int start_x = 0;
+        int start_y = 0;
+        GraveyardExilePickKind kind = GraveyardExilePickKind::NONE;
+    };
+
+    bn::vector<PendingGraveyardExileFx, 12> pending_graveyard_exile_fx;
     bool keep_going_transfer_active = false;
     int keep_going_transfers_remaining = 0;
     bool deferred_round_start_pending = false;
@@ -164,8 +177,6 @@ public:
     bn::vector<bn::sprite_ptr, 32> text_sprites;
     bn::sprite_text_generator round_text_generator;
     bn::vector<bn::sprite_ptr, 32> round_text_sprites;
-    bn::sprite_text_generator combo_pip_text_generator;
-    bn::vector<bn::sprite_ptr, 48> combo_pip_sprites;
     bn::sprite_text_generator inspect_text_generator;
     bn::vector<bn::sprite_ptr, 64> inspect_sprites;
     bn::sprite_text_generator hud_count_generator;
@@ -217,10 +228,8 @@ public:
     int _total_wiggle_x = 0;
     int _total_wiggle_y = 0;
     bool _round_score_initialized = false;
-    bool _combo_pip_initialized = false;
     bool _total_score_initialized = false;
     bn::string<48> _cached_round_score_text;
-    bn::string<72> _cached_combo_pip_text;
     int _cached_total_score = 0;
 
     void shutdown_for_exit();
@@ -261,16 +270,18 @@ public:
     int layout_hand_count() const;
     int hand_layout_center_count() const;
     void deal_opening_hand();
+    void continue_opening_hand_deal();
     void draw_total_score();
     void draw_round_score();
     void show_total_score_value(int value);
     void show_round_score_running(int running, int end_multiplier);
     [[nodiscard]] int score_progress_goal() const;
     [[nodiscard]] bool score_progress_visible() const;
-    [[nodiscard]] bool bounty_progress_visible() const;
     void sync_score_progress_bar();
-    void sync_combo_pips();
-    void sync_bounty_progress_bar();
+    void sync_combo_progress_bars();
+    [[nodiscard]] bool should_end_run() const;
+    void end_run_if_needed();
+    void finish_finale_run();
     void finalize_total_score_display();
     void finalize_round_score_display();
     void tick_score_wiggles();
@@ -282,6 +293,11 @@ public:
     void prepare_hand_selection_mode();
     void clamp_hand_cursor();
     void begin_graveyard_card_fx(GraveyardExilePickKind pick_kind);
+    [[nodiscard]] bool graveyard_exile_spam_select() const;
+    void confirm_graveyard_multiply_exile_pick();
+    void try_start_graveyard_exile_fx();
+    void clear_graveyard_exile_fx();
+    void begin_birds_return_fx();
     void begin_keep_going_round_transfers(bool turtle_preserve);
     void try_begin_keep_going_transfer();
     void finish_deferred_round_start();
@@ -316,6 +332,8 @@ public:
     bool show_details_layer() const;
     bool show_graveyard_layer() const; // right-side card browse: GY or exile
     bool graveyard_pick_active() const;
+    bool graveyard_library_pick_active() const;
+    void sync_graveyard_library_marker(int main_x);
     bool card_selection_ui_active() const;
     // L = +1 (hand→info→exile→GY→hand), R = -1 (reverse).
     void cycle_side_panel(int direction);
@@ -344,6 +362,14 @@ public:
 
     void process_instant_pending();
     void begin_next_pending_or_finish();
+    void tick_evaluate_ghost_steps();
+    enum class RoundFinishResult
+    {
+        Blocked,
+        CommittedNewRound,
+        EndedRun,
+    };
+    RoundFinishResult try_finish_round_after_empty_hand();
     void finish_empty_hand_round();
     void tick_round_end_pending();
     void arm_echo_replay(CardRef played, PlaySource scoring_source, int ghost_x, int ghost_y);
@@ -369,8 +395,7 @@ public:
                         int& direction_steps);
     void handle_input();
     void handle_input_inspect_toggle();
-    void handle_input_side_panel(int current_direction, bool direction_triggered, int direction_steps,
-                                 bool row_scrolling);
+    void handle_input_side_panel(int current_direction, bool direction_triggered, int direction_steps);
     bool handle_input_presentation();
     void handle_input_normal(int current_direction, bool direction_triggered, int direction_steps,
                              bool scrolling);

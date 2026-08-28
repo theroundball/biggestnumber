@@ -1,7 +1,6 @@
 #include "card_data.h"
 
 #include "card.h"
-#include "combo_system.h"
 #include "game_events.h"
 #include "game_helpers.h"
 #include "game_state.h"
@@ -163,11 +162,20 @@ namespace
         }
     }
 
-    void effect_reclaim(GameState& state)
+    void effect_lifeline(GameState& state)
     {
-        // Defer until after Lifeline itself is routed to the GY so it is included
-        // in the shuffle (see SESSION_HANDOFF_LIFELINE / BRD §5.3 ordering).
-        state.pending_actions.push_back(PendingAction{PendingActionType::RECLAIM_GRAVEYARD, 1});
+        const int pickable = count_lifeline_pickable_graveyard(state);
+
+        if(pickable <= 0)
+        {
+            return;
+        }
+
+        PendingAction action;
+        action.type = PendingActionType::GRAVEYARD_PICK_TO_BOTTOM;
+        action.count = pickable < 3 ? pickable : 3;
+        action.graveyard_exclude = CardType::LIFELINE;
+        state.pending_actions.push_back(action);
     }
 
     void effect_clover(GameState& state)
@@ -211,13 +219,8 @@ namespace
 
     void effect_swivel(GameState& state)
     {
-        // Playing card is still in hand when on_play runs; need another card to follow.
-        if(state.hand.size() <= 1)
-        {
-            return;
-        }
-
-        state.swivel_waiting = true;
+        (void)state;
+        // Follow-up is armed in swivel_on_swivel_played after Swivel commits to the graveyard.
     }
 
     void effect_hacker(GameState& state)
@@ -268,6 +271,11 @@ namespace
         state.add_from_card(state.current_round * 2);
     }
 
+    void effect_time_is_money(GameState& state)
+    {
+        state.mul_from_card(state.current_round * 2);
+    }
+
     void effect_busted_discard(GameState& state)
     {
         state.add_from_card(10);
@@ -293,28 +301,6 @@ namespace
         state.add_from_card(3);
     }
 
-    bool score_contains_digit(int value, int digit)
-    {
-        if(value == 0)
-        {
-            return digit == 0;
-        }
-
-        int digits = value < 0 ? -value : value;
-
-        while(digits > 0)
-        {
-            if(digits % 10 == digit)
-            {
-                return true;
-            }
-
-            digits /= 10;
-        }
-
-        return false;
-    }
-
     void effect_jacks(GameState& state)
     {
         // Playing card is still in hand when on_play runs; need another card to discard.
@@ -338,17 +324,16 @@ namespace
         state.pending_actions.push_back(PendingAction{PendingActionType::RETRIEVE_FROM_GRAVEYARD_TO_TOP});
     }
 
-    void effect_cups(GameState& state)
+    void effect_shells(GameState& state)
     {
+        // Draw lands before discard/retrieve start (begin_next_pending waits on draw FX).
         queue_effect_draw(state, 1, true);
 
-        // Re-check when this action starts: on a normal play Cups will have left
-        // the hand, while an Echo replay has no physical Cups card to remove.
+        // Re-check when this action starts: Shells has left the hand on a normal play.
         state.pending_actions.push_back(PendingAction{PendingActionType::DISCARD_FROM_HAND});
 
-        // This action re-checks on entry, after the discard has resolved, so the
-        // newly discarded card can be selected.
-        state.pending_actions.push_back(PendingAction{PendingActionType::EXILE_FROM_GRAVEYARD});
+        // After discard resolves so the newly discarded card can be selected.
+        state.pending_actions.push_back(PendingAction{PendingActionType::RETRIEVE_FROM_GRAVEYARD_TO_TOP});
     }
 
     void effect_swap(GameState& state)
@@ -489,41 +474,10 @@ namespace
 
     void effect_palindrome(GameState& state)
     {
-        const int before = state.total_score;
-        const bn::string<12> digits = bn::to_string<12>(before);
-
-        if(digits.size() > 9)
+        if(!try_palindrome_play(state))
         {
-            return;
+            state.add_from_card(3);
         }
-
-        for(int left = 0, right = digits.size() - 1; left < right; ++left, --right)
-        {
-            if(digits[left] != digits[right])
-            {
-                return;
-            }
-        }
-
-        long long outer_place = 10;
-
-        for(int index = 0; index < digits.size(); ++index)
-        {
-            outer_place *= 10;
-        }
-
-        const int wrapper = state.applying_double_adds ? 2 : 1;
-        const long long after = static_cast<long long>(wrapper) * outer_place +
-                                static_cast<long long>(before) * 10 + wrapper;
-
-        if(after > 2147483647)
-        {
-            return;
-        }
-
-        state.total_score = int(after);
-        score_count_queue(state, TrinketScoreField::TOTAL, before, state.total_score);
-        trinket_queue_score_check(state, TrinketScoreField::TOTAL, before, state.total_score);
     }
 
     void effect_the_fourth(GameState& state)
@@ -562,7 +516,7 @@ namespace
         state.pending_actions.push_back(action);
     }
 
-    void effect_keep_going(GameState& state)
+    void effect_dead_rising(GameState& state)
     {
         state.schedule_keep_going();
     }
@@ -605,92 +559,13 @@ namespace
         }
     }
 
-    void effect_peanut_butter(GameState& state)
-    {
-        const int count = state.deck.remaining() < 3 ? state.deck.remaining() : 3;
-
-        if(count > 0)
-        {
-            state.pending_actions.push_back(PendingAction{PendingActionType::PEANUT_BUTTER_SCRY, count});
-        }
-    }
-
-    void effect_jelly(GameState& state)
-    {
-        if(graveyard_contains_type(state, CardType::PEANUT_BUTTER))
-        {
-            retrieve_graveyard_type_to_hand(state, CardType::PEANUT_BUTTER);
-        }
-    }
-
-    void effect_straw(GameState& state)
-    {
-        queue_effect_draw(state, 1, true);
-    }
-
-    void effect_sticks(GameState& state)
-    {
-        if(state.hand.size() <= 1)
-        {
-            return;
-        }
-
-        state.pending_actions.push_back(PendingAction{PendingActionType::DISCARD_FROM_HAND});
-        queue_effect_draw(state, 1, true);
-    }
-
-    void effect_bricks(GameState& state)
-    {
-        if(graveyard_contains_type(state, CardType::STRAW) &&
-           graveyard_contains_type(state, CardType::STICKS))
-        {
-            retrieve_graveyard_type_to_hand(state, CardType::STRAW);
-            retrieve_graveyard_type_to_hand(state, CardType::STICKS);
-        }
-    }
-
-    void effect_rock(GameState& state)
-    {
-        effect_scry_three(state);
-    }
-
-    void effect_paper(GameState& state)
-    {
-        if(state.hand.empty())
-        {
-            state.paper_swap_hand_index = -1;
-            return;
-        }
-
-        PendingAction action;
-        action.type = PendingActionType::PAPER_SWAP_HAND;
-        action.count = state.paper_swap_hand_index;
-        state.pending_actions.push_back(action);
-        state.paper_swap_hand_index = -1;
-    }
-
-    void effect_scissors(GameState& state)
-    {
-        if(state.hand.size() <= 1)
-        {
-            return;
-        }
-
-        state.pending_actions.push_back(PendingAction{PendingActionType::DISCARD_FROM_HAND});
-    }
-
-    void effect_shoot(GameState& state)
-    {
-        if(combo_would_complete_in_graveyard_with(state, 1, CardType::SHOOT))
-        {
-            state.add_from_card(3);
-        }
-    }
-
     void effect_bounty_play(GameState& state)
     {
-        state.add_from_card(2 + state.bounty_play_count);
-        ++state.bounty_play_count;
+        bind_bounty_copy(state, state.play_effect_card);
+        const CardRef played = state.play_effect_card;
+        const int plus = bounty_increment_play(state, played);
+        state.add_from_card(plus);
+        bounty_update_return_threshold_for_plays(state, played);
     }
 
     void effect_overclock_play(GameState& state)
@@ -710,12 +585,28 @@ namespace
 
     void effect_evaluate_play(GameState& state)
     {
-        state.evaluate_apply_next_slot_multiply();
+        state.evaluate_apply_future_modifiers(false);
     }
 
     void effect_build_a_number_play(GameState& state)
     {
         state.build_a_number_activate();
+    }
+
+    void effect_minor_fall(GameState& state)
+    {
+        state.pending_actions.push_back(PendingAction{PendingActionType::MINOR_FALL_TOTAL_DIGIT});
+    }
+
+    void effect_major_lift(GameState& state)
+    {
+        state.pending_actions.push_back(PendingAction{PendingActionType::MAJOR_LIFT_TOTAL_DIGIT});
+    }
+
+    void effect_finale_play(GameState& state)
+    {
+        state.finale_active = true;
+        queue_effect_draw(state, 5, false);
     }
 
     CardData make_card(const char* name, const char* description,
@@ -730,8 +621,8 @@ namespace
                        const bn::sprite_item* accent_top_item = nullptr,
                        const bn::sprite_item* accent_bottom_item = nullptr,
                        bool has_cycle = false,
-                       bool has_flashback = false,
-                       int flashback_plus = 0,
+                       bool has_ghost = false,
+                       int ghost_plus = 0,
                        void (*on_exile)(GameState&) = nullptr,
                        bool text_only = false)
     {
@@ -753,8 +644,8 @@ namespace
             .defer_graveyard_until_pending = defer_graveyard_until_pending,
             .exiles_self_on_play = exiles_self_on_play,
             .has_cycle = has_cycle,
-            .has_flashback = has_flashback,
-            .flashback_plus = flashback_plus,
+            .has_ghost = has_ghost,
+            .ghost_plus = ghost_plus,
             .text_only = text_only,
         };
     }
@@ -788,26 +679,29 @@ const CardData& card_data(CardType type)
                   0, 0, {}, {}, {}, effect_clover, nullptr, false, false, CARD_SPRITES(clover)),
         make_card("Big Kurosawa Burger", "Discard a hand card to multiply this round by 4. Nothing if this is your only card.",
                   0, 0, {}, {}, {}, effect_big_kurosawa_burger, nullptr, false, false, CARD_SPRITES(bigkurosawaburger)),
-        make_card("Rock", "+0. Scry 3.",
-                  0, 0, {}, {}, {}, effect_rock, nullptr, false, false, CARD_SPRITES(rock)),
-        make_card("Paper", "+0. Swap with another card in your hand.",
-                  0, 0, {}, {}, {}, effect_paper, nullptr, false, false, CARD_SPRITES(paper)),
-        make_card("Scissors", "+0. Discard a card from your hand.",
-                  0, 0, {}, {}, {}, effect_scissors, nullptr, false, false, CARD_SPRITES(scissors)),
-        make_card("Shoot", "+1. +3 to this round if Rock, Paper, and Scissors are in your graveyard.",
-                  1, 0, {}, {}, {}, effect_shoot, nullptr, false, false, CARD_SPRITES(shoot)),
-        make_card("Peanut Butter", "+1. Scry 3; if Jelly is among them, put Jelly on top.",
-                  1, 0, {}, {}, {}, effect_peanut_butter, nullptr, false, false, CARD_SPRITES(peanut_butter)),
-        make_card("Jelly", "+1. If Peanut Butter is in your graveyard, return it to your hand.",
-                  1, 0, {}, {}, {}, effect_jelly, nullptr, false, false, CARD_SPRITES(jelly)),
-        make_card("Straw", "+0. Draw 1.",
-                  0, 0, {}, {}, {}, effect_straw, nullptr, false, false, CARD_SPRITES(straw)),
-        make_card("Sticks", "+0. Discard a card, then draw 1.",
-                  0, 0, {}, {}, {}, effect_sticks, nullptr, false, false, CARD_SPRITES(sticks)),
-        make_card("Bricks", "+2. If Straw and Sticks are in your graveyard, return both to your hand.",
-                  2, 0, {}, {}, {}, effect_bricks, nullptr, false, false, CARD_SPRITES(bricks)),
-        make_card("Lifeline", "Shuffle your graveyard into deck, then exile 3 random cards from your deck.",
-                  0, 0, {}, {}, {}, effect_reclaim, nullptr, false, false, CARD_SPRITES(lifeline)),
+        make_card("Rock", "+3", 3, 0, {}, {}, {},
+                  nullptr, nullptr, false, false, CARD_SPRITES(rock)),
+        make_card("Paper", "+3", 3, 0, {}, {}, {},
+                  nullptr, nullptr, false, false, CARD_SPRITES(paper)),
+        make_card("Scissors", "+3", 3, 0, {}, {}, {},
+                  nullptr, nullptr, false, false, CARD_SPRITES(scissors)),
+        make_card("Shoot", "+3", 3, 0, {}, {}, {},
+                  nullptr, nullptr, false, false, CARD_SPRITES(shoot)),
+        make_card("Peanut Butter", "+3", 3, 0, {}, {}, {},
+                  nullptr, nullptr, false, false, CARD_SPRITES(peanut_butter)),
+        make_card("Jelly", "+3", 3, 0, {}, {}, {},
+                  nullptr, nullptr, false, false, CARD_SPRITES(jelly)),
+        make_card("Straw", "+3", 3, 0, {}, {}, {},
+                  nullptr, nullptr, false, false, CARD_SPRITES(straw)),
+        make_card("Sticks", "+3", 3, 0, {}, {}, {},
+                  nullptr, nullptr, false, false, CARD_SPRITES(sticks)),
+        make_card("Bricks", "+3", 3, 0, {}, {}, {},
+                  nullptr, nullptr, false, false, CARD_SPRITES(bricks)),
+        make_card("Lifeline",
+                  "Put 3 cards from your graveyard onto the bottom of your deck. Cannot target Lifeline. "
+                  "Ghost: Shuffle your graveyard into your deck, then exile the top 3 cards.",
+                  0, 0, {}, {}, {}, effect_lifeline, nullptr, false, false, CARD_SPRITES(lifeline), false, true, 0,
+                  nullptr, true),
         make_card("Snail Mail", "+5 next round, +5 two rounds from now, and x5 three rounds from now.",
                   0, 0,
                   RoundModifier{5, 0, 0},
@@ -844,8 +738,8 @@ const CardData& card_data(CardType type)
                   0, 0, {}, {}, {}, effect_jacks, nullptr, false, false, CARD_SPRITES(jacks)),
         make_card("Fishing Pole", "Discard a card, then put a card from your graveyard on top of your deck. Nothing happens if you have no other card to discard.",
                   0, 0, {}, {}, {}, effect_fishing_pole, nullptr, false, false, CARD_SPRITES(fishing_pole)),
-        make_card("Cups", "Draw 1, discard a card, then exile a card from your graveyard. Skip any step that cannot be completed.",
-                  0, 0, {}, {}, {}, effect_cups, nullptr, false, false, CARD_SPRITES(cups)),
+        make_card("Shells", "Draw 1, discard a card, then put a card from your graveyard on top of your deck. Skip any step that cannot be completed.",
+                  0, 0, {}, {}, {}, effect_shells, nullptr, false, false, CARD_SPRITES(cups)),
         make_card("Swap", "Choose two digits in your total or round score and swap them. The resulting number cannot be smaller",
                   0, 0, {}, {}, {}, effect_swap, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Catnip", "+1 to this round. Draw 1.",
@@ -876,13 +770,13 @@ const CardData& card_data(CardType type)
         make_card("Get Me Outa Here", "+9 when played, discarded, or whenever another card moves this.",
                   9, 0, {}, {}, {}, nullptr, effect_get_me_outa_here, false, false,
                   nullptr, nullptr, nullptr, false, false, 0, effect_get_me_outa_here, true),
-        make_card("Comeback", "+3. Flashback: exile from graveyard to play for +3.",
+        make_card("Comeback", "+3. Ghost: exile from graveyard to play for +3.",
                   3, 0, {}, {}, {}, nullptr, nullptr, false, false, nullptr, nullptr, nullptr, false, true, 3, nullptr, true),
-        make_card("Encore", "+6. Flashback: exile from graveyard to play for +6.",
+        make_card("Encore", "+6. Ghost: exile from graveyard to play for +6.",
                   6, 0, {}, {}, {}, nullptr, nullptr, false, false, nullptr, nullptr, nullptr, false, true, 6, nullptr, true),
         make_card("The Fourth", "Move a 4 in your total score without making the score smaller. If no valid move exists, +4 to this round.",
                   0, 0, {}, {}, {}, effect_the_fourth, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
-        make_card("Palindrome", "If total score is a palindrome, wrap it in 1s. Dilla wraps it in 2s instead.",
+        make_card("Palindrome", "If your total score is a palindrome, wrap it in 1s. Dilla wraps it in 2s instead. If that fizzles, try your round score. Otherwise +3.",
                   0, 0, {}, {}, {}, effect_palindrome, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("The Fifth", "Replace any digit in your total score with a 5.",
                   0, 0, {}, {}, {}, effect_the_fifth, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
@@ -892,16 +786,32 @@ const CardData& card_data(CardType type)
                   0, 0, {}, {}, {}, effect_waterfall, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Flex", "Mill cards from the top of your deck until you find one that can add or multiply, then play it.",
                   0, 0, {}, {}, {}, effect_flex, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
-        make_card("Keep Going", "Exile this. At the start of each of the next 3 rounds, put a random card from your graveyard on top of your deck.",
-                  0, 0, {}, {}, {}, effect_keep_going, nullptr, false, true, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
-        make_card("Bounty", "+2, plus +1 more for each time Bounty has been played this battle. While Bounty is in your graveyard, return it to your hand whenever this round's score rises by 10 since it last returned.",
+        make_card("Dead Rising", "Exile this. At the start of each of the next 3 rounds, put 2 random cards from your graveyard on top of your deck.",
+                  0, 0, {}, {}, {}, effect_dead_rising, nullptr, false, true, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("Bounty", "+n when this copy is played (n starts at 0 and increases by 1 on play, so the first play is +1). While in your graveyard, this copy returns to hand when this round rises by its bounty (starts at 10; when this copy's n reaches 10, bounty becomes 100).",
                   0, 0, {}, {}, {}, effect_bounty_play, nullptr, false, false, CARD_SPRITES(clover)),
         make_card("Overclock", "Multiply this round by 2. You may discard cards from your hand. Each time you do, multiply again by 3, then 4, then 5, and so on. Stop when you like.",
                   0, 0, {}, {}, {}, effect_overclock_play, nullptr, false, false, CARD_SPRITES(hacker)),
-        make_card("Evaluate", "Apply the next scheduled round multiplier now. Flashback: apply all scheduled multipliers now and end Turtle Mode.",
-                  0, 0, {}, {}, {}, effect_evaluate_play, nullptr, false, false, CARD_SPRITES(librarian), nullptr, nullptr, false, true, 0, nullptr, false),
+        make_card("Evaluate", "Apply the next scheduled round modifier now (+ then x). That round still gets it later. Ghost: apply all three scheduled modifiers in order, clear them, and end Turtle Mode (round score stays until this turn ends).",
+                  0, 0, {}, {}, {}, effect_evaluate_play, nullptr, false, false, CARD_SPRITES(librarian), false, true, 0, nullptr, false),
         make_card("Build a Number", "Replace your round score with three digit slots. Play digit cards to fill them. When all three are filled, add that number to this round. Progress persists until complete.",
                   0, 0, {}, {}, {}, effect_build_a_number_play, nullptr, false, false, CARD_SPRITES(cups)),
+        make_card("Minor Fall", "Move the smallest digit in your total score to the rightmost position (tie: rightmost). If that fizzles, try your round score. Otherwise +3.",
+                  0, 0, {}, {}, {}, effect_minor_fall, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("Major Lift", "Move the largest digit in your total score to the leftmost position (tie: leftmost). If that fizzles, try your round score. Otherwise +3.",
+                  0, 0, {}, {}, {}, effect_major_lift, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("Finale", "Draw 5. This turn, when your hand is empty the run ends without adding this round's score to your total.",
+                  0, 0, {}, {}, {}, effect_finale_play, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("Time is Money", "Multiply this round's score by 2 times the current round number.",
+                  0, 0, {}, {}, {}, effect_time_is_money, nullptr, false, false,
+                  CARD_SPRITES(time_is_too_expensive)),
+        make_card("7 Feet Deep",
+                  "Next 3 rounds, draw 1, then 2, then 7 instead of 5. Missing cards come from the graveyard at random.",
+                  0, 0,
+                  RoundModifier{0, 0, 0, 1},
+                  RoundModifier{0, 0, 0, 2},
+                  RoundModifier{0, 0, 0, 7},
+                  nullptr, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
     };
 
     static_assert(sizeof(table) / sizeof(table[0]) == int(CardType::COUNT),
@@ -927,16 +837,38 @@ int count_unique_graveyard_types(const GameState& state)
     return unique_count;
 }
 
-void reclaim_graveyard_into_deck(GameState& state)
+int count_lifeline_pickable_graveyard(const GameState& state)
+{
+    int pickable = 0;
+
+    for(const CardRef& card : state.graveyard)
+    {
+        if(card.type != CardType::LIFELINE)
+        {
+            ++pickable;
+        }
+    }
+
+    return pickable;
+}
+
+void shuffle_graveyard_into_deck(GameState& state, CardType exclude)
 {
     state.deck.compact();
 
-    const bool had_graveyard = !state.graveyard.empty();
+    bool had_graveyard = false;
 
-    while(!state.graveyard.empty())
+    for(int index = state.graveyard.size() - 1; index >= 0; --index)
     {
-        const CardRef card = state.graveyard.back();
-        state.graveyard.pop_back();
+        const CardRef card = state.graveyard[index];
+
+        if(card.type == exclude)
+        {
+            continue;
+        }
+
+        had_graveyard = true;
+        graveyard_remove_at(state, index);
         apply_card_relocated(state, card.type);
         state.deck.add_card(card);
     }
@@ -944,12 +876,17 @@ void reclaim_graveyard_into_deck(GameState& state)
     if(had_graveyard)
     {
         game_events_dispatch(state, GameEvent::GRAVEYARD_CHANGED);
+        state.deck.shuffle(state.rng);
+        state.deck.apply_gravity(state.instance_pool);
     }
+}
 
-    state.deck.shuffle(state.rng);
-    state.deck.apply_gravity(state.instance_pool);
+void lifeline_ghost_play(GameState& state)
+{
+    shuffle_graveyard_into_deck(state, CardType::LIFELINE);
+
     const int exile_begin = state.exile.size();
-    state.deck.exile_random_undrawn(LIFELINE_EXILE_COUNT, state.rng, state.exile);
+    state.deck.exile_undrawn_from_top(LIFELINE_GHOST_EXILE_COUNT, state.exile);
 
     for(int index = exile_begin; index < state.exile.size(); ++index)
     {

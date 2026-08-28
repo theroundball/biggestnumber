@@ -18,6 +18,13 @@ namespace
     constexpr int VIEW_RIGHT = 120;
     constexpr int FADE_EDGE_INSET = 12;
 
+    bool selection_exiles_graveyard(PendingActionType type)
+    {
+        return type == PendingActionType::EXILE_FROM_GRAVEYARD ||
+               type == PendingActionType::EXILE_FROM_GRAVEYARD_THEN_MULTIPLY ||
+               type == PendingActionType::EXILE_GRAVEYARD_MULTIPLY_BY_COUNT;
+    }
+
     int swap_eased_shift(int spacing, int frame)
     {
         if(game_layout::SWAP_FRAMES <= 1)
@@ -84,10 +91,10 @@ namespace
         for(int visual_index = 0; visual_index < visual_count; ++visual_index)
         {
             const int hand_index = ctx.hand_index_for_visual_slot(visual_index);
-            const bool flashback_slot = playable_slot_is_flashback(ctx.state, visual_index);
+            const bool ghost_slot = playable_slot_is_ghost(ctx.state, visual_index);
             const bool combine_slot = playable_slot_is_combine_offer(ctx.state, visual_index);
 
-            if(!flashback_slot && !combine_slot &&
+            if(!ghost_slot && !combine_slot &&
                (hand_index < 0 || hand_index >= ctx.state.hand.size()))
             {
                 continue;
@@ -99,7 +106,7 @@ namespace
             }
 
             if(ctx.play_hides_graveyard_visual(visual_index) &&
-               playable_slot_is_flashback(ctx.state, visual_index))
+               playable_slot_is_ghost(ctx.state, visual_index))
             {
                 continue;
             }
@@ -427,7 +434,7 @@ void GameContext::render_graveyard_selection_frame(int main_x)
             const int grave_cursor = state.selection.cursor;
             const CardRowResult r = render_graveyard_view(main_x, grave_cursor);
 
-            if(graveyard_card_fx_active)
+            if(graveyard_card_fx_active && graveyard_card_fx_index >= 0)
             {
                 const int first_visible = row_scroll_x / game_layout::GRAVE_SPACING;
 
@@ -452,10 +459,7 @@ void GameContext::render_graveyard_selection_frame(int main_x)
                 const int marker_x = card_x + 16;
                 const int marker_y = selected_card_top + 32;
 
-                if(mode == GameMode::GRAVEYARD_TARGET &&
-                   (state.selection.type == PendingActionType::EXILE_FROM_GRAVEYARD ||
-                    state.selection.type == PendingActionType::EXILE_FROM_GRAVEYARD_THEN_MULTIPLY ||
-                    state.selection.type == PendingActionType::EXILE_GRAVEYARD_MULTIPLY_BY_COUNT))
+                if(mode == GameMode::GRAVEYARD_TARGET && selection_exiles_graveyard(state.selection.type))
                 {
                     x_marker.set_position(marker_x, marker_y);
                     x_marker.set_visible(true);
@@ -483,9 +487,13 @@ void GameContext::render_graveyard_selection_frame(int main_x)
             }
 
             if(mode == GameMode::GRAVEYARD_TARGET &&
-               state.selection.type != PendingActionType::EXILE_FROM_GRAVEYARD &&
-               state.selection.type != PendingActionType::EXILE_FROM_GRAVEYARD_THEN_MULTIPLY &&
-               state.selection.type != PendingActionType::EXILE_GRAVEYARD_MULTIPLY_BY_COUNT)
+               !selection_exiles_graveyard(state.selection.type))
+            {
+                render_graveyard_exclude_marks(r, main_x, game_layout::GRAVEYARD_BROWSE_Y,
+                                               state.selection.graveyard_exclude, grave_cursor);
+            }
+            else if(mode == GameMode::GRAVEYARD_PICK &&
+                    state.selection.graveyard_exclude != CardType::COUNT)
             {
                 render_graveyard_exclude_marks(r, main_x, game_layout::GRAVEYARD_BROWSE_Y,
                                                state.selection.graveyard_exclude, grave_cursor);
@@ -580,7 +588,7 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
 
             for(int visual_index = 0; visual_index < visual_count; ++visual_index)
             {
-                const bool is_flashback = playable_slot_is_flashback(state, visual_index);
+                const bool is_ghost = playable_slot_is_ghost(state, visual_index);
                 const bool is_combine = playable_slot_is_combine_offer(state, visual_index);
                 const int hand_index = playable_slot_hand_index(state, visual_index);
                 const CardRef slot_card = playable_slot_card(state, visual_index);
@@ -595,7 +603,7 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                     continue;
                 }
 
-                if(play_hides_graveyard_visual(visual_index) && is_flashback)
+                if(play_hides_graveyard_visual(visual_index) && is_ghost)
                 {
                     continue;
                 }
@@ -641,9 +649,10 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
 
                 for(const PlayFlight& flight : play_flights)
                 {
-                    if(flight.active && !flight.center_beat && !flight.hand_committed &&
-                       !flight.play_resolved && flight.origin == PlayPresentOrigin::HAND &&
-                       !is_flashback && flight.hand_index == hand_index)
+                    if(flight.active && !flight.center_beat && flight.is_discard &&
+                       !flight.hand_committed &&
+                       flight.origin == PlayPresentOrigin::HAND &&
+                       !is_ghost && flight.hand_index == hand_index)
                     {
                         no_beat_flight = &flight;
                         break;
@@ -652,6 +661,10 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
 
                 if(no_beat_flight)
                 {
+                    if(no_beat_flight->played_ref.type != CardType::COUNT)
+                    {
+                        card.set_type(no_beat_flight->played_ref.type);
+                    }
                     const int deck_target_x = card_target_x_for_hud_icon(game_layout::HUD_DECK_X, main_x);
                     const int deck_target_y = card_target_y_for_hud_icon(game_layout::HUD_DECK_Y);
                     const int graveyard_target_x = card_target_x_for_hud_icon(game_layout::HUD_GRAVEYARD_X, main_x);
@@ -687,7 +700,7 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                     card.set_position(card_x, card_y);
                     card.clear_visual();
 
-                    if(is_flashback || is_combine)
+                    if(is_ghost || is_combine)
                     {
                         bn::blending::set_transparency_alpha(bn::fixed(0.45));
                         card.set_blending_enabled(true);
@@ -724,8 +737,8 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                     card.clear_upgrade_pips();
                 }
 
-                const int preview_plus = card_preview_plus(state, slot_card, is_flashback);
-                const bool show_overlay = state.pending_double_adds || is_flashback;
+                const int preview_plus = card_preview_plus(state, slot_card, is_ghost);
+                const bool show_overlay = state.pending_double_adds || is_ghost;
 
                 if(is_combine)
                 {
@@ -740,6 +753,10 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                     bn::string<8> amount_text = "+";
                     amount_text += bn::to_string<4>(preview_plus);
                     card.set_amount_overlay(&hud_count_generator, amount_text);
+                }
+                else if(slot_card.type == CardType::BOUNTY)
+                {
+                    sync_bounty_card_overlay(state, card, slot_card, is_ghost, &hud_count_generator);
                 }
                 else
                 {
@@ -761,7 +778,7 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
 
                 if(visual_index == selected_card && !center_beat_active)
                 {
-                    const bool echo_preview = !is_flashback && !is_combine &&
+                    const bool echo_preview = !is_ghost && !is_combine &&
                                               state.echo_first_play_active() &&
                                               card_has_play_effect(state, slot_card);
 
@@ -792,12 +809,14 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
             apply_row_fade_bands(fade_bands, game_layout::HAND_Y, has_left_fade, has_right_fade);
             position_fade_bands(fade_bands, main_x);
 
-            if(mode != GameMode::DISCARD_TARGET && flashback_ghost_count(state) > 0)
+            if(mode != GameMode::DISCARD_TARGET && ghost_count(state) > 0 &&
+               !state.waive_optional_ghost_plays)
             {
                 bn::blending::set_transparency_alpha(bn::fixed(0.45));
             }
 
-            // Red X over the hand card chosen for a discard cost.
+            // Red X over the hand card chosen for a discard cost; library icon when
+            // the pick is going onto the deck.
             if(mode == GameMode::DISCARD_TARGET && selected_card >= 0 && selected_card < state.hand.size())
             {
                 int discard_x = 0;
@@ -810,8 +829,17 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                         discard_visual, cursor_visual, scroll_x, target_scroll_x,
                         game_layout::HAND_SPACING, visual_count);
                 discard_y -= wave_raise;
-                x_marker.set_position(discard_x + 16, discard_y + 32);
-                x_marker.set_visible(true);
+
+                if(selection_sends_to_library(state.selection.type))
+                {
+                    library_marker.set_position(discard_x + 16, discard_y + 32);
+                    library_marker.set_visible(true);
+                }
+                else
+                {
+                    x_marker.set_position(discard_x + 16, discard_y + 32);
+                    x_marker.set_visible(true);
+                }
             }
 
             for(int slot = pool_slot; slot < hand_display.size(); ++slot)
@@ -845,12 +873,6 @@ void GameContext::sync_score_sprite_depth()
     }
 
     for(bn::sprite_ptr& sprite : round_text_sprites)
-    {
-        sprite.set_z_order(score_z);
-        sprite.set_bg_priority(score_bg_priority);
-    }
-
-    for(bn::sprite_ptr& sprite : combo_pip_sprites)
     {
         sprite.set_z_order(score_z);
         sprite.set_bg_priority(score_bg_priority);
@@ -990,6 +1012,7 @@ void GameContext::render_frame()
         // Cursors are hidden unless a targeting mode turns them on below.
         x_marker.set_visible(false);
         swap_lock_marker.set_visible(false);
+        library_marker.set_visible(false);
         echo_badge.set_visible(false);
         swivel_badge.set_visible(false);
         graveyard_pick_placeholder.set_visible(false);
@@ -1049,6 +1072,7 @@ void GameContext::render_frame()
 
                 x_marker.set_visible(false);
                 swap_lock_marker.set_visible(false);
+                library_marker.set_visible(false);
                 echo_badge.set_visible(false);
                 swivel_badge.set_visible(false);
                 graveyard_pick_placeholder.set_visible(false);
@@ -1135,6 +1159,14 @@ void GameContext::render_frame()
             {
                 flight = sample_graveyard_to_deck_flight(
                     graveyard_card_fx_start_x, graveyard_card_fx_start_y,
+                    graveyard_card_fx_dest_x, graveyard_card_fx_dest_y,
+                    graveyard_card_fx_frame, frame_count);
+            }
+            else if(graveyard_card_fx_kind == GraveyardExilePickKind::BIRDS_TO_DECK)
+            {
+                flight = sample_hud_via_center_flight(
+                    graveyard_card_fx_start_x, graveyard_card_fx_start_y,
+                    score_target_x, score_target_y,
                     graveyard_card_fx_dest_x, graveyard_card_fx_dest_y,
                     graveyard_card_fx_frame, frame_count);
             }
@@ -1320,23 +1352,14 @@ void GameContext::render_frame()
         }
 
         sync_score_progress_bar();
-        sync_combo_pips();
-        sync_bounty_progress_bar();
+        sync_combo_progress_bars();
         const bool show_score_bar = score_progress_visible() && !hide_main_scores && !score_swap_is_active(*this);
         score_progress_bar.set_visible(show_score_bar);
         score_progress_bar.set_x_offset(main_panel_offset_x());
 
-        const bool show_combo_pips = show_round_score && !score_swap_is_active(*this);
-        const bool show_bounty_bar =
-            show_round_score && !score_swap_is_active(*this) && bounty_progress_visible();
-
-        for(bn::sprite_ptr& sprite : combo_pip_sprites)
-        {
-            sprite.set_visible(show_combo_pips);
-        }
-
-        bounty_progress_bar.set_visible(show_bounty_bar);
-        bounty_progress_bar.set_x_offset(main_panel_offset_x());
+        const bool show_combo_bars = show_round_score && !score_swap_is_active(*this) &&
+                                     combo_any_progress_bar_enabled(state);
+        combo_progress_bars.set_visible(show_combo_bars);
 
         score_pop_render(*this, show_round_score && !inspecting);
         sync_score_sprite_depth();
@@ -1360,10 +1383,13 @@ void GameContext::render_frame()
             hud.sync_details_modifiers(state, 0, false);
         }
 
-        if(show_graveyard_layer() && !inspecting)
+        if(show_graveyard_layer() && !inspecting && mode != GameMode::GRAVEYARD_TARGET &&
+           mode != GameMode::GRAVEYARD_PICK)
         {
             render_graveyard_browse(graveyard_panel_offset_x());
         }
+
+        sync_graveyard_library_marker(main_x);
 
         position_inspect_sprites();
         trinket_render_fx(*this);

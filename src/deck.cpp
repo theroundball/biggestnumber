@@ -2,6 +2,7 @@
 
 #include "bn_span.h"
 #include "bn_utility.h"
+#include "card_type.h"
 
 Deck::Deck(int card_count, int dealt_cards) :
     _cards{},
@@ -164,6 +165,29 @@ void Deck::exile_undrawn_end(int count, bn::vector<CardRef, 50>& exile_out)
     }
 }
 
+void Deck::exile_undrawn_from_top(int count, bn::vector<CardRef, 50>& exile_out)
+{
+    int remaining_to_exile = count;
+
+    if(remaining_to_exile > remaining())
+    {
+        remaining_to_exile = remaining();
+    }
+
+    while(remaining_to_exile > 0 && !empty())
+    {
+        const CardRef card = _cards[_next_card];
+        remove_undrawn_at(0);
+
+        if(!exile_out.full())
+        {
+            exile_out.push_back(card);
+        }
+
+        --remaining_to_exile;
+    }
+}
+
 CardRef Deck::peek_undrawn_ref(int index) const
 {
     return _cards[_next_card + index];
@@ -259,5 +283,79 @@ void Deck::apply_gravity(const InstancePool& pool)
     for(int index = 0; index < lead_n; ++index)
     {
         _cards[write++] = lead[index];
+    }
+}
+
+void Deck::ensure_unique_bounty_instances(InstancePool& pool, uint8_t& next_bounty_id)
+{
+    bool instance_seen[InstancePool::CAPACITY] = {};
+    bool bounty_id_seen[InstancePool::CAPACITY] = {};
+
+    for(int index = 0; index < _size; ++index)
+    {
+        CardRef& card = _cards[index];
+
+        if(card.type != CardType::BOUNTY)
+        {
+            continue;
+        }
+
+        const bool duplicate_instance = card.has_instance() && card.instance_id < InstancePool::CAPACITY &&
+                                        instance_seen[card.instance_id];
+
+        if(card.has_instance() && !duplicate_instance)
+        {
+            instance_seen[card.instance_id] = true;
+        }
+        else
+        {
+            CardInstance template_instance{};
+
+            if(card.has_instance())
+            {
+                if(const CardInstance* existing = instance_at(pool, card.instance_id))
+                {
+                    template_instance = *existing;
+                }
+            }
+
+            const uint8_t new_id = instance_pool_add(pool, CardType::BOUNTY);
+
+            if(new_id != NO_INSTANCE)
+            {
+                if(card.has_instance())
+                {
+                    pool.entries[new_id] = template_instance;
+                    pool.entries[new_id].base = CardType::BOUNTY;
+                }
+
+                card.instance_id = new_id;
+                instance_seen[new_id] = true;
+            }
+        }
+
+        const bool duplicate_bounty = card.has_bounty_copy() && card.bounty_id < InstancePool::CAPACITY &&
+                                      bounty_id_seen[card.bounty_id];
+
+        if(card.has_bounty_copy() && !duplicate_bounty)
+        {
+            bounty_id_seen[card.bounty_id] = true;
+
+            if(card.bounty_id >= next_bounty_id)
+            {
+                next_bounty_id = static_cast<uint8_t>(card.bounty_id + 1);
+            }
+
+            continue;
+        }
+
+        if(next_bounty_id >= InstancePool::CAPACITY)
+        {
+            continue;
+        }
+
+        card.bounty_id = next_bounty_id;
+        bounty_id_seen[card.bounty_id] = true;
+        ++next_bounty_id;
     }
 }

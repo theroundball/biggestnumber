@@ -13,6 +13,8 @@ enum class GameEvent
 };
 
 int hand_scheduled_count(const GameState& state, bool include_in_flight_draw);
+bool run_should_end(const GameState& state, bool hand_draw_fx_active);
+int deck_hud_display_count(const GameState& state, bool hand_draw_fx_active);
 
 bool hand_add_card(GameState& state, CardRef card, bool from_deck_draw = false,
                    bool miracle_auto_play = false);
@@ -45,6 +47,6 @@ void battle_stat_record_exile(GameState& state);
 void battle_stat_record_draw_to_hand(GameState& state);
 void battle_stat_record_keyword_discard(GameState& state);
 void battle_stat_record_cycle(GameState& state);
-void battle_stat_record_flashback(GameState& state);
+void battle_stat_record_ghost(GameState& state);
 
 #endif

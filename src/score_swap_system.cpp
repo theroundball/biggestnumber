@@ -11,13 +11,26 @@
 #include "bn_utility.h"
 
 #include "game_context.h"
+#include "game_helpers.h"
 #include "game_ui.h"
 #include "score_count_system.h"
+#include "scoring.h"
 #include "trinket_system.h"
 
 namespace
 {
     constexpr int SCORE_DIGIT_RAISE = 12;
+
+    bool is_digit_slide_mode(ScoreDigitEditMode edit_mode)
+    {
+        return edit_mode == ScoreDigitEditMode::MOVE_FOUR || edit_mode == ScoreDigitEditMode::AUTO_MOVE_DIGIT;
+    }
+
+    bool is_interactive_digit_edit(ScoreDigitEditMode edit_mode)
+    {
+        return edit_mode == ScoreDigitEditMode::SWAP || edit_mode == ScoreDigitEditMode::MOVE_FOUR ||
+               edit_mode == ScoreDigitEditMode::REPLACE_WITH_FIVE;
+    }
 
     int round_running_digit_sprite_index(int end_multiplier, int digit_index)
     {
@@ -91,9 +104,9 @@ namespace
             return 0;
         }
 
-        if(fx.edit_mode == ScoreDigitEditMode::MOVE_FOUR)
+        if(is_digit_slide_mode(fx.edit_mode))
         {
-            // The Fourth owns its lift animation so it can take off smoothly.
+            // Slide modes own lift animation during the move.
             return 0;
         }
 
@@ -227,6 +240,11 @@ namespace
         ctx.score_swap_marker_sprites.clear();
         constexpr bn::color SELECTED_GREEN(6, 28, 10);
         constexpr bn::color CURSOR_YELLOW(31, 25, 5);
+
+        if(!is_interactive_digit_edit(fx.edit_mode))
+        {
+            return;
+        }
 
         if(fx.edit_mode != ScoreDigitEditMode::MOVE_FOUR)
         {
@@ -415,7 +433,8 @@ namespace
         return true;
     }
 
-    bool compute_moved_four_total(const GameContext& ctx, int source_slot, int destination_slot, int& out_total)
+    bool compute_moved_digit_for_field(const GameContext& ctx, SwapScoreField field, int source_slot,
+                                       int destination_slot, int& out_value)
     {
         const ScoreSwapFxState& fx = ctx.score_swap_fx;
 
@@ -427,11 +446,12 @@ namespace
 
         const int source_index = fx.slots[source_slot].digit_index;
         const int destination_index = fx.slots[destination_slot].digit_index;
-        bn::string<12> digits = bn::to_string<12>(ctx.state.total_score);
+        const int score_value = field == SwapScoreField::ROUND ? ctx.state.round.running
+                                                               : ctx.state.total_score;
+        bn::string<12> digits = bn::to_string<12>(score_value);
 
         if(source_index < 0 || destination_index < 0 ||
-           source_index >= digits.size() || destination_index >= digits.size() ||
-           digits[source_index] != '4')
+           source_index >= digits.size() || destination_index >= digits.size())
         {
             return false;
         }
@@ -454,8 +474,42 @@ namespace
         }
 
         digits[destination_index] = moved;
-        out_total = parse_score_digits(digits);
+        out_value = parse_score_digits(digits);
         return true;
+    }
+
+    bool compute_moved_digit_total(const GameContext& ctx, int source_slot, int destination_slot, int& out_total)
+    {
+        return compute_moved_digit_for_field(ctx, SwapScoreField::TOTAL, source_slot, destination_slot, out_total);
+    }
+
+    bool compute_moved_four_total(const GameContext& ctx, int source_slot, int destination_slot, int& out_total)
+    {
+        const ScoreSwapFxState& fx = ctx.score_swap_fx;
+
+        if(source_slot < 0 || destination_slot < 0 || source_slot >= fx.slot_count ||
+           destination_slot >= fx.slot_count || source_slot == destination_slot)
+        {
+            return false;
+        }
+
+        const int source_index = fx.slots[source_slot].digit_index;
+        const bn::string<12> digits = bn::to_string<12>(ctx.state.total_score);
+
+        if(source_index < 0 || source_index >= digits.size() || digits[source_index] != '4')
+        {
+            return false;
+        }
+
+        return compute_moved_digit_total(ctx, source_slot, destination_slot, out_total);
+    }
+
+    void apply_round_edit(GameContext& ctx, int new_round)
+    {
+        const int round_before = ctx.state.round.running;
+        ctx.state.round.running = new_round;
+        score_count_queue(ctx.state, TrinketScoreField::ROUND, round_before, new_round);
+        trinket_queue_score_check(ctx.state, TrinketScoreField::ROUND, round_before, new_round);
     }
 
     void apply_total_edit(GameContext& ctx, int new_total)
@@ -464,6 +518,28 @@ namespace
         ctx.state.total_score = new_total;
         score_count_queue(ctx.state, TrinketScoreField::TOTAL, total_before, new_total);
         trinket_queue_score_check(ctx.state, TrinketScoreField::TOTAL, total_before, new_total);
+    }
+
+    bool apply_moved_digit(GameContext& ctx, int source_slot, int destination_slot)
+    {
+        const SwapScoreField field = ctx.score_swap_fx.auto_move_field;
+        int new_value = 0;
+
+        if(!compute_moved_digit_for_field(ctx, field, source_slot, destination_slot, new_value))
+        {
+            return false;
+        }
+
+        if(field == SwapScoreField::ROUND)
+        {
+            apply_round_edit(ctx, new_value);
+        }
+        else
+        {
+            apply_total_edit(ctx, new_value);
+        }
+
+        return true;
     }
 
     bool apply_moved_four(GameContext& ctx, int source_slot, int destination_slot)
@@ -540,8 +616,6 @@ namespace
         const int round_before = ctx.state.round.running;
         ctx.state.round.running = new_round;
         ctx.state.total_score = new_total;
-        score_count_queue(ctx.state, TrinketScoreField::ROUND, round_before, new_round);
-        score_count_queue(ctx.state, TrinketScoreField::TOTAL, total_before, new_total);
         trinket_queue_score_check(ctx.state, TrinketScoreField::ROUND, round_before, new_round);
         trinket_queue_score_check(ctx.state, TrinketScoreField::TOTAL, total_before, new_total);
         return true;
@@ -553,8 +627,13 @@ namespace
 
         const bn::string<12> round_digits = bn::to_string<12>(ctx.state.round.running);
         const bn::string<12> total_digits = bn::to_string<12>(ctx.state.total_score);
+        const bool cache_round = fx.edit_mode == ScoreDigitEditMode::SWAP ||
+                                 (fx.edit_mode == ScoreDigitEditMode::AUTO_MOVE_DIGIT &&
+                                  fx.auto_move_field == SwapScoreField::ROUND);
+        const bool cache_total = fx.edit_mode != ScoreDigitEditMode::AUTO_MOVE_DIGIT ||
+                                 fx.auto_move_field == SwapScoreField::TOTAL;
 
-        if(fx.edit_mode == ScoreDigitEditMode::SWAP)
+        if(cache_round)
         {
             for(int index = 0; index < round_digits.size() && fx.slot_count < fx.slots.size(); ++index)
             {
@@ -574,18 +653,21 @@ namespace
             }
         }
 
-        for(int index = 0; index < total_digits.size() && fx.slot_count < fx.slots.size(); ++index)
+        if(cache_total)
         {
-            if(index >= ctx.text_sprites.size())
+            for(int index = 0; index < total_digits.size() && fx.slot_count < fx.slots.size(); ++index)
             {
-                continue;
-            }
+                if(index >= ctx.text_sprites.size())
+                {
+                    continue;
+                }
 
-            ScoreSwapDigitSlot& slot = fx.slots[fx.slot_count];
-            slot.field = SwapScoreField::TOTAL;
-            slot.digit_index = index;
-            slot.sprite_index = index;
-            ++fx.slot_count;
+                ScoreSwapDigitSlot& slot = fx.slots[fx.slot_count];
+                slot.field = SwapScoreField::TOTAL;
+                slot.digit_index = index;
+                slot.sprite_index = index;
+                ++fx.slot_count;
+            }
         }
 
         for(int index = 0; index < fx.slot_count; ++index)
@@ -609,9 +691,36 @@ namespace
         ctx.score_swap_marker_sprites.clear();
         ctx.score_swap_fx = ScoreSwapFxState{};
         ctx.round_text_generator.set_one_sprite_per_character(false);
+
+        // Digit-swap animation moves sprites manually; always rebuild at canonical layout.
+        score_count_cancel(ctx, TrinketScoreField::ROUND);
+        score_count_cancel(ctx, TrinketScoreField::TOTAL);
+
+        ctx._round_wiggle_x = 0;
+        ctx._round_wiggle_y = 0;
+        ctx._total_wiggle_x = 0;
+        ctx._total_wiggle_y = 0;
+        ctx.round_score_wiggle_frames = 0;
+        ctx.total_score_wiggle_frames = 0;
+
         ctx._round_score_initialized = false;
-        ctx.draw_round_score();
-        ctx.draw_total_score();
+        ctx._cached_round_score_text = "";
+        ctx._total_score_initialized = false;
+        ctx._cached_total_score = 0;
+
+        ctx.round_text_sprites.clear();
+        ctx.text_sprites.clear();
+        ctx.last_round_sprite_offset = 0;
+        ctx.last_main_sprite_offset = 0;
+
+        ctx.show_round_score_running(ctx.state.round.running, ctx.state.round.end_multiplier);
+        ctx.show_total_score_value(ctx.state.total_score);
+
+        ctx._round_score_initialized = true;
+        ctx._cached_round_score_text = format_round_score(ctx.state.round);
+        ctx._total_score_initialized = true;
+        ctx._cached_total_score = ctx.state.total_score;
+
         ctx.begin_next_pending_or_finish();
     }
 
@@ -759,7 +868,7 @@ namespace
 
         if(fx.swapping)
         {
-            if(fx.edit_mode == ScoreDigitEditMode::MOVE_FOUR)
+            if(is_digit_slide_mode(fx.edit_mode))
             {
                 const int source = fx.swap_slot_a;
                 const int destination = fx.swap_slot_b;
@@ -942,12 +1051,14 @@ namespace
         }
     }
 
-    bool begin_score_digit_edit(GameContext& ctx, ScoreDigitEditMode edit_mode)
+    bool begin_score_digit_edit(GameContext& ctx, ScoreDigitEditMode edit_mode,
+                                SwapScoreField auto_move_field = SwapScoreField::TOTAL)
     {
-        if(edit_mode == ScoreDigitEditMode::SWAP)
+        if(edit_mode == ScoreDigitEditMode::SWAP ||
+           (edit_mode == ScoreDigitEditMode::AUTO_MOVE_DIGIT && auto_move_field == SwapScoreField::ROUND))
         {
             // Normal HUD text packs several small round-score characters into one
-            // sprite. Swap needs a stable sprite and position per character.
+            // sprite. Digit edits need a stable sprite and position per character.
             ctx.round_text_generator.set_one_sprite_per_character(true);
             ctx._round_score_initialized = false;
             ctx.show_round_score_running(ctx.state.round.running, ctx.state.round.end_multiplier);
@@ -1000,6 +1111,7 @@ namespace
         fx = ScoreSwapFxState{};
         fx.active = true;
         fx.edit_mode = edit_mode;
+        fx.auto_move_field = auto_move_field;
         cache_digit_layout(ctx, fx);
 
         const int minimum_slots = edit_mode == ScoreDigitEditMode::REPLACE_WITH_FIVE ? 1 : 2;
@@ -1029,6 +1141,71 @@ namespace
         refresh_selected_markers(ctx);
         return true;
     }
+
+    int slot_for_exact_field_digit(const ScoreSwapFxState& fx, SwapScoreField field, int digit_index)
+    {
+        for(int index = 0; index < fx.slot_count; ++index)
+        {
+            if(fx.slots[index].field == field && fx.slots[index].digit_index == digit_index)
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    bool begin_auto_digit_move(GameContext& ctx, SwapScoreField field, int source_digit_index,
+                               int dest_digit_index)
+    {
+        if(!begin_score_digit_edit(ctx, ScoreDigitEditMode::AUTO_MOVE_DIGIT, field))
+        {
+            return false;
+        }
+
+        ScoreSwapFxState& fx = ctx.score_swap_fx;
+        const int source_slot = slot_for_exact_field_digit(fx, field, source_digit_index);
+        const int dest_slot = slot_for_exact_field_digit(fx, field, dest_digit_index);
+
+        if(source_slot < 0 || dest_slot < 0 || source_slot == dest_slot)
+        {
+            fx = ScoreSwapFxState{};
+            return false;
+        }
+
+        fx.swap_slot_a = source_slot;
+        fx.swap_slot_b = dest_slot;
+        fx.swapping = true;
+        fx.swap_frame = 0;
+        return true;
+    }
+
+    bool begin_lift_or_fall_move(GameContext& ctx, bool major_lift)
+    {
+        DigitMovePlan plan;
+
+        if(major_lift ? plan_major_lift(ctx.state.total_score, plan)
+                      : plan_minor_fall(ctx.state.total_score, plan))
+        {
+            if(begin_auto_digit_move(ctx, SwapScoreField::TOTAL, plan.source_digit_index,
+                                     plan.dest_digit_index))
+            {
+                return true;
+            }
+        }
+
+        if(major_lift ? plan_major_lift(ctx.state.round.running, plan)
+                      : plan_minor_fall(ctx.state.round.running, plan))
+        {
+            if(begin_auto_digit_move(ctx, SwapScoreField::ROUND, plan.source_digit_index,
+                                     plan.dest_digit_index))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
 
 bool score_swap_try_begin(GameContext& ctx)
@@ -1046,11 +1223,21 @@ bool score_fifth_try_begin(GameContext& ctx)
     return begin_score_digit_edit(ctx, ScoreDigitEditMode::REPLACE_WITH_FIVE);
 }
 
+bool score_major_lift_try_begin(GameContext& ctx)
+{
+    return begin_lift_or_fall_move(ctx, true);
+}
+
+bool score_minor_fall_try_begin(GameContext& ctx)
+{
+    return begin_lift_or_fall_move(ctx, false);
+}
+
 void score_swap_handle_input(GameContext& ctx)
 {
     ScoreSwapFxState& fx = ctx.score_swap_fx;
 
-    if(! fx.active || fx.swapping)
+    if(!fx.active || fx.swapping || fx.edit_mode == ScoreDigitEditMode::AUTO_MOVE_DIGIT)
     {
         return;
     }
@@ -1143,9 +1330,20 @@ void score_swap_tick(GameContext& ctx)
 
         if(fx.swap_frame >= game_layout::SWAP_FRAMES)
         {
-            const bool applied = fx.edit_mode == ScoreDigitEditMode::MOVE_FOUR
-                                     ? apply_moved_four(ctx, fx.swap_slot_a, fx.swap_slot_b)
-                                     : apply_digit_swap(ctx, fx.swap_slot_a, fx.swap_slot_b);
+            bool applied = false;
+
+            if(fx.edit_mode == ScoreDigitEditMode::MOVE_FOUR)
+            {
+                applied = apply_moved_four(ctx, fx.swap_slot_a, fx.swap_slot_b);
+            }
+            else if(fx.edit_mode == ScoreDigitEditMode::AUTO_MOVE_DIGIT)
+            {
+                applied = apply_moved_digit(ctx, fx.swap_slot_a, fx.swap_slot_b);
+            }
+            else
+            {
+                applied = apply_digit_swap(ctx, fx.swap_slot_a, fx.swap_slot_b);
+            }
 
             if(applied)
             {

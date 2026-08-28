@@ -8,7 +8,7 @@
 #include "menu_scenes.h"
 #include "ui_common.h"
 
-// Rod / Jacks / Cups pick for a new campaign deck.
+// Rod / Jacks / Shells pick for a new campaign deck.
 MenuSceneResult run_campaign_starter_pick_scene(CardType& out_utility);
 
 // Play submenu: change deck + three modes.

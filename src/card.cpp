@@ -231,7 +231,7 @@ namespace
             return;
         }
 
-        const int extra = line.empty() ? int(word.size()) : int(word.size()) + 1;
+        const int extra = line.empty() ? word.size() : word.size() + 1;
 
         if(line.size() + extra <= face_line_char_limit())
         {
@@ -331,20 +331,20 @@ namespace
             out.append("Cyc");
         }
 
-        if(data.has_flashback)
+        if(data.has_ghost)
         {
             if(!out.empty())
             {
                 out.append(' ');
             }
 
-            out.append("FB");
+            out.append("Gh");
 
-            if(data.flashback_plus != 0)
+            if(data.ghost_plus != 0)
             {
-                out.append(data.flashback_plus > 0 ? "+" : "-");
-                out.append(bn::to_string<4>(data.flashback_plus > 0 ? data.flashback_plus
-                                                                    : -data.flashback_plus));
+                out.append(data.ghost_plus > 0 ? "+" : "-");
+                out.append(bn::to_string<4>(data.ghost_plus > 0 ? data.ghost_plus
+                                                                    : -data.ghost_plus));
             }
         }
 
@@ -394,9 +394,9 @@ void apply_card_play(GameState& state, CardRef card)
 
 void apply_card_play(GameState& state, CardRef card, PlaySource source)
 {
-    if(source == PlaySource::FLASHBACK)
+    if(source == PlaySource::GHOST)
     {
-        battle_stat_record_flashback(state);
+        battle_stat_record_ghost(state);
     }
 
     const CardData& d = card_data(card.type);
@@ -408,10 +408,10 @@ void apply_card_play(GameState& state, CardRef card, PlaySource source)
         state.pending_double_adds = false;
     }
 
-    int plus = (source == PlaySource::FLASHBACK && d.has_flashback) ? d.flashback_plus : d.immediate_plus;
+    int plus = (source == PlaySource::GHOST && d.has_ghost) ? d.ghost_plus : d.immediate_plus;
     int multiply = d.immediate_multiply;
 
-    if(source != PlaySource::FLASHBACK)
+    if(source != PlaySource::GHOST)
     {
         if(const CardInstance* instance = instance_at(state.instance_pool, card.instance_id))
         {
@@ -454,15 +454,22 @@ void apply_card_play(GameState& state, CardRef card, PlaySource source)
         }
     }
 
-    if(card.type == CardType::EVALUATE && source == PlaySource::FLASHBACK)
+    state.play_effect_card = card;
+
+    if(card.type == CardType::LIFELINE && source == PlaySource::GHOST)
     {
-        state.evaluate_apply_all_future_multipliers();
+        lifeline_ghost_play(state);
+    }
+    else if(card.type == CardType::EVALUATE && source == PlaySource::GHOST)
+    {
+        state.queue_evaluate_ghost_steps();
     }
     else if(d.on_play)
     {
         d.on_play(state);
     }
 
+    state.play_effect_card = {};
     state.applying_double_adds = false;
 }
 

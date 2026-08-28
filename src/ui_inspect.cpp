@@ -108,7 +108,7 @@ void elevate_inspect_sprites(bn::vector<bn::sprite_ptr, 64>& sprites)
 void show_inspect_card(Card& card, CardType type, const CardInstance* instance,
                        bn::sprite_text_generator* pip_generator)
 {
-    card.clear_visual();
+    release_card_display_tiles(card);
     card.set_type(type);
     card.set_position(inspect_layout::CARD_X, inspect_layout::CARD_Y);
     card.set_blending_enabled(false);
@@ -165,6 +165,11 @@ void generate_wrapped_text(bn::sprite_text_generator& generator, int x, int y, i
 
     while(line_start < length)
     {
+        if(out.full())
+        {
+            break;
+        }
+
         while(line_start < length && text[line_start] == ' ')
         {
             ++line_start;
@@ -197,6 +202,11 @@ void generate_wrapped_text(bn::sprite_text_generator& generator, int x, int y, i
             line_end = line_start + max_chars < length ? line_start + max_chars : length;
         }
 
+        if(out.full())
+        {
+            break;
+        }
+
         generator.generate(x, cur_y, bn::string_view(text + line_start, line_end - line_start), out);
         cur_y += line_height;
         line_start = line_end;
@@ -223,7 +233,10 @@ void draw_card_inspect(CardType type,
     }
 
     title_generator.set_left_alignment();
-    title_generator.generate(inspect_layout::TEXT_X, title_y, title, out_sprites);
+    if(!out_sprites.full())
+    {
+        title_generator.generate(inspect_layout::TEXT_X, title_y, title, out_sprites);
+    }
 
     body_generator.set_left_alignment();
     generate_wrapped_text(body_generator, inspect_layout::TEXT_X, title_y + 20,
@@ -231,7 +244,7 @@ void draw_card_inspect(CardType type,
                           data.description, out_sprites);
 
     if(instance && (instance->plus_digit || instance->increment_mult ||
-                    instance->gravity != Gravity::NONE))
+                    instance->gravity != Gravity::NONE) && !out_sprites.full())
     {
         bn::string<40> upgrade_line = "Upgrades:";
         bn::string<32> suffix;

@@ -9,6 +9,7 @@
 #include "bn_sprite_tiles_ptr.h"
 #include "bn_vector.h"
 
+#include "bn_array.h"
 #include "game_types.h"
 
 // One OBJ palette slot shared by HUD icons, card markers, fade bands, and effect badges.
@@ -117,33 +118,34 @@ private:
                               int segment_count, int tile_index, int segment_offset);
 };
 
-// Ten-segment bar showing progress toward Bounty's +10 GY return threshold.
-class BountyProgressBar
+// Chunked gray/gold bars for combo graveyard progress (right rail, below trinkets).
+class ComboProgressBars
 {
 public:
-    static constexpr int SEGMENT_COUNT = 10;
-    static constexpr int SEGMENT = 8;
-    static constexpr int WIDTH = SEGMENT_COUNT * SEGMENT;
-    static constexpr int Y = 34;
+    ComboProgressBars();
 
-    BountyProgressBar();
-
-    void sync(int filled_segments);
+    void sync(const bn::array<uint8_t, game_layout::COMBO_BAR_ROW_COUNT>& lengths,
+              const bn::array<uint8_t, game_layout::COMBO_BAR_ROW_COUNT>& filled);
     void set_visible(bool visible);
-    void set_x_offset(int panel_offset);
 
 private:
+    struct Row
+    {
+        bn::vector<bn::sprite_ptr, game_layout::COMBO_BAR_MAX_SEGMENTS> track_sprites;
+        bn::vector<bn::sprite_ptr, game_layout::COMBO_BAR_MAX_SEGMENTS> fill_sprites;
+        int last_length = -1;
+        int last_filled = -1;
+    };
+
     bn::sprite_tiles_ptr _track_tile;
     bn::sprite_tiles_ptr _fill_tile;
     bn::sprite_palette_ptr _palette;
-    bn::vector<bn::sprite_ptr, SEGMENT_COUNT> _track_sprites;
-    bn::vector<bn::sprite_ptr, SEGMENT_COUNT> _fill_sprites;
-    int _last_filled = -1;
-    int _x_offset = 0;
+    bn::array<Row, game_layout::COMBO_BAR_ROW_COUNT> _rows;
     bool _visible = false;
 
-    [[nodiscard]] int segment_center_x(int segment_index) const;
-    void reposition_segments();
+    [[nodiscard]] int segment_center_x(int segment_index, int segment_count) const;
+    [[nodiscard]] int row_center_y(int row_index) const;
+    void sync_row(int row_index, int segment_count, int filled_count);
 };
 
 // Small 16x16 badge rendered above a hand card (Echo trinket art, Swivel placeholder
@@ -207,7 +209,9 @@ CardFlightSample sample_graveyard_to_hand_flight(int from_x, int from_y, int to_
                                                  int total_frames);
 
 CardFlightSample sample_graveyard_to_deck_flight(int from_x, int from_y, int to_x, int to_y, int frame,
-                                                  int total_frames);
+                                                 int total_frames);
+CardFlightSample sample_hud_via_center_flight(int from_x, int from_y, int center_x, int center_y,
+                                              int to_x, int to_y, int frame, int total_frames);
 
 void ease_raise_toward(int& current, int target);
 int swap_vertical_arc(int frame, int total_frames, int peak);

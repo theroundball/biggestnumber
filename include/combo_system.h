@@ -3,14 +3,14 @@
 
 #include "combo_types.h"
 
-#include "bn_string.h"
-#include "bn_vector.h"
+#include "bn_array.h"
 
 struct GameState;
 
-struct ComboPipLine
+struct ComboBarState
 {
-    bn::string<24> text;
+    uint8_t length = 0;
+    uint8_t filled = 0;
 };
 
 // Combo matching + cinematic control. Depends on GameState; do not include this
@@ -26,13 +26,15 @@ struct ComboDef
 };
 
 void combo_check_zone(GameState& state, ComboZone zone);
+void combo_init_progress_availability(GameState& state);
+[[nodiscard]] bool combo_any_progress_bar_enabled(const GameState& state);
+void combo_collect_bar_states(const GameState& state, bn::array<ComboBarState, 3>& out);
 int combo_ready_count(const GameState& state);
 uint8_t combo_ready_id_by_ordinal(const GameState& state, int ordinal);
 int combo_ready_multiplier(uint8_t combo_id);
 CardType combo_ready_display_type(uint8_t combo_id);
 bool combo_start_player_triggered(GameState& state, uint8_t combo_id);
 bool combo_would_complete_in_graveyard_with(const GameState& state, uint8_t combo_id, CardType incoming);
-int combo_staging_collect_pip_lines(const GameState& state, bn::vector<ComboPipLine, 3>& out);
 void combo_cinematic_begin(GameState& state);
 void combo_apply_score_bonus(GameState& state);
 void combo_remove_resolved_cards(GameState& state, int& selected_card);

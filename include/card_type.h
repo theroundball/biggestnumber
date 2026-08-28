@@ -47,7 +47,7 @@ enum class CardType
     RAGS_TO_RICHES,
     JACKS,
     FISHING_POLE,
-    CUPS,
+    SHELLS,
     SWAP,
     CATNIP,
     JOURNAL,
@@ -70,11 +70,16 @@ enum class CardType
     SOLO,
     SPECULATIVE,
     FLEX,
-    KEEP_GOING,
+    DEAD_RISING,
     BOUNTY,
     OVERCLOCK,
     EVALUATE,
     BUILD_A_NUMBER,
+    MINOR_FALL,
+    MAJOR_LIFT,
+    FINALE,
+    TIME_IS_MONEY,
+    SEVEN_FEET_DEEP,
     COUNT
 };
 

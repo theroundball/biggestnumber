@@ -431,7 +431,7 @@ void ScoreProgressBar::set_x_offset(int panel_offset)
     reposition_segments();
 }
 
-BountyProgressBar::BountyProgressBar() :
+ComboProgressBars::ComboProgressBars() :
     _track_tile(bn::sprite_tiles_ptr::allocate(1, bn::bpp_mode::BPP_4)),
     _fill_tile(bn::sprite_tiles_ptr::allocate(1, bn::bpp_mode::BPP_4)),
     _palette(ui_palette::shared())
@@ -448,71 +448,109 @@ BountyProgressBar::BountyProgressBar() :
 
     paint_tile(_track_tile, ui_palette::PLACEHOLDER);
     paint_tile(_fill_tile, ui_palette::SCORE_BAR_GOLD);
-
-    for(int segment_index = 0; segment_index < SEGMENT_COUNT; ++segment_index)
-    {
-        bn::sprite_ptr track_sprite = bn::sprite_ptr::create(
-            segment_center_x(segment_index), Y, bn::sprite_shape_size(8, 8), _track_tile, _palette);
-        track_sprite.set_z_order(game_layout::PLAY_PRESENTATION_SCORE_Z - 1);
-        track_sprite.set_visible(false);
-        _track_sprites.push_back(track_sprite);
-    }
 }
 
-int BountyProgressBar::segment_center_x(int segment_index) const
+int ComboProgressBars::segment_center_x(int segment_index, int segment_count) const
 {
-    return -WIDTH / 2 + SEGMENT / 2 + segment_index * SEGMENT + _x_offset;
+    const int width = segment_count * game_layout::COMBO_BAR_SEGMENT;
+    return game_layout::COMBO_BAR_X - width / 2 + game_layout::COMBO_BAR_SEGMENT / 2 +
+           segment_index * game_layout::COMBO_BAR_SEGMENT;
 }
 
-void BountyProgressBar::reposition_segments()
+int ComboProgressBars::row_center_y(int row_index) const
 {
-    for(int segment_index = 0; segment_index < _track_sprites.size(); ++segment_index)
-    {
-        _track_sprites[segment_index].set_x(segment_center_x(segment_index));
-    }
-
-    for(int segment_index = 0; segment_index < _fill_sprites.size(); ++segment_index)
-    {
-        _fill_sprites[segment_index].set_x(segment_center_x(segment_index));
-    }
+    return game_layout::COMBO_BAR_Y0 + row_index * game_layout::COMBO_BAR_ROW_STEP;
 }
 
-void BountyProgressBar::sync(int filled_segments)
+void ComboProgressBars::sync_row(int row_index, int segment_count, int filled_count)
 {
-    if(filled_segments < 0)
+    if(segment_count < 0)
     {
-        filled_segments = 0;
+        segment_count = 0;
     }
 
-    if(filled_segments > SEGMENT_COUNT)
+    if(segment_count > game_layout::COMBO_BAR_MAX_SEGMENTS)
     {
-        filled_segments = SEGMENT_COUNT;
+        segment_count = game_layout::COMBO_BAR_MAX_SEGMENTS;
     }
 
-    if(filled_segments == _last_filled)
+    if(filled_count < 0)
+    {
+        filled_count = 0;
+    }
+
+    if(filled_count > segment_count)
+    {
+        filled_count = segment_count;
+    }
+
+    Row& row = _rows[row_index];
+
+    if(segment_count == row.last_length && filled_count == row.last_filled)
     {
         return;
     }
 
-    _last_filled = filled_segments;
+    row.last_length = segment_count;
+    row.last_filled = filled_count;
 
-    while(_fill_sprites.size() > filled_segments)
+    while(row.track_sprites.size() > segment_count)
     {
-        _fill_sprites.pop_back();
+        row.track_sprites.pop_back();
     }
 
-    while(_fill_sprites.size() < filled_segments)
+    while(row.track_sprites.size() < segment_count)
     {
-        const int segment_index = _fill_sprites.size();
+        const int segment_index = row.track_sprites.size();
+        bn::sprite_ptr track_sprite = bn::sprite_ptr::create(
+            segment_center_x(segment_index, segment_count), row_center_y(row_index),
+            bn::sprite_shape_size(8, 8), _track_tile, _palette);
+        track_sprite.set_z_order(game_layout::PLAY_PRESENTATION_SCORE_Z - 1);
+        track_sprite.set_visible(_visible);
+        row.track_sprites.push_back(track_sprite);
+    }
+
+    for(int segment_index = 0; segment_index < row.track_sprites.size(); ++segment_index)
+    {
+        row.track_sprites[segment_index].set_x(segment_center_x(segment_index, segment_count));
+        row.track_sprites[segment_index].set_y(row_center_y(row_index));
+        row.track_sprites[segment_index].set_visible(_visible);
+    }
+
+    while(row.fill_sprites.size() > filled_count)
+    {
+        row.fill_sprites.pop_back();
+    }
+
+    while(row.fill_sprites.size() < filled_count)
+    {
+        const int segment_index = row.fill_sprites.size();
         bn::sprite_ptr fill_sprite = bn::sprite_ptr::create(
-            segment_center_x(segment_index), Y, bn::sprite_shape_size(8, 8), _fill_tile, _palette);
+            segment_center_x(segment_index, segment_count), row_center_y(row_index),
+            bn::sprite_shape_size(8, 8), _fill_tile, _palette);
         fill_sprite.set_z_order(game_layout::PLAY_PRESENTATION_SCORE_Z - 1);
         fill_sprite.set_visible(_visible);
-        _fill_sprites.push_back(fill_sprite);
+        row.fill_sprites.push_back(fill_sprite);
+    }
+
+    for(int segment_index = 0; segment_index < row.fill_sprites.size(); ++segment_index)
+    {
+        row.fill_sprites[segment_index].set_x(segment_center_x(segment_index, segment_count));
+        row.fill_sprites[segment_index].set_y(row_center_y(row_index));
+        row.fill_sprites[segment_index].set_visible(_visible);
     }
 }
 
-void BountyProgressBar::set_visible(bool visible)
+void ComboProgressBars::sync(const bn::array<uint8_t, game_layout::COMBO_BAR_ROW_COUNT>& lengths,
+                             const bn::array<uint8_t, game_layout::COMBO_BAR_ROW_COUNT>& filled)
+{
+    for(int row_index = 0; row_index < game_layout::COMBO_BAR_ROW_COUNT; ++row_index)
+    {
+        sync_row(row_index, lengths[row_index], filled[row_index]);
+    }
+}
+
+void ComboProgressBars::set_visible(bool visible)
 {
     if(_visible == visible)
     {
@@ -521,26 +559,18 @@ void BountyProgressBar::set_visible(bool visible)
 
     _visible = visible;
 
-    for(bn::sprite_ptr& sprite : _track_sprites)
+    for(Row& row : _rows)
     {
-        sprite.set_visible(visible);
-    }
+        for(bn::sprite_ptr& sprite : row.track_sprites)
+        {
+            sprite.set_visible(visible);
+        }
 
-    for(bn::sprite_ptr& sprite : _fill_sprites)
-    {
-        sprite.set_visible(visible);
+        for(bn::sprite_ptr& sprite : row.fill_sprites)
+        {
+            sprite.set_visible(visible);
+        }
     }
-}
-
-void BountyProgressBar::set_x_offset(int panel_offset)
-{
-    if(_x_offset == panel_offset)
-    {
-        return;
-    }
-
-    _x_offset = panel_offset;
-    reposition_segments();
 }
 
 CardEffectBadge::CardEffectBadge()
@@ -818,6 +848,51 @@ CardFlightSample sample_graveyard_to_deck_flight(int from_x, int from_y, int to_
         sample.scale = lerp_fixed(1, min_scale, (progress - 60) * 256 / 40);
     }
 
+    return sample;
+}
+
+CardFlightSample sample_hud_via_center_flight(int from_x, int from_y, int center_x, int center_y,
+                                              int to_x, int to_y, int frame, int total_frames)
+{
+    const bn::fixed min_scale = bn::fixed(game_layout::REMOVAL_MIN_SCALE) /
+                                bn::fixed(game_layout::REMOVAL_MIN_SCALE_DIVISOR);
+    CardFlightSample sample;
+
+    if(total_frames <= 1)
+    {
+        sample.x = to_x;
+        sample.y = to_y;
+        sample.scale = min_scale;
+        sample.alpha = 1;
+        sample.rotation = 0;
+        return sample;
+    }
+
+    const int progress = frame * 100 / (total_frames - 1);
+
+    if(progress < 40)
+    {
+        const int segment_progress = progress * 256 / 40;
+        sample.x = from_x + (center_x - from_x) * segment_progress / 256;
+        sample.y = from_y + (center_y - from_y) * segment_progress / 256;
+        sample.scale = lerp_fixed(min_scale, 1, segment_progress);
+    }
+    else if(progress <= 60)
+    {
+        sample.x = center_x;
+        sample.y = center_y;
+        sample.scale = 1;
+    }
+    else
+    {
+        const int segment_progress = (progress - 60) * 256 / 40;
+        sample.x = center_x + (to_x - center_x) * segment_progress / 256;
+        sample.y = center_y + (to_y - center_y) * segment_progress / 256;
+        sample.scale = lerp_fixed(1, min_scale, segment_progress);
+    }
+
+    sample.alpha = 1;
+    sample.rotation = 0;
     return sample;
 }
 

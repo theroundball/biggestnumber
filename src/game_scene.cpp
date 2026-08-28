@@ -14,6 +14,7 @@
 #include "card_instance.h"
 #include "common_variable_8x16_sprite_font.h"
 #include "game_context.h"
+#include "game_events.h"
 #include "score_count_system.h"
 #include "score_pop_system.h"
 #include "score_swap_system.h"
@@ -126,6 +127,7 @@ GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const 
         score_pop_process_pending(ctx);
         ctx.tick_deck_search_resolve();
         ctx.tick_hand_draw_fx();
+        ctx.tick_evaluate_ghost_steps();
         ctx.tick_score_wiggles();
         ctx.render_frame();
 
@@ -133,7 +135,7 @@ GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const 
                             !ctx.card_selection_ui_active() &&
                             !ctx.inspecting &&
                             ctx.side_panel == SidePanel::NONE && !ctx.panel_transition_active());
-        ctx.hud.update(ctx.state);
+        ctx.hud.update(ctx.state, deck_hud_display_count(ctx.state, ctx.hand_draw_fx_active));
 
         battle_backdrop_tick();
         bn::core::update();

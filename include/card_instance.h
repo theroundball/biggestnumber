@@ -39,10 +39,17 @@ struct CardRef
 {
     CardType type = CardType::COUNT;
     uint8_t instance_id = 255;
+    // Battle-local identity for Bounty n / return bounty. Not a save instance.
+    uint8_t bounty_id = 255;
 
     bool has_instance() const
     {
         return instance_id != 255;
+    }
+
+    bool has_bounty_copy() const
+    {
+        return bounty_id != 255;
     }
 };
 
