@@ -540,6 +540,7 @@ namespace
         ctx.state.selection.cursor = 0;
         ctx.state.selection.multiply_factor = action.count;
         ctx.mode = GameMode::POKER_HAND_DIGIT;
+        ctx.draw_round_score();
         return PendingStartResult::ENTERED_MODE;
     }
 

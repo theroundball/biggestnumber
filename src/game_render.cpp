@@ -741,10 +741,11 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                 const PlaySource overlay_source =
                     is_ghost && !is_longsleeve ? PlaySource::GHOST : PlaySource::HAND;
 
-                if(state.build_a_number_active)
+                if(state.build_a_number_active || state.poker_hand_active)
                 {
-                    const int build_digit =
-                        build_a_number_card_digit(state, slot_card, overlay_source);
+                    const int build_digit = state.build_a_number_active
+                                                ? build_a_number_card_digit(state, slot_card, overlay_source)
+                                                : poker_hand_card_digit(state, slot_card, overlay_source);
 
                     if(card_data(slot_card.type).text_only)
                     {

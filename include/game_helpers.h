@@ -70,6 +70,7 @@ void poker_hand_try_queue_digit_placement(GameState& state, CardRef card, PlaySo
 int poker_hand_card_digit(const GameState& state, CardRef card, PlaySource source);
 int build_a_number_card_digit(const GameState& state, CardRef card, PlaySource source);
 bool build_a_number_can_play_card(const GameState& state, CardRef card, PlaySource source);
+bool slot_mode_card_playable(const GameState& state, CardRef card, PlaySource source);
 void bind_bounty_copy(GameState& state, CardRef& card);
 int bounty_instance_play_count(const GameState& state, CardRef card);
 int bounty_play_plus(const GameState& state);

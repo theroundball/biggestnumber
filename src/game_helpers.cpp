@@ -113,9 +113,14 @@ bool card_has_play_effect(CardType type)
 
 bool card_has_play_effect(const GameState& state, CardRef card)
 {
-    if(state.build_a_number_active)
+    if(state.build_a_number_active && build_a_number_can_play_card(state, card, PlaySource::HAND))
     {
-        return build_a_number_can_play_card(state, card, PlaySource::HAND);
+        return true;
+    }
+
+    if(state.poker_hand_active && poker_hand_card_digit(state, card, PlaySource::HAND) >= 1)
+    {
+        return true;
     }
 
     if(card_has_play_effect(card.type))
@@ -668,6 +673,45 @@ bool build_a_number_can_play_card(const GameState& state, CardRef card, PlaySour
            build_a_number_card_digit(state, card, source) >= 1;
 }
 
+bool slot_mode_card_playable(const GameState& state, CardRef card, PlaySource source)
+{
+    if(state.build_a_number_active)
+    {
+        if(build_a_number_can_play_card(state, card, source))
+        {
+            return true;
+        }
+    }
+    else if(state.poker_hand_active)
+    {
+        if(poker_hand_card_digit(state, card, source) >= 1)
+        {
+            return true;
+        }
+    }
+    else
+    {
+        return true;
+    }
+
+    if(card_has_play_effect(card.type))
+    {
+        return true;
+    }
+
+    if(source != PlaySource::GHOST && card.has_instance())
+    {
+        const CardInstance* instance = instance_at(state.instance_pool, card.instance_id);
+
+        if(instance && (instance->plus_digit != 0 || instance->increment_mult))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void build_a_number_try_queue_digit_placement(GameState& state, CardRef card, PlaySource source)
 {
     if(!state.build_a_number_active || card.type == CardType::BUILD_A_NUMBER)
@@ -911,6 +955,17 @@ void format_card_face_stat(const GameState* state, CardRef ref, const CardInstan
     if(state->build_a_number_active)
     {
         const int digit = build_a_number_card_digit(*state, ref, PlaySource::HAND);
+
+        if(digit >= 1)
+        {
+            push_stat_segment(out, bn::to_string<1>(digit), CardStatColor::DEFAULT);
+            return;
+        }
+    }
+
+    if(state->poker_hand_active)
+    {
+        const int digit = poker_hand_card_digit(*state, ref, PlaySource::HAND);
 
         if(digit >= 1)
         {

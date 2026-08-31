@@ -19,6 +19,7 @@
 #include "card_instance.h"
 #include "game_events.h"
 #include "game_helpers.h"
+#include "game_helpers.h"
 #include "game_types.h"
 #include "card_meta.h"
 #include "game_state.h"
@@ -484,16 +485,11 @@ void apply_card_play(GameState& state, CardRef card)
     apply_card_play(state, card, PlaySource::HAND);
 }
 
-void apply_card_play(GameState& state, CardRef card, PlaySource source)
+namespace
 {
-    if(state.build_a_number_active && !state.applying_build_a_number_payout)
+    void apply_slot_mode_on_play_only(GameState& state, CardRef card, PlaySource source)
     {
-        return;
-    }
-
-    if(state.poker_hand_active)
-    {
-        const CardData& d = card_data(card.type);
+        const CardData& data = card_data(card.type);
         state.play_effect_card = card;
 
         if(card.type == CardType::LIFELINE && source == PlaySource::GHOST)
@@ -504,12 +500,36 @@ void apply_card_play(GameState& state, CardRef card, PlaySource source)
         {
             state.queue_evaluate_ghost_steps();
         }
-        else if(d.on_play)
+        else if(data.on_play)
         {
-            d.on_play(state);
+            data.on_play(state);
         }
 
         state.play_effect_card = {};
+    }
+}
+
+void apply_card_play(GameState& state, CardRef card, PlaySource source)
+{
+    if(state.build_a_number_active && !state.applying_build_a_number_payout)
+    {
+        if(build_a_number_card_digit(state, card, source) >= 1)
+        {
+            return;
+        }
+
+        apply_slot_mode_on_play_only(state, card, source);
+        return;
+    }
+
+    if(state.poker_hand_active)
+    {
+        if(poker_hand_card_digit(state, card, source) >= 1)
+        {
+            return;
+        }
+
+        apply_slot_mode_on_play_only(state, card, source);
         return;
     }
 

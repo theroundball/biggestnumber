@@ -725,7 +725,7 @@ void GameContext::draw_round_score()
         return;
     }
 
-    if(state.build_a_number_active)
+    if(state.build_a_number_active || state.poker_hand_active)
     {
         show_round_score_running(state.round.running, state.round.end_multiplier);
         return;
@@ -754,22 +754,29 @@ void GameContext::draw_round_score()
 
 void GameContext::show_round_score_running(int running, int end_multiplier)
 {
-    if(state.build_a_number_active)
+    if(state.build_a_number_active || state.poker_hand_active)
     {
-        bn::string<16> builder_text;
+        const int slot_count = state.build_a_number_active ? 3 : 5;
+        const bool digit_pick_active =
+            (state.build_a_number_active && mode == GameMode::BUILD_NUMBER_DIGIT) ||
+            (state.poker_hand_active && mode == GameMode::POKER_HAND_DIGIT);
+        bn::string<24> builder_text;
 
-        for(int index = 0; index < 3; ++index)
+        for(int index = 0; index < slot_count; ++index)
         {
             if(index > 0)
             {
                 builder_text.append(' ');
             }
 
-            if(state.build_digits[index] >= 0)
+            const int placed_digit = state.build_a_number_active ? state.build_digits[index]
+                                                                 : state.poker_digits[index];
+
+            if(placed_digit >= 0)
             {
-                builder_text.append(bn::to_string<1>(state.build_digits[index]));
+                builder_text.append(bn::to_string<1>(placed_digit));
             }
-            else if(mode == GameMode::BUILD_NUMBER_DIGIT && state.selection.cursor == index &&
+            else if(digit_pick_active && state.selection.cursor == index &&
                     state.selection.multiply_factor >= 1 && state.selection.multiply_factor <= 9)
             {
                 builder_text.append('[');

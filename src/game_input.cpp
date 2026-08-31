@@ -540,7 +540,7 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
     }
     else if(!game_over && !lock_for_scroll && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() && live_selected &&
-            !state.build_a_number_active &&
+            !state.build_a_number_active && !state.poker_hand_active &&
             bn::keypad::down_pressed() &&
             card_has_cycle(state.hand[selected_card].type))
     {
@@ -562,7 +562,7 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
         }
         else if(combine_selected)
         {
-            if(state.build_a_number_active)
+            if(state.build_a_number_active || state.poker_hand_active)
             {
                 return;
             }
@@ -607,8 +607,8 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
                 return;
             }
 
-            if(state.build_a_number_active &&
-               !build_a_number_can_play_card(state, played_ref, PlaySource::HAND))
+            if((state.build_a_number_active || state.poker_hand_active) &&
+               !slot_mode_card_playable(state, played_ref, PlaySource::HAND))
             {
                 return;
             }
@@ -643,8 +643,8 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
                 return;
             }
 
-            if(state.build_a_number_active &&
-               !build_a_number_can_play_card(state, played_ref, PlaySource::GHOST))
+            if((state.build_a_number_active || state.poker_hand_active) &&
+               !slot_mode_card_playable(state, played_ref, PlaySource::GHOST))
             {
                 return;
             }
@@ -701,8 +701,8 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
 
             const CardRef played_ref = state.hand[selected_card];
 
-            if(state.build_a_number_active &&
-               !build_a_number_can_play_card(state, played_ref, PlaySource::HAND))
+            if((state.build_a_number_active || state.poker_hand_active) &&
+               !slot_mode_card_playable(state, played_ref, PlaySource::HAND))
             {
                 return;
             }
@@ -1217,6 +1217,7 @@ void GameContext::handle_input_poker_hand_digit(int current_direction, bool dire
         }
 
         state.selection.cursor = next;
+        draw_round_score();
     }
     else if(!scrolling && !inspecting && confirm_pressed())
     {
@@ -1226,6 +1227,7 @@ void GameContext::handle_input_poker_hand_digit(int current_direction, bool dire
         if(digit >= 1 && digit <= 9 && slot >= 0 && slot < 5)
         {
             state.poker_digits[slot] = digit;
+            draw_round_score();
         }
 
         begin_next_pending_or_finish(true);
