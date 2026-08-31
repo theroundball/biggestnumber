@@ -1,6 +1,6 @@
 # Biggest Number — Project Handoff
 
-**Last updated:** 2026-08-12  
+**Last updated:** 2026-08-31  
 **Purpose:** Single document to onboard a new machine / Cursor session and continue development without prior chat history.
 
 > **Windows tree note (2026-08-12):** This workspace is **ahead** of the 2026-08-11 Mac handoff snapshot. Play resolution is wired at call sites; Lifeline uses `RECLAIM_GRAVEYARD`. **Primary product direction:** roguelike run mode (`docs/ROGUELIKE_RUN_HANDOFF.md`) — overworld vertical slice is **scrapped**.
@@ -41,6 +41,7 @@ Butano may not be available in Cursor agent sandboxes — rebuild locally after 
 | [`GAME_DESIGN_BRD.md`](GAME_DESIGN_BRD.md) | Living design doc — play costs, Echo, cards, §16 open questions |
 | [`play_resolution_matrix.md`](play_resolution_matrix.md) | Play-resolution audit, routing tree, migration #2a–#2e, manual test checklist |
 | [`SESSION_HANDOFF_LIFELINE.md`](SESSION_HANDOFF_LIFELINE.md) | Lifeline GY-ordering (fixed Approach B) |
+| [`FEATURE_PLAN_2026-08.md`](FEATURE_PLAN_2026-08.md) | August 2026 roadmap — rarities, sticky paper, card reworks, new modes |
 | **This file** | Session handoff, refactor status, next steps |
 | `.cursor/plans/refactor_inventory.plan.md` | Full duplication audit, dependency graph (copy with repo or from other machine) |
 | `.cursor/plans/rpg_overworld_vertical_slice_871a2829.plan.md` | Overworld slice plan (blocked on refactor) |
