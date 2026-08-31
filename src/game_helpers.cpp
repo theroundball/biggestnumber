@@ -469,6 +469,11 @@ bool empty_hand_triggers_round_end(const GameState& state)
         return false;
     }
 
+    if(state.hand.empty() && has_optional_ghost_plays(state) && !state.waive_optional_ghost_plays)
+    {
+        return false;
+    }
+
     return state.hand.empty();
 }
 
@@ -1772,6 +1777,7 @@ void play_miracle_bonus(GameState& state, int amount)
 {
     state.add_from_card(amount);
     ++state.cards_played_this_round;
+    state.sharing_tick_mult_after_play();
 }
 
 void remove_selected_card(GameState &state, int &selected_card)

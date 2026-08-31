@@ -204,6 +204,7 @@ namespace
         (void)source;
 
         ++state.cards_played_this_round;
+        state.sharing_tick_mult_after_play();
     }
 
     void finish_hand_play_destination(GameState& state, CardRef card, PlayResolutionContext& context,
@@ -311,8 +312,6 @@ GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const Battle
     if(campaign_ui.mode == CampaignMode::SHARING_IS_CARING)
     {
         state.sharing_is_caring_active = true;
-        state.sharing_round_mult = 5;
-        state.round.end_multiplier = 5;
     }
 
     switch(campaign_ui.mode)
@@ -383,6 +382,7 @@ GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const Battle
     deal_opening_hand();
     state.apply_round_start_adds();
     state.apply_round_start_multiply();
+    state.sharing_reset_round_mult();
     reset_card_animation_state();
     try_start_hand_draw_fx();
     draw_total_score();
@@ -2126,6 +2126,12 @@ void GameContext::commit_play_flight_destination(PlayFlight& flight)
     maybe_draw_if_solo(state, flight.played_ref.type);
     flight.hand_committed = true;
 
+    if(state.sharing_is_caring_active)
+    {
+        draw_round_score();
+        sync_details_panel(true);
+    }
+
     if(flight.play_context.source != PlaySource::ECHO)
     {
         arm_echo_replay(flight.played_ref, flight.scoring_source, flight.start_x, flight.start_y);
@@ -2175,6 +2181,13 @@ void GameContext::complete_play_flight(PlayFlight& flight)
         {
             increment_play_counters(state, flight.played_ref.type, PlaySource::ECHO);
             maybe_draw_if_solo(state, flight.played_ref.type);
+
+            if(state.sharing_is_caring_active)
+            {
+                draw_round_score();
+                sync_details_panel(true);
+            }
+
             trinket_queue_proc(state, TrinketType::ECHO);
             state.consume_echo();
 
@@ -2206,6 +2219,12 @@ void GameContext::complete_play_flight(PlayFlight& flight)
                                         flight.play_context.selected_card);
             increment_play_counters(state, flight.played_ref.type, flight.play_context.source);
             maybe_draw_if_solo(state, flight.played_ref.type);
+
+            if(state.sharing_is_caring_active)
+            {
+                draw_round_score();
+                sync_details_panel(true);
+            }
 
             if(flight.play_context.source != PlaySource::ECHO)
             {
@@ -2906,9 +2925,9 @@ void GameContext::finish_deferred_round_start()
 
     if(campaign_ui.mode == CampaignMode::SHARING_IS_CARING)
     {
-        state.sharing_round_mult = 5;
-        state.round.end_multiplier = 5;
+        state.sharing_reset_round_mult();
         draw_round_score();
+        sync_details_panel(true);
     }
 
     if(!hand_draw_fx_blocking())

@@ -329,6 +329,34 @@ int GameState::build_a_number_commit_prebuild()
     return committed;
 }
 
+void GameState::sharing_reset_round_mult()
+{
+    if(!sharing_is_caring_active)
+    {
+        return;
+    }
+
+    sharing_round_mult = 10;
+    round.end_multiplier = 10;
+}
+
+void GameState::sharing_tick_mult_after_play()
+{
+    if(!sharing_is_caring_active || sharing_round_mult <= 1)
+    {
+        return;
+    }
+
+    sharing_round_mult -= 2;
+
+    if(sharing_round_mult < 1)
+    {
+        sharing_round_mult = 1;
+    }
+
+    round.end_multiplier = sharing_round_mult;
+}
+
 void GameState::schedule_keep_going()
 {
     for(int offset = 0; offset < 3; ++offset)

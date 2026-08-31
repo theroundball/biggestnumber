@@ -71,18 +71,15 @@ namespace
 
         SavedDeck battle_deck_state = save.decks[save.active_deck_index];
 
-        if(mode == CampaignMode::SAME_NUMBER)
+        if(run_campaign_battle_deck_scene() != MenuSceneResult::STAY)
         {
-            if(run_same_number_deck_scene() != MenuSceneResult::STAY)
-            {
-                campaign_clear_ephemeral_battle_deck();
-                return;
-            }
+            campaign_clear_ephemeral_battle_deck();
+            return;
+        }
 
-            if(!campaign_take_ephemeral_battle_deck(save, battle_deck_state))
-            {
-                return;
-            }
+        if(!campaign_take_ephemeral_battle_deck(save, battle_deck_state))
+        {
+            return;
         }
 
         bn::vector<CardRef, 50> battle_deck;

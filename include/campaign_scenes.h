@@ -11,7 +11,7 @@
 // Rod / Jacks / Shells pick for a new campaign deck.
 MenuSceneResult run_campaign_starter_pick_scene(CardType& out_utility);
 
-// Play submenu: change deck + three modes.
+// Optional pre-battle deck tweak (ephemeral — does not write save).
 struct CampaignPlayMenuResult
 {
     MenuSceneResult next = MenuSceneResult::STAY;
@@ -22,7 +22,7 @@ CampaignPlayMenuResult run_campaign_play_menu_scene(bn::seed_random& rng);
 
 MenuSceneResult run_mode_intro_scene(CampaignMode mode, const CampaignUiContext& ctx);
 
-MenuSceneResult run_same_number_deck_scene();
+MenuSceneResult run_campaign_battle_deck_scene();
 
 // Post-battle results — returns next scene hint via out_to_prize.
 // same_number_target is the challenge used for that battle (may differ from save after a win).

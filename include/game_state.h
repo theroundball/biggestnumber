@@ -240,7 +240,7 @@ struct GameState
     bool poker_hand_active = false;
     bn::array<int, 5> poker_digits = {-1, -1, -1, -1, -1};
     bool sharing_is_caring_active = false;
-    int sharing_round_mult = 5;
+    int sharing_round_mult = 10;
 
     bn::array<TrinketType, 3> trinkets = {
         TrinketType::MOREL,
@@ -331,6 +331,8 @@ struct GameState
     int build_a_number_assembled_value() const;
     void build_a_number_complete_payout();
     int build_a_number_commit_prebuild();
+    void sharing_reset_round_mult();
+    void sharing_tick_mult_after_play();
 
     void start_new_round(bool preserve_round_score = false)
     {

@@ -120,6 +120,11 @@ bool run_should_end(const GameState& state, int in_flight_deck_draws)
         return false;
     }
 
+    if(has_optional_ghost_plays(state) && !state.waive_optional_ghost_plays)
+    {
+        return false;
+    }
+
     return true;
 }
 

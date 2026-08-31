@@ -201,12 +201,7 @@ PlayResolutionResult resolve_played_card(GameState& state, CardRef card,
     if(result.increment_cards_played)
     {
         ++state.cards_played_this_round;
-
-        if(state.sharing_is_caring_active && state.sharing_round_mult > 1)
-        {
-            --state.sharing_round_mult;
-            state.round.end_multiplier = state.sharing_round_mult;
-        }
+        state.sharing_tick_mult_after_play();
     }
 
     maybe_draw_if_solo(state, card.type);

@@ -549,7 +549,7 @@ namespace
             scene_text.draw_centered_line(-32, "3 rounds only");
             break;
         case CampaignMode::SHARING_IS_CARING:
-            scene_text.draw_centered_line(-32, "x5 mult fades per play");
+            scene_text.draw_centered_line(-32, "x10 mult -2 per play");
             break;
         case CampaignMode::POKER_HAND:
             scene_text.draw_centered_line(-32, "Build best poker hand");
@@ -628,7 +628,7 @@ MenuSceneResult run_mode_intro_scene(CampaignMode mode, const CampaignUiContext&
     }
 }
 
-MenuSceneResult run_same_number_deck_scene()
+MenuSceneResult run_campaign_battle_deck_scene()
 {
     const SaveData& save = save_data_get();
 
