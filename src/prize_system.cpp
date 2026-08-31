@@ -65,6 +65,11 @@ namespace
                 continue;
             }
 
+            if(type == CardType::PALINDROME && !palindrome_prize_eligible(save))
+            {
+                continue;
+            }
+
             out.push_back(type);
         }
 
@@ -196,13 +201,8 @@ CardType prize_combo_next(const SaveData& save)
     return CardType::COUNT;
 }
 
-bool prize_should_include_upgrade(const SaveData& save)
-{
-    return save.total_wins > 0 && (save.total_wins % 5) == 0;
-}
-
 bool prize_build_offers(const SaveData& save, CampaignMode mode, int peak_before, int band_score,
-                         bool include_upgrade, bn::seed_random& rng,
+                         bn::seed_random& rng,
                          PrizeOffer out_offers[CAMPAIGN_PRIZE_SLOT_COUNT])
 {
     CardRarity slot_rarities[CAMPAIGN_PRIZE_SLOT_COUNT];
@@ -219,28 +219,21 @@ bool prize_build_offers(const SaveData& save, CampaignMode mode, int peak_before
         CardType::COUNT,
     };
 
-    if(include_upgrade)
+    const CardType combo_next = prize_combo_next(save);
+
+    if(combo_next != CardType::COUNT)
     {
-        out_offers[CAMPAIGN_FLEX_SLOT_INDEX].kind = random_upgrade_kind(rng);
+        out_offers[CAMPAIGN_FLEX_SLOT_INDEX].kind = PrizeOfferKind::CARD;
+        out_offers[CAMPAIGN_FLEX_SLOT_INDEX].card = combo_next;
+        picked_cards[CAMPAIGN_FLEX_SLOT_INDEX] = combo_next;
     }
     else
     {
-        const CardType combo_next = prize_combo_next(save);
-
-        if(combo_next != CardType::COUNT)
-        {
-            out_offers[CAMPAIGN_FLEX_SLOT_INDEX].kind = PrizeOfferKind::CARD;
-            out_offers[CAMPAIGN_FLEX_SLOT_INDEX].card = combo_next;
-            picked_cards[CAMPAIGN_FLEX_SLOT_INDEX] = combo_next;
-        }
-        else
-        {
-            const CardType flex_card =
-                pick_library_card(save, CardRarity::COMMON, rng, picked_cards, CAMPAIGN_FLEX_SLOT_INDEX);
-            out_offers[CAMPAIGN_FLEX_SLOT_INDEX].kind = PrizeOfferKind::CARD;
-            out_offers[CAMPAIGN_FLEX_SLOT_INDEX].card = flex_card;
-            picked_cards[CAMPAIGN_FLEX_SLOT_INDEX] = flex_card;
-        }
+        const CardType flex_card =
+            pick_library_card(save, CardRarity::COMMON, rng, picked_cards, CAMPAIGN_FLEX_SLOT_INDEX);
+        out_offers[CAMPAIGN_FLEX_SLOT_INDEX].kind = PrizeOfferKind::CARD;
+        out_offers[CAMPAIGN_FLEX_SLOT_INDEX].card = flex_card;
+        picked_cards[CAMPAIGN_FLEX_SLOT_INDEX] = flex_card;
     }
 
     for(int slot = 0; slot < CAMPAIGN_PRIZE_SLOT_COUNT; ++slot)

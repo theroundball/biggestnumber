@@ -3,6 +3,7 @@
 
 #include "battle_backdrop.h"
 #include "campaign_flow.h"
+#include "campaign_scenes.h"
 #include "menu_scenes.h"
 #include "save_data.h"
 
@@ -43,6 +44,12 @@ int main()
         case MenuSceneResult::DECK_LIST_PLAY:
         {
             campaign_run_play_flow(rng);
+            break;
+        }
+
+        case MenuSceneResult::CAMPAIGN_SHOP:
+        {
+            run_campaign_shop_scene(rng);
             break;
         }
 

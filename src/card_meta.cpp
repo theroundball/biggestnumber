@@ -1,5 +1,7 @@
 #include "card_meta.h"
 
+#include "save_data.h"
+
 namespace
 {
     constexpr CardRarity max_rarity(CardRarity a, CardRarity b)
@@ -54,7 +56,7 @@ namespace
 
     // Card rarity and copy limits (see docs/CAMPAIGN_IMPLEMENTATION_PLAN.md).
     constexpr CardMeta META_TABLE[] = {
-        {CardRarity::UNCOMMON, 5}, // SIPS
+        {CardRarity::COMMON, 5},   // SIPS
         {CardRarity::COMMON, 5},   // LONGBOARD
         {CardRarity::COMMON, 5},   // HEELYS
         {CardRarity::COMMON, 5},   // SCOOTER
@@ -64,8 +66,8 @@ namespace
         {CardRarity::COMMON, 5},   // STOLLER
         {CardRarity::UNCOMMON, 5}, // RIP_STICK
         {CardRarity::UNCOMMON, 5}, // BIKE
-        {CardRarity::RARE, 5},     // CLOVER
-        {CardRarity::RARE, 5},     // BIG_KUROSAWA_BURGER
+        {CardRarity::UNCOMMON, 5}, // CLOVER
+        {CardRarity::UNCOMMON, 5}, // BIG_KUROSAWA_BURGER
         {CardRarity::RARE, 1},     // ROCK
         {CardRarity::RARE, 1},     // PAPER
         {CardRarity::RARE, 1},     // SCISSORS
@@ -75,56 +77,56 @@ namespace
         {CardRarity::UNCOMMON, 3}, // STRAW
         {CardRarity::UNCOMMON, 3}, // STICKS
         {CardRarity::UNCOMMON, 3}, // BRICKS
-        {CardRarity::UNCOMMON, 1}, // LIFELINE
+        {CardRarity::RARE, 1},     // LIFELINE
         {CardRarity::UNCOMMON, 5}, // SNAIL_MAIL
         {CardRarity::UNCOMMON, 2}, // WISHES
-        {CardRarity::COMMON, 3},   // BUSTED
-        {CardRarity::UNCOMMON, 1}, // SWIVEL
+        {CardRarity::COMMON, 5},   // BUSTED
+        {CardRarity::UNCOMMON, 5}, // SWIVEL
         {CardRarity::RARE, 1},     // ROUNDUP
         {CardRarity::RARE, 1},     // HACKER
-        {CardRarity::RARE, 1},     // LIBRARIAN
-        {CardRarity::UNCOMMON, 1}, // PILOT
+        {CardRarity::UNCOMMON, 3}, // LIBRARIAN
+        {CardRarity::UNCOMMON, 3}, // PILOT
         {CardRarity::RARE, 1},     // TURTLE_MODE
         {CardRarity::UNCOMMON, 2}, // TIME_IS_TOO_EXPENSIVE
         {CardRarity::UNCOMMON, 5}, // BIRDS_OF_A_FEATHER
         {CardRarity::RARE, 1},     // NECROMANCY
         {CardRarity::UNCOMMON, 5}, // MIRACLE
         {CardRarity::RARE, 1},     // RAGS_TO_RICHES
-        {CardRarity::RARE, 1},     // JACKS
-        {CardRarity::RARE, 1},     // FISHING_POLE
-        {CardRarity::RARE, 1},     // SHELLS
+        {CardRarity::UNCOMMON, 5}, // JACKS
+        {CardRarity::UNCOMMON, 5}, // FISHING_POLE
+        {CardRarity::UNCOMMON, 5}, // SHELLS
         {CardRarity::RARE, 1},     // SWAP
-        {CardRarity::COMMON, 3},   // CATNIP
+        {CardRarity::COMMON, 5},   // CATNIP
         {CardRarity::UNCOMMON, 5}, // JOURNAL
         {CardRarity::UNCOMMON, 5}, // TRIPTYCH
-        {CardRarity::UNCOMMON, 2}, // DILLA
+        {CardRarity::UNCOMMON, 3}, // DILLA
         {CardRarity::RARE, 1},     // SEMAPHORE
-        {CardRarity::COMMON, 3},   // BONES
+        {CardRarity::COMMON, 5},   // BONES
         {CardRarity::UNCOMMON, 2}, // THRESHOLD
-        {CardRarity::UNCOMMON, 2}, // TOMBSTONES
-        {CardRarity::UNCOMMON, 2}, // ROLL_OVER
+        {CardRarity::UNCOMMON, 5}, // TOMBSTONES
+        {CardRarity::RARE, 2},     // ROLL_OVER
         {CardRarity::COMMON, 5},   // TOPPINGS
         {CardRarity::COMMON, 5},   // CYCLE
         {CardRarity::UNCOMMON, 3}, // CYCLE_SEVEN
         {CardRarity::UNCOMMON, 3}, // GET_ME_OUTA_HERE
         {CardRarity::UNCOMMON, 3}, // COMEBACK
         {CardRarity::UNCOMMON, 3}, // ENCORE
-        {CardRarity::COMMON, 5},   // THE_FOURTH
-        {CardRarity::COMMON, 5},   // PALINDROME
-        {CardRarity::COMMON, 5},   // THE_FIFTH
+        {CardRarity::RARE, 1},     // THE_FOURTH
+        {CardRarity::RARE, 1},     // PALINDROME
+        {CardRarity::RARE, 1},     // THE_FIFTH
         {CardRarity::UNCOMMON, 3}, // SOLO
         {CardRarity::RARE, 1},     // SPECULATIVE
         {CardRarity::RARE, 1},     // FLEX
-        {CardRarity::UNCOMMON, 3}, // DEAD_RISING
-        {CardRarity::UNCOMMON, 1}, // BOUNTY
+        {CardRarity::UNCOMMON, 5}, // DEAD_RISING
+        {CardRarity::UNCOMMON, 5}, // BOUNTY
         {CardRarity::RARE, 1},     // OVERCLOCK
         {CardRarity::RARE, 1},     // EVALUATE
-        {CardRarity::UNCOMMON, 1}, // BUILD_A_NUMBER
+        {CardRarity::RARE, 1},     // BUILD_A_NUMBER
         {CardRarity::UNCOMMON, 1}, // MINOR_FALL
         {CardRarity::UNCOMMON, 1}, // MAJOR_LIFT
         {CardRarity::RARE, 1},     // FINALE
-        {CardRarity::UNCOMMON, 2}, // TIME_IS_MONEY
-        {CardRarity::RARE, 1},     // SEVEN_FEET_DEEP
+        {CardRarity::COMMON, 5},   // TIME_IS_MONEY
+        {CardRarity::UNCOMMON, 3}, // SEVEN_FEET_DEEP
     };
 
     static_assert(sizeof(META_TABLE) / sizeof(META_TABLE[0]) == int(CardType::COUNT),
@@ -153,6 +155,11 @@ bool card_is_combo_piece(CardType type)
     default:
         return false;
     }
+}
+
+bool palindrome_prize_eligible(const SaveData& save)
+{
+    return save.biggest_number_record > 11011;
 }
 
 void drop_merged_slot_rarities(int run_peak_before, int battle_score, CardRarity out_slots[3])

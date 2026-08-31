@@ -18,6 +18,7 @@ namespace
     constexpr int SAVE_DATA_VERSION_V12 = 12;
     constexpr int SAVE_DATA_VERSION_V13 = 13;
     constexpr int SAVE_DATA_VERSION_V14 = 14;
+    constexpr int SAVE_DATA_VERSION_V15 = 15;
     constexpr int SAVE_DATA_CARD_COUNT_V10 = 63;
     constexpr int SAVE_DATA_CARD_COUNT_V11 = 74;
     constexpr int SAVE_DATA_CARD_COUNT_V12 = 66;
@@ -1104,6 +1105,88 @@ namespace
         }
     }
 
+    struct SaveDataV15
+    {
+        uint32_t magic = 0;
+        uint16_t version = 0;
+        uint8_t deck_count = 0;
+        uint8_t active_deck_index = 0;
+        uint8_t campaign_ready = 0;
+        uint8_t reserved_pad = 0;
+        int32_t biggest_number_record = 0;
+        int32_t total_wins = 0;
+        int32_t same_number_wins = 0;
+        int16_t same_number_target = 0;
+        uint8_t same_number_used_count = 0;
+        uint8_t reserved = 0;
+        int16_t same_number_used_targets[SAME_NUMBER_USED_CAPACITY] = {};
+        int32_t number_now_round_best[CAMPAIGN_NUMBER_NOW_ROUNDS] = {};
+        uint8_t library_counts[int(CardType::COUNT)] = {};
+        uint8_t trinket_owned[int(TrinketType::COUNT)] = {};
+        InstancePool instance_pool{};
+        SavedDeck decks[MAX_SAVED_DECKS] = {};
+    };
+
+    void save_data_migrate_v15_to_v16(SaveData& data, const SaveDataV15& old_data)
+    {
+        data = SaveData{};
+        data.magic = old_data.magic;
+        data.version = SAVE_DATA_VERSION;
+        data.deck_count = old_data.deck_count;
+        data.active_deck_index = old_data.active_deck_index;
+        data.campaign_ready = old_data.campaign_ready;
+        data.reserved_pad = old_data.reserved_pad;
+        data.biggest_number_record = old_data.biggest_number_record;
+        data.total_wins = old_data.total_wins;
+        data.same_number_wins = old_data.same_number_wins;
+        data.same_number_target = old_data.same_number_target;
+        data.same_number_used_count = old_data.same_number_used_count;
+        data.reserved = old_data.reserved;
+
+        for(int index = 0; index < SAME_NUMBER_USED_CAPACITY; ++index)
+        {
+            data.same_number_used_targets[index] = old_data.same_number_used_targets[index];
+        }
+
+        for(int round_index = 0; round_index < CAMPAIGN_NUMBER_NOW_ROUNDS; ++round_index)
+        {
+            data.number_now_round_best[round_index] = old_data.number_now_round_best[round_index];
+        }
+
+        for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+        {
+            data.library_counts[type_index] = old_data.library_counts[type_index];
+        }
+
+        for(int trinket_index = 0; trinket_index < int(TrinketType::COUNT); ++trinket_index)
+        {
+            data.trinket_owned[trinket_index] = old_data.trinket_owned[trinket_index];
+        }
+
+        data.instance_pool = old_data.instance_pool;
+
+        for(int deck_index = 0; deck_index < data.deck_count; ++deck_index)
+        {
+            data.decks[deck_index] = old_data.decks[deck_index];
+        }
+    }
+
+    bool save_data_valid_v15(const SaveDataV15& data)
+    {
+        if(data.magic != SAVE_DATA_MAGIC || data.version != SAVE_DATA_VERSION_V15 ||
+           data.deck_count > MAX_SAVED_DECKS)
+        {
+            return false;
+        }
+
+        if(data.active_deck_index >= data.deck_count && data.deck_count > 0)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
     bool save_data_valid_v14(const SaveDataV14& data)
     {
         if(data.magic != SAVE_DATA_MAGIC || data.version != SAVE_DATA_VERSION_V14 ||
@@ -2077,12 +2160,12 @@ void save_data_init()
     }
     else
     {
-        SaveDataV14 legacy_v14;
-        bn::sram::read(legacy_v14);
+        SaveDataV15 legacy_v15;
+        bn::sram::read(legacy_v15);
 
-        if(save_data_valid_v14(legacy_v14))
+        if(save_data_valid_v15(legacy_v15))
         {
-            save_data_migrate_v14_to_v15(_save_data, legacy_v14);
+            save_data_migrate_v15_to_v16(_save_data, legacy_v15);
 
             for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
             {
@@ -2091,12 +2174,12 @@ void save_data_init()
         }
         else
         {
-            SaveDataV13 legacy_v13;
-            bn::sram::read(legacy_v13);
+            SaveDataV14 legacy_v14;
+            bn::sram::read(legacy_v14);
 
-            if(save_data_valid_v13(legacy_v13))
+            if(save_data_valid_v14(legacy_v14))
             {
-                save_data_migrate_v13_to_v14(_save_data, legacy_v13);
+                save_data_migrate_v14_to_v15(_save_data, legacy_v14);
 
                 for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
                 {
@@ -2105,12 +2188,12 @@ void save_data_init()
             }
             else
             {
-                SaveDataV12 legacy_v12;
-                bn::sram::read(legacy_v12);
+                SaveDataV13 legacy_v13;
+                bn::sram::read(legacy_v13);
 
-                if(save_data_valid_v12(legacy_v12))
+                if(save_data_valid_v13(legacy_v13))
                 {
-                    save_data_migrate_v12_to_v13(_save_data, legacy_v12);
+                    save_data_migrate_v13_to_v14(_save_data, legacy_v13);
 
                     for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
                     {
@@ -2119,7 +2202,22 @@ void save_data_init()
                 }
                 else
                 {
-                    save_data_reset();
+                    SaveDataV12 legacy_v12;
+                    bn::sram::read(legacy_v12);
+
+                    if(save_data_valid_v12(legacy_v12))
+                    {
+                        save_data_migrate_v12_to_v13(_save_data, legacy_v12);
+
+                        for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
+                        {
+                            saved_deck_sanitize_name(_save_data.decks[deck_index]);
+                        }
+                    }
+                    else
+                    {
+                        save_data_reset();
+                    }
                 }
             }
         }

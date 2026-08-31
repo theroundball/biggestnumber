@@ -12,7 +12,7 @@
 #include "game_state.h"
 
 constexpr int SAVE_DATA_MAGIC = 0x424E554D; // 'BNUM'
-constexpr int SAVE_DATA_VERSION = 15;
+constexpr int SAVE_DATA_VERSION = 16;
 constexpr int MAX_SAVED_DECKS = 6;
 constexpr int LIBRARY_COPY_LIMIT = 5;
 constexpr int DECK_MIN_CARDS = 1;
@@ -24,6 +24,8 @@ constexpr int CAMPAIGN_TRINKET_SLOTS = 2;
 constexpr int CAMPAIGN_NUMBER_NOW_ROUNDS = 10;
 constexpr int SAME_NUMBER_BRACKET_SIZE = 50;
 constexpr int SAME_NUMBER_USED_CAPACITY = 5;
+constexpr int CAMPAIGN_STICKER_PAPER_UPGRADE_COST = 10;
+constexpr int POKER_HAND_RANK_COUNT = 9;
 
 struct SavedDeck
 {
@@ -60,6 +62,10 @@ struct SaveData
     uint8_t trinket_owned[int(TrinketType::COUNT)] = {};
     InstancePool instance_pool{};
     SavedDeck decks[MAX_SAVED_DECKS] = {};
+    uint16_t sticker_paper = 0;
+    int32_t aint_got_time_record = 0;
+    int32_t sharing_is_caring_record = 0;
+    int32_t poker_hand_record[POKER_HAND_RANK_COUNT] = {};
 };
 
 void save_data_init();

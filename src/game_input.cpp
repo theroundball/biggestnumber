@@ -233,6 +233,11 @@ void GameContext::handle_input()
                                                 scrolling);
                 break;
 
+            case GameMode::POKER_HAND_DIGIT:
+                handle_input_poker_hand_digit(current_direction, direction_triggered, direction_steps,
+                                              scrolling);
+                break;
+
             case GameMode::COMBO:
             default:
                 break;
@@ -1189,6 +1194,38 @@ void GameContext::handle_input_build_number_digit(int current_direction, bool di
             }
 
             draw_round_score();
+        }
+
+        begin_next_pending_or_finish(true);
+    }
+}
+
+void GameContext::handle_input_poker_hand_digit(int current_direction, bool direction_triggered,
+                                                int direction_steps, bool scrolling)
+{
+    if(!scrolling && direction_triggered)
+    {
+        int next = state.selection.cursor + current_direction * direction_steps;
+
+        if(next < 0)
+        {
+            next = 0;
+        }
+        else if(next > 4)
+        {
+            next = 4;
+        }
+
+        state.selection.cursor = next;
+    }
+    else if(!scrolling && !inspecting && confirm_pressed())
+    {
+        const int digit = state.selection.multiply_factor;
+        const int slot = state.selection.cursor;
+
+        if(digit >= 1 && digit <= 9 && slot >= 0 && slot < 5)
+        {
+            state.poker_digits[slot] = digit;
         }
 
         begin_next_pending_or_finish(true);

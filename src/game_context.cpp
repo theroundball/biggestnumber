@@ -28,6 +28,7 @@
 #include "score_pop_system.h"
 #include "score_swap_system.h"
 #include "swivel_system.h"
+#include "poker_hand.h"
 #include "trinket_system.h"
 #include "ui_inspect.h"
 
@@ -187,29 +188,14 @@ namespace
             }
         }
 
-        const int graveyard_count = state.graveyard.size();
-
-        if(graveyard_count > 0)
-        {
-            state.add_from_card(graveyard_count);
-        }
-
         const int factor = bones_count + 1;
-
-        if(factor > 1)
-        {
-            state.mul_from_card(factor);
-        }
+        state.mul_from_card(factor);
     }
 
     void apply_tombstones_gy_entry(GameState& state)
     {
-        const int factor = count_unique_graveyard_types(state);
-
-        if(factor > 1)
-        {
-            state.mul_from_card(factor);
-        }
+        const int n = state.graveyard.size();
+        state.add_from_card(n);
     }
 
     void increment_play_counters(GameState& state, CardType type, PlaySource source)
@@ -312,6 +298,23 @@ GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const Battle
     deck.ensure_unique_bounty_instances(state.instance_pool, state.bounty_next_id);
     campaign_ui = launch.campaign_ui;
 
+    if(campaign_ui.mode == CampaignMode::POKER_HAND)
+    {
+        state.poker_hand_active = true;
+
+        for(int index = 0; index < 5; ++index)
+        {
+            state.poker_digits[index] = -1;
+        }
+    }
+
+    if(campaign_ui.mode == CampaignMode::SHARING_IS_CARING)
+    {
+        state.sharing_is_caring_active = true;
+        state.sharing_round_mult = 5;
+        state.round.end_multiplier = 5;
+    }
+
     switch(campaign_ui.mode)
     {
     case CampaignMode::BIGGEST_NUMBER:
@@ -327,6 +330,14 @@ GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const Battle
 
     case CampaignMode::NUMBER_NOW:
         score_to_beat = campaign_ui.number_now_round_peak;
+        break;
+
+    case CampaignMode::AINT_GOT_TIME:
+        score_to_beat = campaign_ui.aint_got_time_record;
+        break;
+
+    case CampaignMode::SHARING_IS_CARING:
+        score_to_beat = campaign_ui.sharing_is_caring_record;
         break;
 
     default:
@@ -513,6 +524,12 @@ int GameContext::score_progress_goal() const
     case CampaignMode::NUMBER_NOW:
         return campaign_ui.number_now_round_peak;
 
+    case CampaignMode::AINT_GOT_TIME:
+        return campaign_ui.aint_got_time_record;
+
+    case CampaignMode::SHARING_IS_CARING:
+        return campaign_ui.sharing_is_caring_record;
+
     default:
         return score_to_beat;
     }
@@ -629,7 +646,37 @@ bool GameContext::score_presentation_blocking() const
 void GameContext::request_run_end()
 {
     game_over = true;
-    scene_result.final_score = state.total_score;
+
+    if(campaign_ui.mode == CampaignMode::POKER_HAND && state.poker_hand_active)
+    {
+        bn::array<int, 5> digits;
+
+        for(int index = 0; index < 5; ++index)
+        {
+            digits[index] = state.poker_digits[index] > 0 ? state.poker_digits[index] : 0;
+        }
+
+        const PokerHandEvaluation evaluation = poker_hand_evaluate(digits);
+
+        if(evaluation.valid)
+        {
+            const int rank_index = int(evaluation.rank);
+            scene_result.poker_hand_rank = rank_index;
+            scene_result.poker_hand_score = evaluation.score;
+            scene_result.final_score = evaluation.score;
+
+            if(rank_index >= 0 && rank_index < POKER_HAND_RANK_COUNT &&
+               evaluation.score > campaign_ui.poker_hand_records[rank_index])
+            {
+                scene_result.poker_hand_beat_record = true;
+            }
+        }
+    }
+    else
+    {
+        scene_result.final_score = state.total_score;
+    }
+
     score_count_process_pending(*this);
     run_end_presentation_pending = true;
     tick_run_end_presentation();
@@ -2005,6 +2052,7 @@ void GameContext::resolve_play_flight_effects(PlayFlight& flight)
         apply_card_relocated_from_play(state, flight.played_ref.type, flight.play_context.source);
         apply_card_play(state, flight.played_ref, flight.scoring_source);
         build_a_number_try_queue_digit_placement(state, flight.played_ref, flight.scoring_source);
+        poker_hand_try_queue_digit_placement(state, flight.played_ref, flight.scoring_source);
         draw_round_score();
     }
 
@@ -2828,6 +2876,15 @@ void GameContext::finish_deferred_round_start()
         return;
     }
 
+    if(campaign_ui.mode == CampaignMode::AINT_GOT_TIME && state.current_round >= 3)
+    {
+        deferred_round_start_pending = false;
+        keep_going_transfer_active = false;
+        keep_going_transfers_remaining = 0;
+        request_run_end();
+        return;
+    }
+
     deferred_round_start_pending = false;
     keep_going_transfer_active = false;
     keep_going_transfers_remaining = 0;
@@ -2839,6 +2896,13 @@ void GameContext::finish_deferred_round_start()
     process_instant_pending();
     draw_round_score();
     draw_total_score();
+
+    if(campaign_ui.mode == CampaignMode::SHARING_IS_CARING)
+    {
+        state.sharing_round_mult = 5;
+        state.round.end_multiplier = 5;
+        draw_round_score();
+    }
 
     if(!hand_draw_fx_blocking())
     {
@@ -3452,6 +3516,8 @@ bool GameContext::selection_blocks_pending_finish() const
         return !state.hand.empty();
     case GameMode::BUILD_NUMBER_DIGIT:
         return state.build_a_number_active;
+    case GameMode::POKER_HAND_DIGIT:
+        return state.poker_hand_active;
     case GameMode::SCORE_SWAP:
         return score_swap_is_active(*this);
     case GameMode::COMBO:
@@ -3484,6 +3550,7 @@ bool GameContext::selection_mode_allows_input_during_presentation() const
     case GameMode::GRAVEYARD_PICK:
     case GameMode::DISCARD_TARGET:
     case GameMode::BUILD_NUMBER_DIGIT:
+    case GameMode::POKER_HAND_DIGIT:
     case GameMode::SCORE_SWAP:
         return true;
     default:
@@ -3846,6 +3913,14 @@ void GameContext::sync_details_panel(bool force)
         goal_value = campaign_ui.number_now_round_peak;
         break;
 
+    case CampaignMode::AINT_GOT_TIME:
+        goal_value = campaign_ui.aint_got_time_record;
+        break;
+
+    case CampaignMode::SHARING_IS_CARING:
+        goal_value = campaign_ui.sharing_is_caring_record;
+        break;
+
     default:
         break;
     }
@@ -3882,6 +3957,72 @@ void GameContext::sync_details_panel(bool force)
 
         details_text_generator.generate(0, 16, "Next 3 rounds", details_sprites);
     }
+    else if(campaign_ui.mode == CampaignMode::POKER_HAND)
+    {
+        bn::string<24> library_line = "Library ";
+        library_line.append(bn::to_string<8>(library));
+        details_text_generator.generate(0, -56, library_line, details_sprites);
+
+        bn::string<16> round_line = "Round ";
+        round_line.append(bn::to_string<4>(round));
+        details_text_generator.generate(0, -40, round_line, details_sprites);
+
+        bn::string<32> slots_line = "Digits ";
+
+        for(int index = 0; index < 5; ++index)
+        {
+            if(index > 0)
+            {
+                slots_line.append(" ");
+            }
+
+            if(state.poker_digits[index] > 0)
+            {
+                slots_line.append(bn::to_string<4>(state.poker_digits[index]));
+            }
+            else
+            {
+                slots_line.append("-");
+            }
+        }
+
+        details_text_generator.generate(0, -24, slots_line, details_sprites);
+        details_text_generator.generate(0, -8, "Best hand at end", details_sprites);
+    }
+    else if(campaign_ui.mode == CampaignMode::AINT_GOT_TIME)
+    {
+        bn::string<24> library_line = "Library ";
+        library_line.append(bn::to_string<8>(library));
+        details_text_generator.generate(0, -56, library_line, details_sprites);
+
+        bn::string<16> round_line = "Round ";
+        round_line.append(bn::to_string<4>(round));
+        round_line.append(" / 3");
+        details_text_generator.generate(0, -40, round_line, details_sprites);
+
+        bn::string<32> record_line = "Record ";
+        record_line.append(bn::to_string<12>(campaign_ui.aint_got_time_record));
+        details_text_generator.generate(0, -24, record_line, details_sprites);
+        details_text_generator.generate(0, -8, "Ends after round 3", details_sprites);
+    }
+    else if(campaign_ui.mode == CampaignMode::SHARING_IS_CARING)
+    {
+        bn::string<24> library_line = "Library ";
+        library_line.append(bn::to_string<8>(library));
+        details_text_generator.generate(0, -56, library_line, details_sprites);
+
+        bn::string<16> round_line = "Round ";
+        round_line.append(bn::to_string<4>(round));
+        details_text_generator.generate(0, -40, round_line, details_sprites);
+
+        bn::string<32> mult_line = "Round mult x";
+        mult_line.append(bn::to_string<4>(state.sharing_round_mult));
+        details_text_generator.generate(0, -24, mult_line, details_sprites);
+
+        bn::string<32> record_line = "Record ";
+        record_line.append(bn::to_string<12>(campaign_ui.sharing_is_caring_record));
+        details_text_generator.generate(0, -8, record_line, details_sprites);
+    }
     else
     {
         bn::string<24> library_line = "Library ";
@@ -3904,6 +4045,16 @@ void GameContext::sync_details_panel(bool force)
         case CampaignMode::SAME_NUMBER:
             goal_line = "Target: ";
             goal_line.append(bn::to_string<8>(campaign_ui.same_number_target));
+            break;
+
+        case CampaignMode::AINT_GOT_TIME:
+            goal_line = "Record: ";
+            goal_line.append(bn::to_string<12>(campaign_ui.aint_got_time_record));
+            break;
+
+        case CampaignMode::SHARING_IS_CARING:
+            goal_line = "Record: ";
+            goal_line.append(bn::to_string<12>(campaign_ui.sharing_is_caring_record));
             break;
 
         default:

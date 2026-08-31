@@ -376,7 +376,7 @@ bool waterfall_would_make_bigger(const GameState& state, CardRef card)
         return true;
 
     case CardType::BONES:
-        return state.graveyard.size() > 0;
+        return true;
 
     case CardType::JOURNAL:
         return state.cards_played_this_round > 0 && state.round.running > 0;
@@ -552,7 +552,7 @@ namespace
         switch(card.type)
         {
         case CardType::TOMBSTONES:
-            return 3;
+            return state.graveyard.size() + 1;
 
         case CardType::THRESHOLD:
             return 3;
@@ -596,7 +596,7 @@ namespace
             return 9;
 
         case CardType::BONES:
-            return state.graveyard.size() + 1;
+            return count_bones_in_graveyard(state) + 1;
 
         default:
             return played_card_digit_plus(state, card, source);
@@ -624,14 +624,11 @@ namespace
         case CardType::TIME_IS_MONEY:
             return state.current_round * 2;
 
-        case CardType::TOMBSTONES:
-            return tombstones_multiplier_preview(state);
-
         case CardType::BONES:
-        {
-            const int bones_after = count_bones_in_graveyard(state) + 1;
-            return bones_after + 1;
-        }
+            return 0;
+
+        case CardType::TOMBSTONES:
+            return 0;
 
         case CardType::THRESHOLD:
             return 3;
@@ -689,6 +686,31 @@ void build_a_number_try_queue_digit_placement(GameState& state, CardRef card, Pl
     action.type = PendingActionType::BUILD_A_NUMBER_PLACE_DIGIT;
     action.count = digit;
     state.pending_actions.push_back(action);
+}
+
+void poker_hand_try_queue_digit_placement(GameState& state, CardRef card, PlaySource source)
+{
+    if(!state.poker_hand_active)
+    {
+        return;
+    }
+
+    const int digit = poker_hand_card_digit(state, card, source);
+
+    if(digit < 1)
+    {
+        return;
+    }
+
+    PendingAction action;
+    action.type = PendingActionType::POKER_HAND_PLACE_DIGIT;
+    action.count = digit;
+    state.pending_actions.push_back(action);
+}
+
+int poker_hand_card_digit(const GameState& state, CardRef card, PlaySource source)
+{
+    return build_a_number_card_digit(state, card, source);
 }
 
 namespace
@@ -919,17 +941,10 @@ void format_card_face_stat(const GameState* state, CardRef ref, const CardInstan
         break;
 
     case CardType::TOMBSTONES:
-        push_plus_stat(out, 3);
-        push_mult_stat(out, tombstones_multiplier_preview(*state));
+        push_plus_stat(out, state->graveyard.size() + (in_graveyard ? 0 : 1));
         break;
 
     case CardType::BONES:
-        if(state->graveyard.size() > 0 || !in_graveyard)
-        {
-            const int gy_after = state->graveyard.size() + (in_graveyard ? 0 : 1);
-            push_plus_stat(out, gy_after);
-        }
-
         {
             const int bones_after = count_bones_in_graveyard(*state) + (in_graveyard ? 0 : 1);
             push_mult_stat(out, bones_after + 1);

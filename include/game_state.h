@@ -117,6 +117,7 @@ enum class PendingActionType
     PLAY_RANDOM_GRAVEYARD,
     ROLL_OVER_SUBSTITUTE,
     BUILD_A_NUMBER_PLACE_DIGIT,
+    POKER_HAND_PLACE_DIGIT,
     PAPER_SWAP_HAND,
     PEANUT_BUTTER_SCRY,
     MIRACLE_AUTO_PLAY,
@@ -249,6 +250,10 @@ struct GameState
     int build_pre_running = 0;
     int build_pre_end_multiplier = 1;
     bool applying_build_a_number_payout = false;
+    bool poker_hand_active = false;
+    bn::array<int, 5> poker_digits = {-1, -1, -1, -1, -1};
+    bool sharing_is_caring_active = false;
+    int sharing_round_mult = 5;
 
     bn::array<TrinketType, 3> trinkets = {
         TrinketType::MOREL,

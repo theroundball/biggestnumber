@@ -17,6 +17,23 @@ namespace
         out_trinkets[2] = TrinketType::NONE;
     }
 
+    void populate_launch_ui(const SaveData& save, CampaignMode mode, const CampaignBattleSetup& setup,
+                            BattleLaunch& launch)
+    {
+        launch.campaign_ui.mode = mode;
+        launch.campaign_ui.biggest_number_record = save.biggest_number_record;
+        launch.campaign_ui.same_number_target = setup.same_number_target;
+        launch.campaign_ui.number_now_scoring_round = setup.number_now_scoring_round;
+        launch.campaign_ui.number_now_round_peak = setup.number_now_round_peak;
+        launch.campaign_ui.aint_got_time_record = save.aint_got_time_record;
+        launch.campaign_ui.sharing_is_caring_record = save.sharing_is_caring_record;
+
+        for(int index = 0; index < POKER_HAND_RANK_COUNT; ++index)
+        {
+            launch.campaign_ui.poker_hand_records[index] = save.poker_hand_record[index];
+        }
+    }
+
     void run_campaign_battle(CampaignMode mode, bn::seed_random& rng)
     {
         SaveData& save = save_data_mut();
@@ -26,28 +43,57 @@ namespace
             return;
         }
 
-        // Lock (or keep) the Same Number challenge before battle — never re-roll while > 0.
         if(mode == CampaignMode::SAME_NUMBER)
         {
             campaign_prepare_same_number_target(save, rng);
         }
 
         const CampaignBattleSetup setup = campaign_battle_setup(save, mode, rng);
-        const SavedDeck& deck = save.decks[save.active_deck_index];
+
+        CampaignUiContext intro_ctx;
+        intro_ctx.mode = mode;
+        intro_ctx.biggest_number_record = save.biggest_number_record;
+        intro_ctx.same_number_target = setup.same_number_target;
+        intro_ctx.number_now_scoring_round = setup.number_now_scoring_round;
+        intro_ctx.number_now_round_peak = setup.number_now_round_peak;
+        intro_ctx.aint_got_time_record = save.aint_got_time_record;
+        intro_ctx.sharing_is_caring_record = save.sharing_is_caring_record;
+
+        for(int index = 0; index < POKER_HAND_RANK_COUNT; ++index)
+        {
+            intro_ctx.poker_hand_records[index] = save.poker_hand_record[index];
+        }
+
+        if(run_mode_intro_scene(mode, intro_ctx) == MenuSceneResult::MAIN_MENU)
+        {
+            return;
+        }
+
+        SavedDeck battle_deck_state = save.decks[save.active_deck_index];
+
+        if(mode == CampaignMode::SAME_NUMBER)
+        {
+            if(run_same_number_deck_scene() != MenuSceneResult::STAY)
+            {
+                campaign_clear_ephemeral_battle_deck();
+                return;
+            }
+
+            if(!campaign_take_ephemeral_battle_deck(save, battle_deck_state))
+            {
+                return;
+            }
+        }
 
         bn::vector<CardRef, 50> battle_deck;
-        campaign_flatten_deck(save, save.active_deck_index, battle_deck);
+        campaign_flatten_saved_deck(save, battle_deck_state, battle_deck);
 
         BattleLaunch launch;
         launch.deck_index = save.active_deck_index;
         launch.score_to_beat = setup.peak_before;
-        launch.campaign_ui.mode = mode;
-        launch.campaign_ui.biggest_number_record = save.biggest_number_record;
-        launch.campaign_ui.same_number_target = setup.same_number_target;
-        launch.campaign_ui.number_now_scoring_round = setup.number_now_scoring_round;
-        launch.campaign_ui.number_now_round_peak = setup.number_now_round_peak;
+        populate_launch_ui(save, mode, setup, launch);
         launch.campaign_ui.number_now_round_count =
-            campaign_number_now_round_count(saved_deck_total_cards(deck));
+            campaign_number_now_round_count(saved_deck_total_cards(battle_deck_state));
 
         launch.campaign_mode = mode;
         launch.same_number_target = setup.same_number_target;
@@ -55,29 +101,34 @@ namespace
         launch.number_now_round_peak = setup.number_now_round_peak;
         instance_pool_clamp(save.instance_pool);
         launch.instance_pool = save.instance_pool;
-        campaign_load_trinkets(deck, launch.trinkets);
-        saved_deck_resolve_longsleeve_cards(deck, save.instance_pool, launch.longsleeve_cards);
+        campaign_load_trinkets(battle_deck_state, launch.trinkets);
+        saved_deck_resolve_longsleeve_cards(battle_deck_state, save.instance_pool, launch.longsleeve_cards);
 
         const GameSceneResult game = run_game_scene(battle_deck, launch);
 
         if(game.exited_early)
         {
+            campaign_clear_ephemeral_battle_deck();
             return;
         }
+
+        campaign_grant_sticker_paper(save, 1);
 
         const bool won =
             campaign_evaluate_win(save, mode, game, setup.peak_before, setup.same_number_target,
                                   setup.number_now_round_peak, setup.number_now_scoring_round);
 
         bool to_prize = false;
-        run_campaign_battle_results_scene(mode, game, won, setup.same_number_target, to_prize);
+        run_campaign_battle_results_scene(mode, game, won, setup.same_number_target, to_prize, true);
 
-        if(!won)
+        campaign_clear_ephemeral_battle_deck();
+
+        if(!won || !to_prize)
         {
             return;
         }
 
-        if(saved_deck_unrestricted_build(deck))
+        if(saved_deck_unrestricted_build(battle_deck_state))
         {
             return;
         }

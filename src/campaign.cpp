@@ -127,6 +127,37 @@ int campaign_number_now_round_count(int deck_size)
     return (deck_size - 1) / 5 + 1;
 }
 
+namespace
+{
+    SavedDeck ephemeral_battle_deck;
+    bool ephemeral_battle_deck_ready = false;
+}
+
+void campaign_set_ephemeral_battle_deck(const SavedDeck& deck)
+{
+    ephemeral_battle_deck = deck;
+    ephemeral_battle_deck_ready = true;
+}
+
+bool campaign_take_ephemeral_battle_deck(const SaveData& save, SavedDeck& out_deck)
+{
+    (void)save;
+
+    if(!ephemeral_battle_deck_ready)
+    {
+        return false;
+    }
+
+    out_deck = ephemeral_battle_deck;
+    ephemeral_battle_deck_ready = false;
+    return true;
+}
+
+void campaign_clear_ephemeral_battle_deck()
+{
+    ephemeral_battle_deck_ready = false;
+}
+
 CampaignBattleSetup campaign_battle_setup(const SaveData& save, CampaignMode mode, bn::seed_random& rng)
 {
     CampaignBattleSetup setup;
@@ -178,7 +209,19 @@ CampaignBattleSetup campaign_battle_setup(const SaveData& save, CampaignMode mod
         break;
     }
 
-    default:
+    case CampaignMode::AINT_GOT_TIME:
+        setup.peak_before = save.aint_got_time_record;
+        setup.band_score = setup.peak_before;
+        break;
+
+    case CampaignMode::SHARING_IS_CARING:
+        setup.peak_before = save.sharing_is_caring_record;
+        setup.band_score = setup.peak_before;
+        break;
+
+    case CampaignMode::POKER_HAND:
+        setup.peak_before = 0;
+        setup.band_score = 0;
         break;
     }
 
@@ -203,6 +246,15 @@ bool campaign_evaluate_win(const SaveData& save, CampaignMode mode, const GameSc
     case CampaignMode::NUMBER_NOW:
         return result.last_round_number == number_now_scoring_round &&
                result.last_round_score > number_now_round_peak;
+
+    case CampaignMode::AINT_GOT_TIME:
+        return result.final_score > peak_before;
+
+    case CampaignMode::SHARING_IS_CARING:
+        return result.final_score > peak_before;
+
+    case CampaignMode::POKER_HAND:
+        return result.poker_hand_beat_record;
 
     default:
         return false;
@@ -243,6 +295,28 @@ void campaign_apply_win(SaveData& save, CampaignMode mode, const GameSceneResult
         break;
     }
 
+    case CampaignMode::AINT_GOT_TIME:
+        if(result.final_score > save.aint_got_time_record)
+        {
+            save.aint_got_time_record = result.final_score;
+        }
+        break;
+
+    case CampaignMode::SHARING_IS_CARING:
+        if(result.final_score > save.sharing_is_caring_record)
+        {
+            save.sharing_is_caring_record = result.final_score;
+        }
+        break;
+
+    case CampaignMode::POKER_HAND:
+        if(result.poker_hand_rank >= 0 && result.poker_hand_rank < POKER_HAND_RANK_COUNT &&
+           result.poker_hand_score > save.poker_hand_record[result.poker_hand_rank])
+        {
+            save.poker_hand_record[result.poker_hand_rank] = result.poker_hand_score;
+        }
+        break;
+
     default:
         break;
     }
@@ -250,16 +324,38 @@ void campaign_apply_win(SaveData& save, CampaignMode mode, const GameSceneResult
     save_data_write();
 }
 
-int campaign_wins_until_upgrade(const SaveData& save)
-{
-    const int mod = save.total_wins % 5;
-    return mod == 0 ? 0 : 5 - mod;
-}
-
 int campaign_wins_until_trinket(const SaveData& save)
 {
     const int mod = save.total_wins % 10;
     return mod == 0 ? 0 : 10 - mod;
+}
+
+void campaign_grant_sticker_paper(SaveData& save, int amount)
+{
+    const int next = int(save.sticker_paper) + amount;
+
+    if(next > 65535)
+    {
+        save.sticker_paper = 65535;
+    }
+    else
+    {
+        save.sticker_paper = uint16_t(next);
+    }
+
+    save_data_write();
+}
+
+bool campaign_spend_sticker_paper(SaveData& save, int amount)
+{
+    if(int(save.sticker_paper) < amount)
+    {
+        return false;
+    }
+
+    save.sticker_paper = uint16_t(int(save.sticker_paper) - amount);
+    save_data_write();
+    return true;
 }
 
 void campaign_rebuild_instance_pool(SaveData& save)
@@ -281,16 +377,9 @@ void campaign_rebuild_instance_pool(SaveData& save)
     }
 }
 
-void campaign_flatten_deck(const SaveData& save, int deck_index, bn::vector<CardRef, 50>& out)
+void campaign_flatten_saved_deck(const SaveData& save, const SavedDeck& deck, bn::vector<CardRef, 50>& out)
 {
     out.clear();
-
-    if(deck_index < 0 || deck_index >= save.deck_count)
-    {
-        return;
-    }
-
-    const SavedDeck& deck = save.decks[deck_index];
 
     for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
     {
@@ -299,8 +388,6 @@ void campaign_flatten_deck(const SaveData& save, int deck_index, bn::vector<Card
 
         for(int copy = 0; copy < copies; ++copy)
         {
-            // Each deck maps its Nth copy of a type to the Nth owned instance.
-            // Decks share the collection; they do not consume distinct instances.
             int seen = 0;
             uint8_t instance_id = NO_INSTANCE;
 
@@ -326,6 +413,18 @@ void campaign_flatten_deck(const SaveData& save, int deck_index, bn::vector<Card
             out.push_back(CardRef{type, instance_id});
         }
     }
+}
+
+void campaign_flatten_deck(const SaveData& save, int deck_index, bn::vector<CardRef, 50>& out)
+{
+    out.clear();
+
+    if(deck_index < 0 || deck_index >= save.deck_count)
+    {
+        return;
+    }
+
+    campaign_flatten_saved_deck(save, save.decks[deck_index], out);
 }
 
 bool campaign_apply_prize_card(SaveData& save, CardType type)

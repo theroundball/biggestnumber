@@ -443,6 +443,8 @@ public:
                            bool row_scrolling);
     void handle_input_build_number_digit(int current_direction, bool direction_triggered,
                                          int direction_steps, bool scrolling);
+    void handle_input_poker_hand_digit(int current_direction, bool direction_triggered,
+                                       int direction_steps, bool scrolling);
     void sync_inspect_panel();
     void tick_scroll();
     void tick_card_raise();

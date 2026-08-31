@@ -27,6 +27,8 @@ const CardMeta& card_meta(CardType type);
 // Combo pieces (RPS, PB&J, Straw/Sticks/Bricks) — never offered again once owned.
 bool card_is_combo_piece(CardType type);
 
+bool palindrome_prize_eligible(const SaveData& save);
+
 // Merged baseline+delta rarities for the three prize slots (campaign prize_system).
 void drop_merged_slot_rarities(int run_peak_before, int battle_score, CardRarity out_slots[3]);
 

@@ -12,10 +12,8 @@ void prize_slot_rarities(CampaignMode mode, int peak_before, int band_score,
 
 CardType prize_combo_next(const SaveData& save);
 
-bool prize_should_include_upgrade(const SaveData& save);
-
 bool prize_build_offers(const SaveData& save, CampaignMode mode, int peak_before, int band_score,
-                         bool include_upgrade, bn::seed_random& rng,
+                         bn::seed_random& rng,
                          PrizeOffer out_offers[CAMPAIGN_PRIZE_SLOT_COUNT]);
 
 TrinketType prize_roll_trinket(const SaveData& save, bn::seed_random& rng);

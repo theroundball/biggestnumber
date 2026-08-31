@@ -254,8 +254,7 @@ After every **5** completed battles (while the run continues): roll **2** random
 
 ## 6. Card rarity evaluation (designer worksheet)
 
-**Status:** **Finalized** in the summary table below — **Rarity** (`C` / `U` / `R`) and **Max copies** are the source of truth.  
-**Next step for code:** copy into `CardMeta` / `card_data` for drop tables (§4).
+**Status:** **Finalized** — synced with `docs/RARITY_TABLE_FORM.md` and `src/card_meta.cpp` (2026-08-31).
 
 ### How to use this form
 
@@ -324,7 +323,7 @@ After every **5** completed battles (while the run continues): roll **2** random
 | 52  | `roll_over` / ROLL_OVER                         | Roll Over             | +3; GY swaps on discard               | U     | [ ]    | [ ]      | [ ]  | 2                  |
 
 
-**Rarity tally (final):** Common **18** · Uncommon **22** · Rare **11**
+**Rarity tally (final):** Common **16** · Uncommon **33** · Rare **22**
 
 **Max copies policy (final):** **5** = stackable workhorse · **3** = combo piece / cheap synergy · **2** = strong utility · **1** = build-defining singleton · **0** = excluded from drops
 

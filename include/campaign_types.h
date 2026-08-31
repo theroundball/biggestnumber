@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "card_type.h"
+#include "save_data.h"
 
 enum class CampaignMode : uint8_t
 {
@@ -11,6 +12,23 @@ enum class CampaignMode : uint8_t
     BIGGEST_NUMBER,
     SAME_NUMBER,
     NUMBER_NOW,
+    AINT_GOT_TIME,
+    SHARING_IS_CARING,
+    POKER_HAND,
+};
+
+enum class PokerHandRank : uint8_t
+{
+    HIGH_CARD,
+    PAIR,
+    TWO_PAIR,
+    THREE_OF_A_KIND,
+    STRAIGHT,
+    FLUSH,
+    FULL_HOUSE,
+    FOUR_OF_A_KIND,
+    FIVE_OF_A_KIND,
+    COUNT
 };
 
 // Battle details-panel + HUD labels (replaces overloading score_to_beat for display).
@@ -22,6 +40,9 @@ struct CampaignUiContext
     int number_now_scoring_round = 1;
     int number_now_round_peak = 0;
     int number_now_round_count = 1;
+    int aint_got_time_record = 0;
+    int sharing_is_caring_record = 0;
+    int poker_hand_records[POKER_HAND_RANK_COUNT] = {};
 };
 
 enum class PrizeOfferKind : uint8_t

@@ -66,6 +66,8 @@ int playable_slot_hand_index(const GameState& state, int visual_index);
 int playable_slot_graveyard_index(const GameState& state, int visual_index);
 CardRef playable_slot_card(const GameState& state, int visual_index);
 void build_a_number_try_queue_digit_placement(GameState& state, CardRef card, PlaySource source);
+void poker_hand_try_queue_digit_placement(GameState& state, CardRef card, PlaySource source);
+int poker_hand_card_digit(const GameState& state, CardRef card, PlaySource source);
 int build_a_number_card_digit(const GameState& state, CardRef card, PlaySource source);
 bool build_a_number_can_play_card(const GameState& state, CardRef card, PlaySource source);
 void bind_bounty_copy(GameState& state, CardRef& card);

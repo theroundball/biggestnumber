@@ -78,7 +78,7 @@ MenuSceneResult run_main_menu_scene()
         }
 
         const bool show_build_deck = campaign_is_ready(save_data_get());
-        const int item_count = show_build_deck ? 2 : 1;
+        const int item_count = show_build_deck ? 3 : 1;
 
         if(cursor >= item_count)
         {
@@ -91,6 +91,11 @@ MenuSceneResult run_main_menu_scene()
         {
             scene_text.draw_centered_line(LIST_START_Y, "Build Deck");
             scene_text.draw_centered_line(LIST_START_Y + LIST_LINE_HEIGHT, "Play Game");
+
+            bn::string<32> shop_line = "Shop (";
+            shop_line.append(bn::to_string<8>(save_data_get().sticker_paper));
+            shop_line.append(" paper)");
+            scene_text.draw_centered_line(LIST_START_Y + LIST_LINE_HEIGHT * 2, shop_line);
         }
         else
         {
@@ -120,7 +125,12 @@ MenuSceneResult run_main_menu_scene()
                     return MenuSceneResult::DECK_LIST_BUILD;
                 }
 
-                return MenuSceneResult::DECK_LIST_PLAY;
+                if(cursor == 1)
+                {
+                    return MenuSceneResult::DECK_LIST_PLAY;
+                }
+
+                return MenuSceneResult::CAMPAIGN_SHOP;
             }
 
             return MenuSceneResult::DECK_LIST_PLAY;

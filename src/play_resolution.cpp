@@ -72,29 +72,14 @@ namespace
             }
         }
 
-        const int graveyard_count = state.graveyard.size();
-
-        if(graveyard_count > 0)
-        {
-            state.add_from_card(graveyard_count);
-        }
-
         const int factor = bones_count + 1;
-
-        if(factor > 1)
-        {
-            state.mul_from_card(factor);
-        }
+        state.mul_from_card(factor);
     }
 
     void apply_tombstones_gy_entry(GameState& state)
     {
-        const int factor = count_unique_graveyard_types(state);
-
-        if(factor > 1)
-        {
-            state.mul_from_card(factor);
-        }
+        const int n = state.graveyard.size();
+        state.add_from_card(n);
     }
 }
 
@@ -198,6 +183,9 @@ PlayResolutionResult resolve_played_card(GameState& state, CardRef card,
 
     apply_card_play(state, card, context.source);
 
+    build_a_number_try_queue_digit_placement(state, card, context.source);
+    poker_hand_try_queue_digit_placement(state, card, context.source);
+
     if(result.dest == PostPlayDestination::GRAVEYARD && context.source != PlaySource::ECHO)
     {
         if(card.type == CardType::BONES)
@@ -213,6 +201,12 @@ PlayResolutionResult resolve_played_card(GameState& state, CardRef card,
     if(result.increment_cards_played)
     {
         ++state.cards_played_this_round;
+
+        if(state.sharing_is_caring_active && state.sharing_round_mult > 1)
+        {
+            --state.sharing_round_mult;
+            state.round.end_multiplier = state.sharing_round_mult;
+        }
     }
 
     maybe_draw_if_solo(state, card.type);

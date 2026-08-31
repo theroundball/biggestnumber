@@ -450,11 +450,6 @@ namespace
         state.add_from_card(3);
     }
 
-    void effect_tombstones_play(GameState& state)
-    {
-        state.add_from_card(3);
-    }
-
     void effect_roll_over_play(GameState& state)
     {
         if(state.roll_over_substitution_active)
@@ -784,12 +779,12 @@ const CardData& card_data(CardType type)
                   8, 0, {}, {}, {}, effect_dilla, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Semaphore", "If Semaphore is the first card played of round 1: +100. Last card in hand with an empty deck: add multiplier of n, where n is the number of cards in your graveyard. Otherwise +3.",
                   0, 0, {}, {}, {}, effect_semaphore, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
-        make_card("Bones", "Add 1 to the round for each card in your graveyard, then multiply by n+1 where n is the number of Bones in your graveyard.",
+        make_card("Bones", "When discarded, multiply this round by n+1 where n is the number of Bones in your graveyard (including this one).",
                   0, 0, {}, {}, {}, nullptr, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Threshold", "+3 when played. When discarded, if there are 7 or more cards in your graveyard draw 1 card and multiplyer your round score by 3.",
                   0, 0, {}, {}, {}, effect_threshold_play, effect_threshold_discard, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
-        make_card("Tombstones", "+3 when played. Multiply this round by n, where n is the number of unique card names in your graveyard.",
-                  0, 0, {}, {}, {}, effect_tombstones_play, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("Tombstones", "When discarded, add n to this round where n is the number of cards in your graveyard (including this one).",
+                  0, 0, {}, {}, {}, nullptr, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Roll Over", "+3. Play two random cards from your graveyard. Until both are played, they replace the cards in your hand.",
                   3, 0, {}, {}, {}, effect_roll_over_play, nullptr, false, false,
                   CARD_SPRITES(roll_over)),

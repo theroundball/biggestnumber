@@ -491,6 +491,28 @@ void apply_card_play(GameState& state, CardRef card, PlaySource source)
         return;
     }
 
+    if(state.poker_hand_active)
+    {
+        const CardData& d = card_data(card.type);
+        state.play_effect_card = card;
+
+        if(card.type == CardType::LIFELINE && source == PlaySource::GHOST)
+        {
+            lifeline_ghost_play(state);
+        }
+        else if(card.type == CardType::EVALUATE && source == PlaySource::GHOST)
+        {
+            state.queue_evaluate_ghost_steps();
+        }
+        else if(d.on_play)
+        {
+            d.on_play(state);
+        }
+
+        state.play_effect_card = {};
+        return;
+    }
+
     if(source == PlaySource::GHOST)
     {
         battle_stat_record_ghost(state);

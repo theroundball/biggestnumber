@@ -20,15 +20,23 @@ struct CampaignPlayMenuResult
 
 CampaignPlayMenuResult run_campaign_play_menu_scene(bn::seed_random& rng);
 
+MenuSceneResult run_mode_intro_scene(CampaignMode mode, const CampaignUiContext& ctx);
+
+MenuSceneResult run_same_number_deck_scene();
+
 // Post-battle results — returns next scene hint via out_to_prize.
 // same_number_target is the challenge used for that battle (may differ from save after a win).
+// granted_sticker_paper is set when +1 sticker paper was awarded for this battle.
 MenuSceneResult run_campaign_battle_results_scene(CampaignMode mode, const GameSceneResult& result,
-                                                  bool won, int same_number_target, bool& out_to_prize);
+                                                  bool won, int same_number_target, bool& out_to_prize,
+                                                  bool granted_sticker_paper = false);
 
 MenuSceneResult run_campaign_prize_scene(CampaignMode mode, int peak_before, int band_score,
                                          bn::seed_random& rng);
 
 MenuSceneResult run_campaign_trinket_prize_scene(bn::seed_random& rng);
+
+MenuSceneResult run_campaign_shop_scene(bn::seed_random& rng);
 
 MenuSceneResult run_campaign_status_scene();
 

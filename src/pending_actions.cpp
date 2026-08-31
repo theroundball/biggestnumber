@@ -529,6 +529,20 @@ namespace
         return PendingStartResult::ENTERED_MODE;
     }
 
+    PendingStartResult start_poker_hand_place_digit(GameContext& ctx, const PendingAction& action)
+    {
+        if(!ctx.state.poker_hand_active)
+        {
+            return PendingStartResult::FIZZLE;
+        }
+
+        begin_selection(ctx, action.type);
+        ctx.state.selection.cursor = 0;
+        ctx.state.selection.multiply_factor = action.count;
+        ctx.mode = GameMode::POKER_HAND_DIGIT;
+        return PendingStartResult::ENTERED_MODE;
+    }
+
     // Swap — digit swap on round + total score. Mode: SCORE_SWAP.
     PendingStartResult start_swap_total_score_digits(GameContext& ctx, const PendingAction&)
     {
@@ -749,6 +763,8 @@ namespace
             return start_minor_fall_total_digit(ctx, action);
         case PendingActionType::BUILD_A_NUMBER_PLACE_DIGIT:
             return start_build_number_place_digit(ctx, action);
+        case PendingActionType::POKER_HAND_PLACE_DIGIT:
+            return start_poker_hand_place_digit(ctx, action);
         case PendingActionType::EVALUATE_GHOST_STEP:
             return start_evaluate_ghost_step(ctx, action);
         case PendingActionType::PAPER_SWAP_HAND:

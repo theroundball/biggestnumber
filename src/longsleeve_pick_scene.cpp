@@ -20,24 +20,29 @@
 
 namespace
 {
-    void build_out_of_deck_refs(const SaveData& save, int deck_index,
+    void build_out_of_deck_refs(const SaveData& save, int deck_index, const SavedDeck* working_deck,
                                 bn::vector<CardRef, InstancePool::CAPACITY>& out_refs)
     {
         out_refs.clear();
 
         bool in_deck[InstancePool::CAPACITY] = {};
 
-        if(deck_index >= 0 && deck_index < save.deck_count)
-        {
-            bn::vector<CardRef, 50> deck_refs;
-            campaign_flatten_deck(save, deck_index, deck_refs);
+        bn::vector<CardRef, 50> deck_refs;
 
-            for(const CardRef& ref : deck_refs)
+        if(working_deck != nullptr)
+        {
+            campaign_flatten_saved_deck(save, *working_deck, deck_refs);
+        }
+        else if(deck_index >= 0 && deck_index < save.deck_count)
+        {
+            campaign_flatten_deck(save, deck_index, deck_refs);
+        }
+
+        for(const CardRef& ref : deck_refs)
+        {
+            if(ref.instance_id < InstancePool::CAPACITY)
             {
-                if(ref.instance_id < InstancePool::CAPACITY)
-                {
-                    in_deck[ref.instance_id] = true;
-                }
+                in_deck[ref.instance_id] = true;
             }
         }
 
@@ -59,13 +64,42 @@ namespace
         }
     }
 
-    bool pick_one_longsleeve(SaveData& save, int deck_index, const bn::array<uint8_t, 2>& existing,
-                             int pick_index, uint8_t& out_instance_id)
+    void filter_existing_picks(bn::vector<CardRef, InstancePool::CAPACITY>& refs,
+                               const bn::array<uint8_t, 2>& existing, int pick_index)
+    {
+        bn::vector<CardRef, InstancePool::CAPACITY> filtered;
+
+        for(int index = 0; index < refs.size(); ++index)
+        {
+            bool duplicate = false;
+
+            for(int prior = 0; prior < pick_index; ++prior)
+            {
+                if(existing[prior] != NO_INSTANCE && refs[index].instance_id == existing[prior])
+                {
+                    duplicate = true;
+                    break;
+                }
+            }
+
+            if(!duplicate)
+            {
+                filtered.push_back(refs[index]);
+            }
+        }
+
+        refs = filtered;
+    }
+
+    bool pick_one_longsleeve(SaveData& save, int deck_index, const SavedDeck* working_deck,
+                             const bn::array<uint8_t, 2>& existing, int pick_index,
+                             uint8_t& out_instance_id)
     {
         wait_for_keypad_clear();
 
         bn::vector<CardRef, InstancePool::CAPACITY> refs;
-        build_out_of_deck_refs(save, deck_index, refs);
+        build_out_of_deck_refs(save, deck_index, working_deck, refs);
+        filter_existing_picks(refs, existing, pick_index);
 
         if(refs.empty())
         {
@@ -179,24 +213,9 @@ namespace
 
             if(bn::keypad::a_pressed() && !inspecting)
             {
-                const uint8_t picked_id = refs[cursor].instance_id;
-                bool duplicate = false;
-
-                for(int index = 0; index < pick_index; ++index)
-                {
-                    if(existing[index] == picked_id)
-                    {
-                        duplicate = true;
-                        break;
-                    }
-                }
-
-                if(!duplicate)
-                {
-                    out_instance_id = picked_id;
-                    inspect_sprites.clear();
-                    return true;
-                }
+                out_instance_id = refs[cursor].instance_id;
+                inspect_sprites.clear();
+                return true;
             }
 
             if(bn::keypad::b_pressed())
@@ -220,17 +239,18 @@ namespace
     }
 }
 
-bool run_longsleeve_deck_pick_scene(SaveData& save, int deck_index, bn::array<uint8_t, 2>& out_instance_ids)
+bool run_longsleeve_deck_pick_scene(SaveData& save, int deck_index, const SavedDeck* working_deck,
+                                    bn::array<uint8_t, 2>& out_instance_ids)
 {
     out_instance_ids[0] = NO_INSTANCE;
     out_instance_ids[1] = NO_INSTANCE;
 
-    if(!pick_one_longsleeve(save, deck_index, out_instance_ids, 0, out_instance_ids[0]))
+    if(!pick_one_longsleeve(save, deck_index, working_deck, out_instance_ids, 0, out_instance_ids[0]))
     {
         return false;
     }
 
-    if(!pick_one_longsleeve(save, deck_index, out_instance_ids, 1, out_instance_ids[1]))
+    if(!pick_one_longsleeve(save, deck_index, working_deck, out_instance_ids, 1, out_instance_ids[1]))
     {
         out_instance_ids[0] = NO_INSTANCE;
         return false;

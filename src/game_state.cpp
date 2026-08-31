@@ -18,6 +18,11 @@ int GameState::add_from_card(int amount)
         return 0;
     }
 
+    if(poker_hand_active)
+    {
+        return 0;
+    }
+
     if(has_trinket(TrinketType::GET_WITH_THE_TIMES))
     {
         score_pop_queue(*this, 0, false, TrinketScoreField::ROUND, false, true);
@@ -385,7 +390,10 @@ void GameState::mul_from_card(int factor)
         return;
     }
 
-    const int before_running = round.running;
+    if(poker_hand_active)
+    {
+        return;
+    }
     const int before_committed = round.committed();
     round.running *= factor;
     const int after_running = round.running;

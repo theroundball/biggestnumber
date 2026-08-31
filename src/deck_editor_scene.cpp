@@ -152,12 +152,25 @@ namespace
 
         if(next == TrinketType::LONGSLEEVES)
         {
+            if(deck_index < 0)
+            {
+                deck.trinkets[slot] = uint8_t(previous);
+                return;
+            }
+
             SaveData& save_mut = save_data_mut();
             bn::array<uint8_t, 2> picks = {
                 deck.longsleeve_instance_ids[0],
                 deck.longsleeve_instance_ids[1],
             };
-            run_longsleeve_deck_pick_scene(save_mut, deck_index, picks);
+
+            if(!run_longsleeve_deck_pick_scene(save_mut, deck_index, &deck, picks))
+            {
+                deck.trinkets[slot] = uint8_t(previous);
+                saved_deck_clear_longsleeves(deck);
+                return;
+            }
+
             deck.longsleeve_instance_ids[0] = picks[0];
             deck.longsleeve_instance_ids[1] = picks[1];
             save_data_write();
@@ -388,9 +401,9 @@ namespace
         wins_line.append(bn::to_string<8>(save.total_wins));
         scene_text.draw_centered_line(offset_x, STATUS_ITEM_Y, wins_line);
 
-        bn::string<32> upgrade_line = "Upgrade in ";
-        upgrade_line.append(bn::to_string<4>(campaign_wins_until_upgrade(save)));
-        scene_text.draw_centered_line(offset_x, STATUS_ITEM_Y + STATUS_LINE_HEIGHT, upgrade_line);
+        bn::string<32> paper_line = "Sticker paper ";
+        paper_line.append(bn::to_string<8>(save.sticker_paper));
+        scene_text.draw_centered_line(offset_x, STATUS_ITEM_Y + STATUS_LINE_HEIGHT, paper_line);
 
         bn::string<32> trinket_line = "Trinket in ";
         trinket_line.append(bn::to_string<4>(campaign_wins_until_trinket(save)));
@@ -495,7 +508,7 @@ namespace
     }
 }
 
-DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck)
+DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck, bool ephemeral_session)
 {
     wait_for_keypad_clear();
 
@@ -802,7 +815,8 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck)
             {
                 if(panel_side < 0)
                 {
-                    scene_text.draw_centered_line(actions_offset_x, ACTIONS_ITEM_Y, "Save");
+                    scene_text.draw_centered_line(actions_offset_x, ACTIONS_ITEM_Y,
+                                                  ephemeral_session ? "Start" : "Save");
                     scene_text.draw_centered_line(actions_offset_x, ACTIONS_ITEM_Y + ACTIONS_LINE_HEIGHT,
                                                   trinket_slot_label(0, working));
                     scene_text.draw_centered_line(actions_offset_x,
@@ -897,7 +911,19 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck)
             {
                 if(actions_cursor == 0)
                 {
-                    if(try_save_working_deck(working, save, deck_index))
+                    if(ephemeral_session)
+                    {
+                        if(saved_deck_total_cards(working) >= DECK_MIN_CARDS)
+                        {
+                            campaign_set_ephemeral_battle_deck(working);
+                            result.ephemeral_confirmed = true;
+                            result.next = MenuSceneResult::STAY;
+                            return result;
+                        }
+
+                        save_notice = "Need 1+ cards";
+                    }
+                    else if(try_save_working_deck(working, save, deck_index))
                     {
                         result.next = MenuSceneResult::MAIN_MENU;
                         return result;

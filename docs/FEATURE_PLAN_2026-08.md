@@ -2,7 +2,7 @@
 
 **Created:** 2026-08-31  
 **Status:** Planning — not yet implemented.  
-**Purpose:** Roadmap for rarity updates, sticky-paper economy, card reworks, bug fixes, and new game modes.
+**Purpose:** Roadmap for rarity updates, sticker-paper economy, card reworks, bug fixes, and new game modes.
 
 **Related docs:** `docs/CAMPAIGN_IMPLEMENTATION_PLAN.md`, `docs/ROGUELIKE_RUN_HANDOFF.md` (§6 rarity table), `docs/GAME_DESIGN_BRD.md`
 
@@ -13,7 +13,7 @@
 | # | Feature | Effort | Depends on |
 |---|---------|--------|------------|
 | 1 | Update card rarities | Small | Designer table |
-| 2 | Sticky paper + shop | Medium | Save migration |
+| 2 | Sticker paper + shop | Medium | Save migration |
 | 3 | Longsleeves index fix | Small | — |
 | 4 | Palindrome prize gate (> 11011) | Small | — |
 | 5 | Same Number ephemeral deck edit | Medium | Deck editor reuse |
@@ -29,7 +29,7 @@
 |-------|-------|-----|
 | **A — Quick fixes** | Bones, Tombstones, Palindrome gate | Small, isolated changes in `play_resolution.cpp` / `prize_system.cpp` |
 | **B — Bug fix** | Longsleeves | Blocking trinket usability |
-| **C — Economy** | Sticky paper + shop | Touches save data, menus, prize flow |
+| **C — Economy** | Sticker paper + shop | Touches save data, menus, prize flow |
 | **D — Content** | Rarities | Needs target table; one-file change once decided |
 | **E — Modes** | Same Number deck, new modes + intros | Largest scope; some modes share infrastructure |
 
@@ -71,26 +71,26 @@ Code and design doc disagree. Example mismatches:
 
 ---
 
-## 2) Sticky paper economy + shop
+## 2) Sticker paper economy + shop
 
 ### Current state
 
-**Sticky paper is not implemented.** Every 5th win, prize slot 1 (flex) offers a random upgrade instead of a combo card (`prize_should_include_upgrade()` in `src/prize_system.cpp`).
+**Sticker paper is not implemented.** Every 5th win, prize slot 1 (flex) offers a random upgrade instead of a combo card (`prize_should_include_upgrade()` in `src/prize_system.cpp`).
 
 ### Target design
 
-- Every win → always receive sticky paper (in addition to 3 card picks, or as guaranteed 4th slot — TBD).
-- Upgrades cost **10 sticky paper**, purchased from a **Shop** in the play menu.
+- Every win → always receive sticker paper (in addition to 3 card picks, or as guaranteed 4th slot — TBD).
+- Upgrades cost **10 sticker paper**, purchased from a **Shop** in the play menu.
 - Remove the every-5-rounds upgrade prize.
 
 ### Implementation plan
 
 ```
 SaveData
-  + sticky_paper: uint16_t  (bump SAVE_DATA_VERSION, migrate in save_data.cpp)
+  + sticker_paper: uint16_t  (bump SAVE_DATA_VERSION, migrate in save_data.cpp)
 
 Prize flow (campaign_flow.cpp → campaign_scenes.cpp)
-  After win → prize scene → auto-grant sticky paper (amount TBD)
+  After win → prize scene → auto-grant sticker paper (amount TBD)
   Remove prize_should_include_upgrade(); flex slot always combo/card
 
 Shop (new scene or extend campaign_scenes.cpp)
@@ -98,10 +98,10 @@ Shop (new scene or extend campaign_scenes.cpp)
   → Show balance
   → Pick upgrade type (+Digit / ×2 / Lead / Yeast)  [reuse run_scenes.cpp pattern]
   → If balance >= 10: run_upgrade_target_scene() → campaign_apply_prize_upgrade() → deduct 10
-  → Else: show "Need 10 sticky paper"
+  → Else: show "Need 10 sticker paper"
 
 UI cleanup
-  Replace "Upgrade in N" (campaign_wins_until_upgrade) with sticky paper balance
+  Replace "Upgrade in N" (campaign_wins_until_upgrade) with sticker paper balance
   Show balance in deck editor status panel + L-status screen
 ```
 
@@ -109,13 +109,13 @@ UI cleanup
 
 | File | Change |
 |------|--------|
-| `include/save_data.h` | Add `sticky_paper` field |
+| `include/save_data.h` | Add `sticker_paper` field |
 | `src/save_data.cpp` | Migration |
-| `include/campaign_types.h` | Optional `PrizeOfferKind::STICKY_PAPER` |
-| `src/prize_system.cpp` | Remove every-5 upgrade; optional sticky paper offer |
+| `include/campaign_types.h` | Optional `PrizeOfferKind::STICKER_PAPER` |
+| `src/prize_system.cpp` | Remove every-5 upgrade; optional sticker paper offer |
 | `src/campaign_scenes.cpp` | Shop menu item + scene |
 | `src/campaign_flow.cpp` | Wire shop into flow |
-| `src/campaign.cpp` | `campaign_spend_sticky_paper()` |
+| `src/campaign.cpp` | `campaign_spend_sticker_paper()` |
 | `src/deck_editor_scene.cpp` | Show balance in status panel |
 
 ### Reference UI
@@ -124,7 +124,7 @@ UI cleanup
 
 ### Open questions
 
-- [ ] How much sticky paper per win? (1? scales with performance?)
+- [ ] How much sticker paper per win? (1? scales with performance?)
 - [ ] Auto-grant alongside card pick, or 4th pickable prize slot?
 - [ ] Shop in play submenu, main menu, or both?
 
@@ -379,7 +379,7 @@ flowchart TD
     PreDeck -->|No| Battle
     TempDeck --> Battle[Battle]
     Battle --> Results[Results]
-    Results -->|Win| Prize[3 Card Prizes + Sticky Paper]
+    Results -->|Win| Prize[3 Card Prizes + Sticker Paper]
     Prize --> Trinket{Win % 10?}
     Trinket -->|Yes| TrinketPick[Trinket Pick]
     Trinket --> PlayMenu
@@ -394,7 +394,7 @@ flowchart TD
 ## Open questions checklist
 
 - [ ] **Rarities** — Updated table ready?
-- [ ] **Sticky paper** — Amount per win? Auto-grant vs. pickable slot?
+- [ ] **Sticker paper** — Amount per win? Auto-grant vs. pickable slot?
 - [ ] **Tombstones** — `+n` includes self?
 - [ ] **Bones** — Always playable?
 - [ ] **Poker Hand** — Scoring table, rounds, win condition?

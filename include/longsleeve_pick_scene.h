@@ -6,6 +6,7 @@
 #include "card_instance.h"
 #include "save_data.h"
 
-bool run_longsleeve_deck_pick_scene(SaveData& save, int deck_index, bn::array<uint8_t, 2>& out_instance_ids);
+bool run_longsleeve_deck_pick_scene(SaveData& save, int deck_index, const SavedDeck* working_deck,
+                                    bn::array<uint8_t, 2>& out_instance_ids);
 
 #endif

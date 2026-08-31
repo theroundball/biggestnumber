@@ -9,6 +9,8 @@
 
 #include "battle_backdrop.h"
 #include "campaign.h"
+#include "menu_scenes.h"
+#include "poker_hand.h"
 #include "prize_row_scene.h"
 #include "prize_system.h"
 #include "save_data.h"
@@ -50,14 +52,17 @@ CampaignPlayMenuResult run_campaign_play_menu_scene(bn::seed_random& rng)
 
     CampaignPlayMenuResult result;
     SaveData& save = save_data_mut();
-    // Lock Same Number challenge as soon as Play Game opens; only re-rolls after a win.
     campaign_prepare_same_number_target(save, rng);
 
-    constexpr int ITEM_COUNT = 4;
+    constexpr int ITEM_COUNT = 8;
+    constexpr int VISIBLE_ROWS = 5;
     bn::string<32> labels[ITEM_COUNT];
     labels[0] = "Change / build deck";
     labels[1] = "Biggest Number";
     labels[3] = "Number Now";
+    labels[4] = "Ain't Got Time";
+    labels[5] = "Sharing is Caring";
+    labels[6] = "Poker Hand";
 
     auto refresh_same_number_label = [&]()
     {
@@ -74,6 +79,7 @@ CampaignPlayMenuResult run_campaign_play_menu_scene(bn::seed_random& rng)
     SelectorGlyph selector(text_generator, -100);
 
     int cursor = 0;
+    int scroll_offset = 0;
     DirectionRepeatState direction_repeat;
 
     while(true)
@@ -93,15 +99,31 @@ CampaignPlayMenuResult run_campaign_play_menu_scene(bn::seed_random& rng)
             continue;
         }
 
+        if(cursor < scroll_offset)
+        {
+            scroll_offset = cursor;
+        }
+        else if(cursor >= scroll_offset + VISIBLE_ROWS)
+        {
+            scroll_offset = cursor - VISIBLE_ROWS + 1;
+        }
+
         scene_text.clear();
         scene_text.draw_centered_line(-56, "Play Game");
 
-        for(int index = 0; index < ITEM_COUNT; ++index)
+        for(int row = 0; row < VISIBLE_ROWS; ++row)
         {
-            scene_text.draw_centered_line(LIST_START_Y + index * LIST_LINE_HEIGHT, labels[index]);
+            const int index = scroll_offset + row;
+
+            if(index >= ITEM_COUNT)
+            {
+                break;
+            }
+
+            scene_text.draw_centered_line(LIST_START_Y + row * LIST_LINE_HEIGHT, labels[index]);
         }
 
-        selector.set_position(LIST_START_Y + cursor * LIST_LINE_HEIGHT);
+        selector.set_position(LIST_START_Y + (cursor - scroll_offset) * LIST_LINE_HEIGHT);
         selector.set_visible(true);
 
         int direction = 0;
@@ -132,17 +154,26 @@ CampaignPlayMenuResult run_campaign_play_menu_scene(bn::seed_random& rng)
                 return result;
             }
 
-            if(cursor == 1)
+            switch(cursor)
             {
+            case 1:
                 result.mode = CampaignMode::BIGGEST_NUMBER;
-            }
-            else if(cursor == 2)
-            {
+                break;
+            case 2:
                 result.mode = CampaignMode::SAME_NUMBER;
-            }
-            else
-            {
+                break;
+            case 3:
                 result.mode = CampaignMode::NUMBER_NOW;
+                break;
+            case 4:
+                result.mode = CampaignMode::AINT_GOT_TIME;
+                break;
+            case 5:
+                result.mode = CampaignMode::SHARING_IS_CARING;
+                break;
+            default:
+                result.mode = CampaignMode::POKER_HAND;
+                break;
             }
 
             result.next = MenuSceneResult::RUN_GAME;
@@ -161,7 +192,8 @@ CampaignPlayMenuResult run_campaign_play_menu_scene(bn::seed_random& rng)
 }
 
 MenuSceneResult run_campaign_battle_results_scene(CampaignMode mode, const GameSceneResult& result,
-                                                  bool won, int same_number_target, bool& out_to_prize)
+                                                  bool won, int same_number_target, bool& out_to_prize,
+                                                  bool granted_sticker_paper)
 {
     wait_for_keypad_clear();
 
@@ -177,15 +209,28 @@ MenuSceneResult run_campaign_battle_results_scene(CampaignMode mode, const GameS
         label_generator.set_center_alignment();
         label_generator.generate(0, -56, won ? "Victory" : "Defeat", sprites);
 
+        if(granted_sticker_paper)
+        {
+            label_generator.generate(0, -44, "+1 sticker paper", sprites);
+        }
+
         bn::string<32> score_line = "Score ";
         score_line.append(bn::to_string<12>(result.final_score));
-        label_generator.generate(0, -36, score_line, sprites);
+        label_generator.generate(0, -28, score_line, sprites);
 
         if(mode == CampaignMode::SAME_NUMBER)
         {
             bn::string<32> target_line = "Target ";
             target_line.append(bn::to_string<8>(same_number_target));
-            label_generator.generate(0, -20, target_line, sprites);
+            label_generator.generate(0, -12, target_line, sprites);
+        }
+        else if(mode == CampaignMode::POKER_HAND && result.poker_hand_score > 0)
+        {
+            const PokerHandRank rank = PokerHandRank(result.poker_hand_rank);
+            bn::string<32> poker_line = poker_hand_rank_name(rank);
+            poker_line.append("! Score ");
+            poker_line.append(bn::to_string<8>(result.poker_hand_score));
+            label_generator.generate(0, -12, poker_line, sprites);
         }
 
         const char* action = won ? "Pick a prize" : "Menu";
@@ -209,10 +254,9 @@ MenuSceneResult run_campaign_prize_scene(CampaignMode mode, int peak_before, int
                                          bn::seed_random& rng)
 {
     SaveData& save = save_data_mut();
-    const bool include_upgrade = prize_should_include_upgrade(save);
 
     PrizeOffer offers[CAMPAIGN_PRIZE_SLOT_COUNT];
-    prize_build_offers(save, mode, peak_before, band_score, include_upgrade, rng, offers);
+    prize_build_offers(save, mode, peak_before, band_score, rng, offers);
 
     const PrizeRowResult pick =
         run_prize_row_scene("Choose a prize", offers, CAMPAIGN_PRIZE_SLOT_COUNT, "A pick  Select info");
@@ -351,9 +395,9 @@ MenuSceneResult run_campaign_status_scene()
         wins_line.append(bn::to_string<8>(save.total_wins));
         scene_text.draw_centered_line(STATUS_START_Y, wins_line);
 
-        bn::string<32> upgrade_line = "Upgrade in ";
-        upgrade_line.append(bn::to_string<4>(campaign_wins_until_upgrade(save)));
-        scene_text.draw_centered_line(STATUS_START_Y + LIST_LINE_HEIGHT, upgrade_line);
+        bn::string<32> paper_line = "Sticker paper ";
+        paper_line.append(bn::to_string<8>(save.sticker_paper));
+        scene_text.draw_centered_line(STATUS_START_Y + LIST_LINE_HEIGHT, paper_line);
 
         bn::string<32> trinket_line = "Trinket in ";
         trinket_line.append(bn::to_string<4>(campaign_wins_until_trinket(save)));
@@ -461,4 +505,257 @@ bool campaign_poll_lr_status(MenuSceneResult& out_result, SceneText& host_text, 
     }
 
     return false;
+}
+
+namespace
+{
+    const char* mode_intro_title(CampaignMode mode)
+    {
+        switch(mode)
+        {
+        case CampaignMode::BIGGEST_NUMBER:
+            return "Biggest Number";
+        case CampaignMode::SAME_NUMBER:
+            return "Same Number";
+        case CampaignMode::NUMBER_NOW:
+            return "Number Now";
+        case CampaignMode::AINT_GOT_TIME:
+            return "Ain't Got Time";
+        case CampaignMode::SHARING_IS_CARING:
+            return "Sharing is Caring";
+        case CampaignMode::POKER_HAND:
+            return "Poker Hand";
+        default:
+            return "Campaign";
+        }
+    }
+
+    void draw_mode_intro_lines(SceneText& scene_text, CampaignMode mode, const CampaignUiContext& ctx)
+    {
+        scene_text.draw_centered_line(-56, mode_intro_title(mode));
+
+        switch(mode)
+        {
+        case CampaignMode::BIGGEST_NUMBER:
+            scene_text.draw_centered_line(-32, "Beat your record");
+            break;
+        case CampaignMode::SAME_NUMBER:
+            scene_text.draw_centered_line(-32, "Match the target");
+            break;
+        case CampaignMode::NUMBER_NOW:
+            scene_text.draw_centered_line(-32, "Score on one round");
+            break;
+        case CampaignMode::AINT_GOT_TIME:
+            scene_text.draw_centered_line(-32, "3 rounds only");
+            break;
+        case CampaignMode::SHARING_IS_CARING:
+            scene_text.draw_centered_line(-32, "x5 mult fades per play");
+            break;
+        case CampaignMode::POKER_HAND:
+            scene_text.draw_centered_line(-32, "Build best poker hand");
+            break;
+        default:
+            break;
+        }
+
+        bn::string<32> detail_line;
+
+        switch(mode)
+        {
+        case CampaignMode::BIGGEST_NUMBER:
+            detail_line = "Record ";
+            detail_line.append(bn::to_string<12>(ctx.biggest_number_record));
+            break;
+        case CampaignMode::SAME_NUMBER:
+            detail_line = "Target ";
+            detail_line.append(bn::to_string<8>(ctx.same_number_target));
+            break;
+        case CampaignMode::NUMBER_NOW:
+            detail_line = "Round ";
+            detail_line.append(bn::to_string<4>(ctx.number_now_scoring_round));
+            detail_line.append(" best ");
+            detail_line.append(bn::to_string<12>(ctx.number_now_round_peak));
+            break;
+        case CampaignMode::AINT_GOT_TIME:
+            detail_line = "Record ";
+            detail_line.append(bn::to_string<12>(ctx.aint_got_time_record));
+            break;
+        case CampaignMode::SHARING_IS_CARING:
+            detail_line = "Record ";
+            detail_line.append(bn::to_string<12>(ctx.sharing_is_caring_record));
+            break;
+        case CampaignMode::POKER_HAND:
+            detail_line = "Beat a hand record";
+            break;
+        default:
+            detail_line = "";
+            break;
+        }
+
+        if(!detail_line.empty())
+        {
+            scene_text.draw_centered_line(-12, detail_line);
+        }
+
+        scene_text.draw_centered_line(24, "A start  B menu");
+    }
+}
+
+MenuSceneResult run_mode_intro_scene(CampaignMode mode, const CampaignUiContext& ctx)
+{
+    wait_for_keypad_clear();
+
+    bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
+    SceneText scene_text(text_generator);
+
+    while(true)
+    {
+        scene_text.clear();
+        draw_mode_intro_lines(scene_text, mode, ctx);
+
+        if(bn::keypad::a_pressed())
+        {
+            return MenuSceneResult::STAY;
+        }
+
+        if(bn::keypad::b_pressed())
+        {
+            return MenuSceneResult::MAIN_MENU;
+        }
+
+        battle_backdrop_tick();
+        bn::core::update();
+    }
+}
+
+MenuSceneResult run_same_number_deck_scene()
+{
+    const SaveData& save = save_data_get();
+
+    if(save.active_deck_index < 0 || save.active_deck_index >= save.deck_count)
+    {
+        return MenuSceneResult::MAIN_MENU;
+    }
+
+    const DeckEditorResult edit = run_deck_editor_scene(save.active_deck_index, false, true);
+
+    if(edit.next == MenuSceneResult::MAIN_MENU || !edit.ephemeral_confirmed)
+    {
+        return MenuSceneResult::MAIN_MENU;
+    }
+
+    return MenuSceneResult::STAY;
+}
+
+MenuSceneResult run_campaign_shop_scene(bn::seed_random& rng)
+{
+    wait_for_keypad_clear();
+
+    SaveData& save = save_data_mut();
+
+    constexpr int ITEM_COUNT = 5;
+    constexpr PrizeOfferKind UPGRADE_KINDS[4] = {
+        PrizeOfferKind::UPGRADE_PLUS_DIGIT,
+        PrizeOfferKind::UPGRADE_INCREMENT_MULT,
+        PrizeOfferKind::UPGRADE_LEAD,
+        PrizeOfferKind::UPGRADE_YEAST,
+    };
+    const char* UPGRADE_LABELS[4] = {
+        "+Digit upgrade",
+        "Increment mult",
+        "Lead upgrade",
+        "Yeast upgrade",
+    };
+
+    bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
+    SceneText scene_text(text_generator);
+    SelectorGlyph selector(text_generator, -100);
+
+    int cursor = 0;
+    DirectionRepeatState direction_repeat;
+
+    while(true)
+    {
+        MenuSceneResult status_result;
+
+        if(campaign_poll_lr_status(status_result, scene_text, selector))
+        {
+            if(status_result == MenuSceneResult::SELL_COLLECTION)
+            {
+                bn::seed_random sell_rng(bn::core::current_cpu_ticks() | 1u);
+                run_campaign_sell_collection_flow(sell_rng);
+            }
+
+            continue;
+        }
+
+        scene_text.clear();
+
+        bn::string<32> title = "Shop (";
+        title.append(bn::to_string<8>(save.sticker_paper));
+        title.append(" paper)");
+        scene_text.draw_centered_line(-56, title);
+
+        for(int index = 0; index < 4; ++index)
+        {
+            bn::string<32> line = UPGRADE_LABELS[index];
+            line.append(" - ");
+            line.append(bn::to_string<4>(CAMPAIGN_STICKER_PAPER_UPGRADE_COST));
+            scene_text.draw_centered_line(LIST_START_Y + index * LIST_LINE_HEIGHT, line);
+        }
+
+        scene_text.draw_centered_line(LIST_START_Y + 4 * LIST_LINE_HEIGHT, "Back");
+
+        selector.set_position(LIST_START_Y + cursor * LIST_LINE_HEIGHT);
+        selector.set_visible(true);
+
+        int direction = 0;
+        bool direction_triggered = false;
+        int direction_steps = 1;
+        poll_direction_repeat(DirectionAxis::VERTICAL, direction_repeat, false, direction, direction_triggered,
+                              direction_steps);
+
+        if(direction_triggered)
+        {
+            cursor += direction * direction_steps;
+
+            if(cursor < 0)
+            {
+                cursor = 0;
+            }
+            else if(cursor >= ITEM_COUNT)
+            {
+                cursor = ITEM_COUNT - 1;
+            }
+        }
+
+        if(bn::keypad::a_pressed())
+        {
+            if(cursor == 4)
+            {
+                return MenuSceneResult::STAY;
+            }
+
+            if(int(save.sticker_paper) < CAMPAIGN_STICKER_PAPER_UPGRADE_COST)
+            {
+                continue;
+            }
+
+            uint8_t instance_id = NO_INSTANCE;
+
+            if(run_upgrade_target_scene(save, UPGRADE_KINDS[cursor], rng, instance_id) &&
+               campaign_spend_sticker_paper(save, CAMPAIGN_STICKER_PAPER_UPGRADE_COST))
+            {
+                campaign_apply_prize_upgrade(save, UPGRADE_KINDS[cursor], instance_id, rng);
+            }
+        }
+
+        if(bn::keypad::b_pressed())
+        {
+            return MenuSceneResult::STAY;
+        }
+
+        battle_backdrop_tick();
+        bn::core::update();
+    }
 }
