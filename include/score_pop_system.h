@@ -13,11 +13,12 @@
 
 class GameContext;
 
-constexpr int SCORE_POP_FRAMES = 17;
+constexpr int SCORE_POP_FRAMES = 34;
 constexpr int SCORE_POP_RISE = 22;
-constexpr int SCORE_POP_FADE_START = 11;
-constexpr int SCORE_POP_TRINKET_HOLD_FRAMES = 4;
-constexpr int SCORE_POP_TRINKET_FLY_FRAMES = 6;
+constexpr int SCORE_POP_FADE_START = 22;
+constexpr int SCORE_POP_TRINKET_HOLD_FRAMES = 8;
+constexpr int SCORE_POP_TRINKET_FLY_FRAMES = 12;
+constexpr int SCORE_POP_STAGGER_SPACING = 20;
 constexpr int MAX_ACTIVE_SCORE_POPS = 6;
 
 enum class ScorePopMotion : uint8_t

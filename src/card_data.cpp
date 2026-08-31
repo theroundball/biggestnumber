@@ -233,32 +233,64 @@ namespace
         }
     }
 
+    int roundup_divisor(int play_count)
+    {
+        if(play_count == 2)
+        {
+            return 100;
+        }
+
+        if(play_count >= 3)
+        {
+            return 1000;
+        }
+
+        return 10;
+    }
+
+    int roundup_ceiled(int value, int divisor)
+    {
+        return ((value + divisor - 1) / divisor) * divisor;
+    }
+
+    void apply_roundup_gain(GameState& state, TrinketScoreField field, int before, int after)
+    {
+        if(after <= before)
+        {
+            return;
+        }
+
+        if(field == TrinketScoreField::TOTAL)
+        {
+            state.total_score = after;
+        }
+        else
+        {
+            state.round.running = after;
+        }
+
+        score_pop_queue(state, after - before, false, field);
+        score_count_queue(state, field, before, after);
+        trinket_queue_score_check(state, field, before, after);
+    }
+
     void effect_roundup(GameState& state)
     {
         ++state.roundup_play_count;
 
-        int divisor = 10;
+        const int divisor = roundup_divisor(state.roundup_play_count);
+        const int total_before = state.total_score;
+        const int total_after = roundup_ceiled(total_before, divisor);
 
-        if(state.roundup_play_count == 2)
+        if(total_after > total_before)
         {
-            divisor = 100;
-        }
-        else if(state.roundup_play_count >= 3)
-        {
-            divisor = 1000;
-        }
-
-        const int before = state.total_score;
-        state.total_score = ((state.total_score + divisor - 1) / divisor) * divisor;
-        const int roundup_gain = state.total_score - before;
-
-        if(roundup_gain > 0)
-        {
-            score_pop_queue(state, roundup_gain, false, TrinketScoreField::TOTAL);
-            score_count_queue(state, TrinketScoreField::TOTAL, before, state.total_score);
+            apply_roundup_gain(state, TrinketScoreField::TOTAL, total_before, total_after);
+            return;
         }
 
-        trinket_queue_score_check(state, TrinketScoreField::TOTAL, before, state.total_score);
+        const int round_before = state.round.running;
+        const int round_after = roundup_ceiled(round_before, divisor);
+        apply_roundup_gain(state, TrinketScoreField::ROUND, round_before, round_after);
     }
 
     void effect_turtle_mode(GameState& state)
@@ -713,7 +745,7 @@ const CardData& card_data(CardType type)
                   3, 0, {}, {}, {}, nullptr, effect_busted_discard, false, false, CARD_SPRITES(busted)),
         make_card("Swivel", "The next card played is put on top of your deck instead of in your graveyard.",
                   0, 0, {}, {}, {}, effect_swivel, nullptr, false, false, CARD_SPRITES(swivel)),
-        make_card("Roundup", "Round total score up to the next highest tens place, then hundreds place, then thousandths place, and so on, incrementing each time this card is played.",
+        make_card("Roundup", "Round total score up to the next highest tens place, then hundreds place, then thousandths place, and so on, incrementing each time this card is played. If total would not increase, round this round's score instead.",
                   0, 0, {}, {}, {}, effect_roundup, nullptr, false, false, CARD_SPRITES(roundup)),
         make_card("Hacker", "Play any card from your deck.",
                   0, 0, {}, {}, {}, effect_hacker, nullptr, false, false, CARD_SPRITES(hacker)),
@@ -740,7 +772,7 @@ const CardData& card_data(CardType type)
                   0, 0, {}, {}, {}, effect_fishing_pole, nullptr, false, false, CARD_SPRITES(fishing_pole)),
         make_card("Shells", "Draw 1, discard a card, then put a card from your graveyard on top of your deck. Skip any step that cannot be completed.",
                   0, 0, {}, {}, {}, effect_shells, nullptr, false, false, CARD_SPRITES(cups)),
-        make_card("Swap", "Choose two digits in your total or round score and swap them. The resulting number cannot be smaller",
+        make_card("Swap", "Choose two digits in your total or round score and swap them.",
                   0, 0, {}, {}, {}, effect_swap, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Catnip", "+1 to this round. Draw 1.",
                   1, 0, {}, {}, {}, effect_draw1, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),

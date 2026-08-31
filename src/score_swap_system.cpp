@@ -23,12 +23,20 @@ namespace
 
     bool is_digit_slide_mode(ScoreDigitEditMode edit_mode)
     {
-        return edit_mode == ScoreDigitEditMode::MOVE_FOUR || edit_mode == ScoreDigitEditMode::AUTO_MOVE_DIGIT;
+        return edit_mode == ScoreDigitEditMode::MOVE_FOUR ||
+               edit_mode == ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL ||
+               edit_mode == ScoreDigitEditMode::AUTO_MOVE_DIGIT;
+    }
+
+    bool is_four_pick_mode(ScoreDigitEditMode edit_mode)
+    {
+        return edit_mode == ScoreDigitEditMode::MOVE_FOUR ||
+               edit_mode == ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL;
     }
 
     bool is_interactive_digit_edit(ScoreDigitEditMode edit_mode)
     {
-        return edit_mode == ScoreDigitEditMode::SWAP || edit_mode == ScoreDigitEditMode::MOVE_FOUR ||
+        return edit_mode == ScoreDigitEditMode::SWAP || is_four_pick_mode(edit_mode) ||
                edit_mode == ScoreDigitEditMode::REPLACE_WITH_FIVE;
     }
 
@@ -175,6 +183,84 @@ namespace
         return false;
     }
 
+    bool compute_lift_four_round_to_total(int old_round, int old_total, int round_four_index,
+                                          int total_dest_index, int& out_round, int& out_total)
+    {
+        const bn::string<12> round_digits = bn::to_string<12>(old_round);
+        const bn::string<12> total_digits = bn::to_string<12>(old_total);
+
+        if(round_four_index < 0 || round_four_index >= round_digits.size() ||
+           round_digits[round_four_index] != '4' || total_dest_index < 0 ||
+           total_dest_index > total_digits.size() || total_digits.empty())
+        {
+            return false;
+        }
+
+        const char ones_digit = total_digits[total_digits.size() - 1];
+        bn::string<12> round_after;
+
+        for(int index = 0; index < round_digits.size(); ++index)
+        {
+            if(index != round_four_index)
+            {
+                round_after.push_back(round_digits[index]);
+            }
+        }
+
+        bn::string<12> new_total_digits;
+
+        for(int index = 0; index < total_dest_index; ++index)
+        {
+            new_total_digits.push_back(total_digits[index]);
+        }
+
+        new_total_digits.push_back('4');
+
+        for(int index = total_dest_index; index < total_digits.size(); ++index)
+        {
+            new_total_digits.push_back(total_digits[index]);
+        }
+
+        bn::string<12> new_round_digits;
+        new_round_digits.push_back(ones_digit);
+
+        for(int index = 0; index < round_after.size(); ++index)
+        {
+            new_round_digits.push_back(round_after[index]);
+        }
+
+        out_round = parse_score_digits(new_round_digits);
+        out_total = parse_score_digits(new_total_digits);
+        return out_round + out_total > old_round + old_total;
+    }
+
+    bool has_valid_lift_four_round_to_total(int old_round, int old_total)
+    {
+        const bn::string<12> round_digits = bn::to_string<12>(old_round);
+        const bn::string<12> total_digits = bn::to_string<12>(old_total);
+        int new_round = 0;
+        int new_total = 0;
+
+        for(int round_index = 0; round_index < round_digits.size(); ++round_index)
+        {
+            if(round_digits[round_index] != '4')
+            {
+                continue;
+            }
+
+            for(int total_index = 0; total_index <= total_digits.size(); ++total_index)
+            {
+                if(compute_lift_four_round_to_total(old_round, old_total, round_index, total_index,
+                                                    new_round, new_total))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     bn::sprite_ptr* sprite_for_slot(GameContext& ctx, const ScoreSwapDigitSlot& slot)
     {
         if(slot.field == SwapScoreField::ROUND)
@@ -246,7 +332,8 @@ namespace
             return;
         }
 
-        if(fx.edit_mode != ScoreDigitEditMode::MOVE_FOUR)
+        if(fx.edit_mode != ScoreDigitEditMode::MOVE_FOUR &&
+           fx.edit_mode != ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL)
         {
             for(int selected = 0; selected < fx.selected_count; ++selected)
             {
@@ -264,6 +351,7 @@ namespace
         }
 
         if(fx.edit_mode != ScoreDigitEditMode::MOVE_FOUR &&
+           fx.edit_mode != ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL &&
            fx.cursor_slot >= 0 && fx.cursor_slot < fx.slot_count &&
            !slot_is_selected(fx, fx.cursor_slot))
         {
@@ -347,13 +435,20 @@ namespace
         }
     }
 
-    int next_four_slot(const GameContext& ctx, int current_slot, int delta)
+    int next_four_slot(const GameContext& ctx, int current_slot, int delta, SwapScoreField field)
     {
         const ScoreSwapFxState& fx = ctx.score_swap_fx;
-        const bn::string<12> digits = bn::to_string<12>(ctx.state.total_score);
+        const int score_value = field == SwapScoreField::ROUND ? ctx.state.round.running
+                                                               : ctx.state.total_score;
+        const bn::string<12> digits = bn::to_string<12>(score_value);
 
         for(int index = current_slot + delta; index >= 0 && index < fx.slot_count; index += delta)
         {
+            if(fx.slots[index].field != field)
+            {
+                continue;
+            }
+
             const int digit_index = fx.slots[index].digit_index;
 
             if(digit_index >= 0 && digit_index < digits.size() && digits[digit_index] == '4')
@@ -542,6 +637,44 @@ namespace
         return true;
     }
 
+    bool apply_lift_four_round_to_total(GameContext& ctx, int round_source_slot, int total_dest_slot)
+    {
+        const ScoreSwapFxState& fx = ctx.score_swap_fx;
+
+        if(round_source_slot < 0 || total_dest_slot < 0 || round_source_slot >= fx.slot_count ||
+           total_dest_slot >= fx.slot_count)
+        {
+            return false;
+        }
+
+        const ScoreSwapDigitSlot& round_slot = fx.slots[round_source_slot];
+        const ScoreSwapDigitSlot& total_slot = fx.slots[total_dest_slot];
+
+        if(round_slot.field != SwapScoreField::ROUND || total_slot.field != SwapScoreField::TOTAL)
+        {
+            return false;
+        }
+
+        const int old_round = ctx.state.round.running;
+        const int old_total = ctx.state.total_score;
+        int new_round = 0;
+        int new_total = 0;
+
+        if(!compute_lift_four_round_to_total(old_round, old_total, round_slot.digit_index,
+                                            total_slot.digit_index, new_round, new_total))
+        {
+            return false;
+        }
+
+        ctx.state.round.running = new_round;
+        ctx.state.total_score = new_total;
+        score_count_queue(ctx.state, TrinketScoreField::ROUND, old_round, new_round);
+        score_count_queue(ctx.state, TrinketScoreField::TOTAL, old_total, new_total);
+        trinket_queue_score_check(ctx.state, TrinketScoreField::ROUND, old_round, new_round);
+        trinket_queue_score_check(ctx.state, TrinketScoreField::TOTAL, old_total, new_total);
+        return true;
+    }
+
     bool apply_moved_four(GameContext& ctx, int source_slot, int destination_slot)
     {
         int new_total = 0;
@@ -582,20 +715,6 @@ namespace
         return true;
     }
 
-    bool swap_keeps_total_score(const GameContext& ctx, int slot_a, int slot_b)
-    {
-        int new_round = 0;
-        int new_total = 0;
-
-        if(!compute_swapped_scores(ctx, slot_a, slot_b, new_round, new_total))
-        {
-            return false;
-        }
-
-        (void)new_round;
-        return new_total >= ctx.state.total_score;
-    }
-
     bool apply_digit_swap(GameContext& ctx, int slot_a, int slot_b)
     {
         int new_round = 0;
@@ -607,12 +726,6 @@ namespace
         }
 
         const int total_before = ctx.state.total_score;
-
-        if(new_total < total_before)
-        {
-            return false;
-        }
-
         const int round_before = ctx.state.round.running;
         ctx.state.round.running = new_round;
         ctx.state.total_score = new_total;
@@ -628,10 +741,15 @@ namespace
         const bn::string<12> round_digits = bn::to_string<12>(ctx.state.round.running);
         const bn::string<12> total_digits = bn::to_string<12>(ctx.state.total_score);
         const bool cache_round = fx.edit_mode == ScoreDigitEditMode::SWAP ||
+                                 fx.edit_mode == ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL ||
                                  (fx.edit_mode == ScoreDigitEditMode::AUTO_MOVE_DIGIT &&
                                   fx.auto_move_field == SwapScoreField::ROUND);
-        const bool cache_total = fx.edit_mode != ScoreDigitEditMode::AUTO_MOVE_DIGIT ||
-                                 fx.auto_move_field == SwapScoreField::TOTAL;
+        const bool cache_total = fx.edit_mode == ScoreDigitEditMode::SWAP ||
+                                 fx.edit_mode == ScoreDigitEditMode::MOVE_FOUR ||
+                                 fx.edit_mode == ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL ||
+                                 fx.edit_mode == ScoreDigitEditMode::REPLACE_WITH_FIVE ||
+                                 (fx.edit_mode == ScoreDigitEditMode::AUTO_MOVE_DIGIT &&
+                                  fx.auto_move_field == SwapScoreField::TOTAL);
 
         if(cache_round)
         {
@@ -721,7 +839,7 @@ namespace
         ctx._total_score_initialized = true;
         ctx._cached_total_score = ctx.state.total_score;
 
-        ctx.begin_next_pending_or_finish();
+        ctx.begin_next_pending_or_finish(true);
     }
 
     void begin_digit_swap_animation(ScoreSwapFxState& fx)
@@ -739,26 +857,6 @@ namespace
         fx.selected_count = 0;
         fx.selected_slots[0] = -1;
         fx.selected_slots[1] = -1;
-    }
-
-    void clear_selected_slots(GameContext& ctx)
-    {
-        ScoreSwapFxState& fx = ctx.score_swap_fx;
-
-        for(int index = 0; index < fx.selected_count; ++index)
-        {
-            const int slot_index = fx.selected_slots[index];
-
-            if(slot_index >= 0 && slot_index < fx.slot_count)
-            {
-                fx.digit_raise[slot_index] = 0;
-            }
-        }
-
-        fx.selected_count = 0;
-        fx.selected_slots[0] = -1;
-        fx.selected_slots[1] = -1;
-        refresh_selected_markers(ctx);
     }
 
     void deselect_slot(GameContext& ctx, int slot_index)
@@ -795,6 +893,17 @@ namespace
         if(fx.edit_mode == ScoreDigitEditMode::REPLACE_WITH_FIVE)
         {
             if(apply_replace_with_five(ctx, slot_index))
+            {
+                finish_score_swap(ctx);
+            }
+
+            return;
+        }
+
+        if(fx.edit_mode == ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL && fx.selected_count == 1)
+        {
+            if(fx.slots[slot_index].field == SwapScoreField::TOTAL &&
+               apply_lift_four_round_to_total(ctx, fx.selected_slots[0], slot_index))
             {
                 finish_score_swap(ctx);
             }
@@ -840,13 +949,6 @@ namespace
 
         if(fx.selected_count == 2)
         {
-            if(fx.edit_mode == ScoreDigitEditMode::SWAP &&
-               !swap_keeps_total_score(ctx, fx.selected_slots[0], fx.selected_slots[1]))
-            {
-                clear_selected_slots(ctx);
-                return;
-            }
-
             ctx.score_swap_marker_sprites.clear();
             begin_digit_swap_animation(fx);
         }
@@ -948,7 +1050,7 @@ namespace
             return;
         }
 
-        if(fx.edit_mode == ScoreDigitEditMode::MOVE_FOUR && fx.selected_count == 1)
+        if(is_four_pick_mode(fx.edit_mode) && fx.selected_count == 1)
         {
             const int source = fx.selected_slots[0];
             const int destination = fx.cursor_slot;
@@ -1055,6 +1157,7 @@ namespace
                                 SwapScoreField auto_move_field = SwapScoreField::TOTAL)
     {
         if(edit_mode == ScoreDigitEditMode::SWAP ||
+           edit_mode == ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL ||
            (edit_mode == ScoreDigitEditMode::AUTO_MOVE_DIGIT && auto_move_field == SwapScoreField::ROUND))
         {
             // Normal HUD text packs several small round-score characters into one
@@ -1077,6 +1180,26 @@ namespace
            round_digits.size() + total_digits.size() < 2)
         {
             return false;
+        }
+
+        if(edit_mode == ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL)
+        {
+            bool found_four = false;
+
+            for(char digit : round_digits)
+            {
+                if(digit == '4')
+                {
+                    found_four = true;
+                    break;
+                }
+            }
+
+            if(!found_four || total_digits.empty() ||
+               !has_valid_lift_four_round_to_total(ctx.state.round.running, ctx.state.total_score))
+            {
+                return false;
+            }
         }
 
         if(edit_mode == ScoreDigitEditMode::MOVE_FOUR)
@@ -1124,7 +1247,25 @@ namespace
 
         fx.cursor_slot = 0;
 
-        if(edit_mode == ScoreDigitEditMode::MOVE_FOUR)
+        if(edit_mode == ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL)
+        {
+            for(int index = fx.slot_count - 1; index >= 0; --index)
+            {
+                if(fx.slots[index].field != SwapScoreField::ROUND)
+                {
+                    continue;
+                }
+
+                if(round_digits[fx.slots[index].digit_index] == '4')
+                {
+                    fx.selected_slots[0] = index;
+                    fx.selected_count = 1;
+                    fx.cursor_slot = slot_for_field_digit(fx, SwapScoreField::TOTAL, 0);
+                    break;
+                }
+            }
+        }
+        else if(edit_mode == ScoreDigitEditMode::MOVE_FOUR)
         {
             for(int index = fx.slot_count - 1; index >= 0; --index)
             {
@@ -1215,7 +1356,7 @@ bool score_swap_try_begin(GameContext& ctx)
 
 bool score_fourth_try_begin(GameContext& ctx)
 {
-    return begin_score_digit_edit(ctx, ScoreDigitEditMode::MOVE_FOUR);
+    return begin_score_digit_edit(ctx, ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL);
 }
 
 bool score_fifth_try_begin(GameContext& ctx)
@@ -1246,11 +1387,13 @@ void score_swap_handle_input(GameContext& ctx)
     const int horizontal = bn::keypad::left_pressed() ? -1 :
                            bn::keypad::right_pressed() ? 1 : 0;
 
-    if(fx.edit_mode == ScoreDigitEditMode::MOVE_FOUR &&
-       bn::keypad::b_held() && horizontal != 0)
+    if(is_four_pick_mode(fx.edit_mode) && bn::keypad::b_held() && horizontal != 0)
     {
         const int source = fx.selected_slots[0];
-        const int next_source = next_four_slot(ctx, source, horizontal);
+        const SwapScoreField field = fx.edit_mode == ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL
+                                         ? SwapScoreField::ROUND
+                                         : SwapScoreField::TOTAL;
+        const int next_source = next_four_slot(ctx, source, horizontal, field);
 
         if(next_source != source)
         {
@@ -1260,7 +1403,11 @@ void score_swap_handle_input(GameContext& ctx)
             }
 
             fx.selected_slots[0] = next_source;
-            fx.cursor_slot = next_source;
+            if(fx.edit_mode == ScoreDigitEditMode::MOVE_FOUR)
+            {
+                fx.cursor_slot = next_source;
+            }
+
             fx.hover_frame = 0;
             reset_move_four_preview(fx);
         }
@@ -1268,6 +1415,11 @@ void score_swap_handle_input(GameContext& ctx)
     else if(horizontal != 0)
     {
         move_cursor_in_field(fx, horizontal);
+
+        if(fx.edit_mode == ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL)
+        {
+            ctx.sync_score_digit_view(SwapScoreField::TOTAL, fx.slots[fx.cursor_slot].digit_index);
+        }
     }
 
     if(fx.edit_mode == ScoreDigitEditMode::SWAP &&
@@ -1294,7 +1446,7 @@ void score_swap_handle_input(GameContext& ctx)
 
     if(bn::keypad::b_pressed())
     {
-        if(fx.edit_mode == ScoreDigitEditMode::MOVE_FOUR)
+        if(is_four_pick_mode(fx.edit_mode))
         {
             return;
         }
@@ -1319,7 +1471,7 @@ void score_swap_tick(GameContext& ctx)
         return;
     }
 
-    if(fx.edit_mode == ScoreDigitEditMode::MOVE_FOUR)
+    if(is_four_pick_mode(fx.edit_mode))
     {
         ++fx.hover_frame;
     }

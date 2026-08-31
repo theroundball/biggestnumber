@@ -16,6 +16,7 @@ enum class PlaySource : uint8_t
     DECK_TOP,
     ECHO,
     GHOST,
+    LONGSLEEVE,
 };
 
 enum class PostPlayDestination : uint8_t

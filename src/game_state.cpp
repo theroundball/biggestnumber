@@ -49,6 +49,34 @@ int GameState::add_from_card(int amount)
     return amount;
 }
 
+namespace
+{
+    int fibonacci_at_round(int round)
+    {
+        if(round <= 0)
+        {
+            return 0;
+        }
+
+        if(round <= 2)
+        {
+            return 1;
+        }
+
+        int previous = 1;
+        int current = 1;
+
+        for(int index = 3; index <= round; ++index)
+        {
+            const long long next = static_cast<long long>(previous) + current;
+            previous = current;
+            current = next > 2147483647 ? 2147483647 : int(next);
+        }
+
+        return current;
+    }
+}
+
 void GameState::apply_round_start_trinkets()
 {
     if(build_a_number_active)
@@ -68,7 +96,7 @@ void GameState::apply_round_start_trinkets()
 
     if(has_trinket(TrinketType::FIBONACCI))
     {
-        const int amount = fibonacci_current;
+        const int amount = fibonacci_at_round(current_round);
         const int before = round.running;
         const long long after = static_cast<long long>(before) + amount;
         round.running = after > 2147483647 ? 2147483647 : int(after);
@@ -77,11 +105,6 @@ void GameState::apply_round_start_trinkets()
                                      TrinketScoreField::ROUND, before, round.running, true, false);
         trinket_queue_proc(*this, TrinketType::FIBONACCI);
         trinket_queue_score_check(*this, TrinketScoreField::ROUND, before, round.running);
-
-        const long long next =
-            static_cast<long long>(fibonacci_previous) + fibonacci_current;
-        fibonacci_previous = fibonacci_current;
-        fibonacci_current = next > 2147483647 ? 2147483647 : int(next);
     }
 }
 
@@ -373,10 +396,6 @@ void GameState::mul_from_card(int factor)
     if(after_running > before_running)
     {
         score_count_queue(*this, TrinketScoreField::ROUND, before_running, after_running);
-    }
-    else
-    {
-        score_pop_queue(*this, 0, false, TrinketScoreField::ROUND, false, true);
     }
 
     trinket_queue_score_check(*this, TrinketScoreField::ROUND, before_committed, after_committed);

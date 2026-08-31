@@ -15,6 +15,7 @@ enum class ScoreDigitEditMode : uint8_t
 {
     SWAP,
     MOVE_FOUR,
+    LIFT_FOUR_ROUND_TO_TOTAL,
     REPLACE_WITH_FIVE,
     // Major Lift / Minor Fall: auto-play digit slide (no player picks).
     AUTO_MOVE_DIGIT,

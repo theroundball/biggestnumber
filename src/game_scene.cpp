@@ -116,17 +116,20 @@ GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const 
         score_pop_process_pending(ctx);
         score_count_tick(ctx);
         score_swap_tick(ctx);
+        ctx.tick_run_end_presentation();
         if(ctx.removing_card)
         {
             ctx.tick_removal_fx();
         }
         ctx.tick_round_end_pending();
+        ctx.tick_roll_over_pending();
         ctx.tick_echo_pending();
         swivel_tick_stall_recovery(ctx);
         trinket_tick_fx(ctx);
         score_pop_process_pending(ctx);
         ctx.tick_deck_search_resolve();
-        ctx.tick_hand_draw_fx();
+        ctx.tick_transit_flights();
+        score_pop_process_pending(ctx);
         ctx.tick_evaluate_ghost_steps();
         ctx.tick_score_wiggles();
         ctx.render_frame();
@@ -135,7 +138,7 @@ GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const 
                             !ctx.card_selection_ui_active() &&
                             !ctx.inspecting &&
                             ctx.side_panel == SidePanel::NONE && !ctx.panel_transition_active());
-        ctx.hud.update(ctx.state, deck_hud_display_count(ctx.state, ctx.hand_draw_fx_active));
+        ctx.hud.update(ctx.state, deck_hud_display_count(ctx.state, ctx.in_flight_deck_draw_count()));
 
         battle_backdrop_tick();
         bn::core::update();

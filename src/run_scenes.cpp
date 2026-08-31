@@ -38,6 +38,8 @@ namespace
         TrinketType::GET_WITH_THE_TIMES,
         TrinketType::PRIME_TIME,
         TrinketType::FIBONACCI,
+        TrinketType::STAIRCASE,
+        TrinketType::LONGSLEEVES,
     };
 
     constexpr int TRINKET_CATALOG_COUNT = sizeof(TRINKET_CATALOG) / sizeof(TRINKET_CATALOG[0]);
@@ -64,6 +66,8 @@ namespace
             return "Fibonacci";
         case TrinketType::STAIRCASE:
             return "Staircase";
+        case TrinketType::LONGSLEEVES:
+            return "Longsleeves";
         default:
             return "None";
         }

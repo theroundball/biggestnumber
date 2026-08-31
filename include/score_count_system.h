@@ -5,8 +5,8 @@
 
 class GameContext;
 
-constexpr int SCORE_COUNT_MAX_FRAMES = 120;
-constexpr int SCORE_COUNT_STEPS_PER_TICK = 5;
+constexpr int SCORE_COUNT_MAX_FRAMES = 240;
+constexpr int SCORE_COUNT_STEPS_PER_TICK = 3;
 
 struct ScoreCountFxState
 {

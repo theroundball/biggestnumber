@@ -56,6 +56,7 @@ namespace
         instance_pool_clamp(save.instance_pool);
         launch.instance_pool = save.instance_pool;
         campaign_load_trinkets(deck, launch.trinkets);
+        saved_deck_resolve_longsleeve_cards(deck, save.instance_pool, launch.longsleeve_cards);
 
         const GameSceneResult game = run_game_scene(battle_deck, launch);
 

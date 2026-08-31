@@ -3,6 +3,7 @@
 
 #include <cstdint>
 
+#include "bn_array.h"
 #include "bn_vector.h"
 #include "bn_string.h"
 #include "card_meta.h"
@@ -11,7 +12,7 @@
 #include "game_state.h"
 
 constexpr int SAVE_DATA_MAGIC = 0x424E554D; // 'BNUM'
-constexpr int SAVE_DATA_VERSION = 14;
+constexpr int SAVE_DATA_VERSION = 15;
 constexpr int MAX_SAVED_DECKS = 6;
 constexpr int LIBRARY_COPY_LIMIT = 5;
 constexpr int DECK_MIN_CARDS = 1;
@@ -35,6 +36,7 @@ struct SavedDeck
     };
     // 1 = sandbox/debug deck: full catalog, no library/per-type limits (max DECK_MAX_CARDS).
     uint8_t unrestricted_build = 0;
+    uint8_t longsleeve_instance_ids[2] = {NO_INSTANCE, NO_INSTANCE};
 };
 
 struct SaveData
@@ -83,6 +85,10 @@ bool saved_deck_remove_card(SavedDeck& deck, CardType type);
 bool saved_deck_try_add_card(const SaveData& save, int deck_index, SavedDeck& working, CardType type);
 bool saved_deck_try_remove_card(SavedDeck& working, CardType type);
 void saved_deck_flatten(const SavedDeck& deck, bn::vector<CardType, 50>& out);
+void saved_deck_clear_longsleeves(SavedDeck& deck);
+bool saved_deck_has_longsleeves_equipped(const SavedDeck& deck);
+void saved_deck_resolve_longsleeve_cards(const SavedDeck& deck, const InstancePool& pool,
+                                           bn::array<CardRef, 2>& out_cards);
 bool saved_deck_try_update_high_score(SavedDeck& deck, int score);
 int saved_deck_high_score(const SavedDeck& deck);
 

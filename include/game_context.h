@@ -53,12 +53,33 @@ struct PlayFlight
     Card fx_card;
 };
 
+struct TransitFlight
+{
+    bool active = false;
+    int frame = 0;
+    int delay_frames = 0;
+    TransitKind kind = TransitKind::NONE;
+    GraveyardExilePickKind gy_kind = GraveyardExilePickKind::NONE;
+    CardRef card{};
+    int start_x = 0;
+    int start_y = 0;
+    int dest_x = 0;
+    int dest_y = 0;
+    int dest_hand_index = 0;
+    int graveyard_index = -1;
+    RemovalStyle style = RemovalStyle::TO_GRAVEYARD;
+    bool state_applied = false;
+    bool miracle_auto_play = false;
+    Card fx_card;
+};
+
 class GameContext
 {
 public:
     GameContext(const bn::vector<CardRef, 50>& collection, const BattleLaunch& launch);
 
     bool run_finished = false;
+    bool run_end_presentation_pending = false;
     bool confirm_input_armed = false;
 
     bn::seed_random random_engine;
@@ -84,7 +105,6 @@ public:
     int pending_cycle_draws = 0;
     bn::array<PlayFlight, game_layout::MAX_PLAY_FLIGHTS> play_flights;
     bool swapping_card = false;
-    bool swap_first_step = true;
     int swap_frame = 0;
     int swap_direction = 0;
     int scroll_x = 0;
@@ -132,17 +152,6 @@ public:
     int echo_ghost_x = 0;
     int echo_ghost_y = 0;
     bool graveyard_card_fx_active = false;
-    int graveyard_card_fx_frame = 0;
-    int graveyard_card_fx_start_x = 0;
-    int graveyard_card_fx_start_y = 0;
-    CardType graveyard_card_fx_type = CardType::COUNT;
-    uint8_t graveyard_card_fx_instance_id = NO_INSTANCE;
-    int graveyard_card_fx_index = 0;
-    int graveyard_card_fx_dest_x = 0;
-    int graveyard_card_fx_dest_y = 0;
-    GraveyardExilePickKind graveyard_card_fx_kind = GraveyardExilePickKind::NONE;
-    RemovalStyle graveyard_card_fx_style = RemovalStyle::EXILE_DISSIPATE;
-    bool graveyard_card_fx_state_applied = false;
     bool rags_exile_deferred_finish = false;
 
     struct PendingGraveyardExileFx
@@ -154,6 +163,7 @@ public:
     };
 
     bn::vector<PendingGraveyardExileFx, 12> pending_graveyard_exile_fx;
+    bn::array<TransitFlight, game_layout::MAX_TRANSIT_FLIGHTS> transit_flights;
     bool keep_going_transfer_active = false;
     int keep_going_transfers_remaining = 0;
     bool deferred_round_start_pending = false;
@@ -201,14 +211,6 @@ public:
 
     DeckSearchResolveFx deck_search_resolve_fx;
     bool hand_draw_fx_active = false;
-    int hand_draw_fx_frame = 0;
-    int hand_draw_fx_start_x = 0;
-    int hand_draw_fx_start_y = 0;
-    int hand_draw_fx_dest_x = 0;
-    int hand_draw_fx_dest_y = 0;
-    int hand_draw_fx_dest_index = 0;
-    CardRef hand_draw_fx_card{};
-    bool hand_draw_fx_miracle_auto = false;
     LuckySevensFxState lucky_sevens_fx;
     bn::vector<TrinketScoreField, 8> pending_lucky_sevens;
     bn::vector<bn::sprite_ptr, 16> trinket_fx_sprites;
@@ -231,6 +233,9 @@ public:
     bool _total_score_initialized = false;
     bn::string<48> _cached_round_score_text;
     int _cached_total_score = 0;
+    int _cached_total_score_view_offset = 0;
+    int total_score_view_offset = 0;
+    int round_score_view_offset = 0;
 
     void shutdown_for_exit();
     void reset_card_animation_state();
@@ -246,6 +251,9 @@ public:
     const PlayFlight* latest_play_flight() const;
     int play_flight_count() const;
     bool play_can_overlap() const;
+    int play_flight_fan_offset_x(const PlayFlight& flight) const;
+    int play_hold_frames(const PlayFlight& flight) const;
+    bool graveyard_slot_hidden_by_flight(int graveyard_index) const;
     bool play_hides_hand_index(int hand_index) const;
     bool play_hides_graveyard_visual(int visual_index) const;
     bool play_hides_visual_slot(int visual_index) const;
@@ -275,12 +283,16 @@ public:
     void draw_round_score();
     void show_total_score_value(int value);
     void show_round_score_running(int running, int end_multiplier);
+    void sync_score_digit_view(SwapScoreField field, int digit_index);
     [[nodiscard]] int score_progress_goal() const;
     [[nodiscard]] bool score_progress_visible() const;
     void sync_score_progress_bar();
     void sync_combo_progress_bars();
     [[nodiscard]] bool should_end_run() const;
     void end_run_if_needed();
+    [[nodiscard]] bool score_presentation_blocking() const;
+    void request_run_end();
+    void tick_run_end_presentation();
     void finish_finale_run();
     void finalize_total_score_display();
     void finalize_round_score_display();
@@ -290,11 +302,14 @@ public:
     void draw_inspect(CardType type);
     void clear_inspect();
     void snap_active_scroll();
+    void sync_hand_selection();
     void prepare_hand_selection_mode();
     void clamp_hand_cursor();
-    void begin_graveyard_card_fx(GraveyardExilePickKind pick_kind);
+    void begin_graveyard_card_fx(GraveyardExilePickKind pick_kind, int graveyard_index = -1);
+    void prepare_transit_flight_visual(TransitFlight& flight);
     [[nodiscard]] bool graveyard_exile_spam_select() const;
     void confirm_graveyard_multiply_exile_pick();
+    void confirm_graveyard_clover_exile_pick();
     void try_start_graveyard_exile_fx();
     void clear_graveyard_exile_fx();
     void begin_birds_return_fx();
@@ -303,9 +318,11 @@ public:
     void finish_deferred_round_start();
     void run_round_start_pipeline();
     void apply_round_start_turtle_step();
-    void hand_slot_screen_position(int hand_index, int main_x, int& out_x, int& out_y) const;
-    int graveyard_card_fx_frame_count() const;
-    void complete_graveyard_card_fx();
+    void hand_slot_screen_position(int hand_index, int main_x, int& out_x, int& out_y,
+                                   int layout_hand_count = -1) const;
+    int graveyard_card_fx_frame_count(const TransitFlight& flight) const;
+    void complete_deck_to_hand_transit(TransitFlight& flight);
+    void complete_graveyard_transit(TransitFlight& flight);
     bool try_begin_birds_return_fx();
     void complete_birds_return();
     void resolve_birds_return_instantly();
@@ -313,15 +330,26 @@ public:
     void tick_deck_search_resolve();
     void finish_deck_search_resolve();
     bool deck_search_resolve_active() const;
+    TransitFlight* alloc_transit_flight();
+    int active_transit_count() const;
+    int in_flight_deck_draw_count() const;
+    void sync_transit_flags();
+    void try_start_pending_transits();
+    void tick_transit_flights();
+    void complete_transit_flight(TransitFlight& flight);
+    void clear_transit_flight(TransitFlight& flight);
+    void render_transit_flights(int main_x);
+    bool graveyard_slot_hidden_by_transit(int graveyard_index) const;
+    bool zone_transit_active() const;
     bool hand_draw_fx_blocking() const;
     bool card_resolution_blocking_round_end() const;
     int scheduled_hand_count() const;
     void try_start_hand_draw_fx();
     void tick_hand_draw_fx();
-    void complete_hand_draw_fx();
     bool presentation_fx_blocking() const;
     bool try_drain_echo_replay();
     void tick_echo_pending();
+    void tick_roll_over_pending();
     void shift_card_raise_after_remove(int removed_index);
     bool confirm_pressed() const;
 
@@ -335,6 +363,8 @@ public:
     bool graveyard_library_pick_active() const;
     void sync_graveyard_library_marker(int main_x);
     bool card_selection_ui_active() const;
+    bool selection_blocks_pending_finish() const;
+    bool selection_mode_allows_input_during_presentation() const;
     // L = +1 (hand→info→exile→GY→hand), R = -1 (reverse).
     void cycle_side_panel(int direction);
     void switch_side_panel(SidePanel target);
@@ -361,7 +391,7 @@ public:
     void sync_row_scroll_for_mode(int cursor, int count, int spacing);
 
     void process_instant_pending();
-    void begin_next_pending_or_finish();
+    void begin_next_pending_or_finish(bool close_selection = false);
     void tick_evaluate_ghost_steps();
     enum class RoundFinishResult
     {
@@ -371,6 +401,8 @@ public:
     };
     RoundFinishResult try_finish_round_after_empty_hand();
     void finish_empty_hand_round();
+    void roll_over_commit_pick(int choice_index);
+    bool try_advance_roll_over_sequence();
     void tick_round_end_pending();
     void arm_echo_replay(CardRef played, PlaySource scoring_source, int ghost_x, int ghost_y);
     void advance_effect_draw();

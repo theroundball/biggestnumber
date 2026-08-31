@@ -171,8 +171,9 @@ void GameContext::handle_input()
     bool direction_triggered = false;
     int direction_steps = 1;
 
-    if(mode == GameMode::SCORE_SWAP)
+    if(score_swap_is_active(*this))
     {
+        mode = GameMode::SCORE_SWAP;
         score_swap_handle_input(*this);
         return;
     }
@@ -317,20 +318,13 @@ void GameContext::handle_input_side_panel(int current_direction, bool direction_
 
 bool GameContext::handle_input_presentation()
 {
-    if(hand_draw_fx_blocking())
+    if(hand_draw_fx_blocking() && mode != GameMode::NORMAL)
     {
         return true;
     }
 
-    if(graveyard_card_fx_active)
+    if(zone_transit_active())
     {
-        ++graveyard_card_fx_frame;
-
-        if(graveyard_card_fx_frame >= graveyard_card_fx_frame_count())
-        {
-            complete_graveyard_card_fx();
-        }
-
         if(!graveyard_exile_spam_select())
         {
             return true;
@@ -343,6 +337,11 @@ bool GameContext::handle_input_presentation()
 
     if(removing_card)
     {
+        if(selection_mode_allows_input_during_presentation())
+        {
+            return false;
+        }
+
         // Removal timing is driven from the main loop so animations finish even when
         // handle_input is skipped (lucky sevens, deck-search resolve, etc.).
         // Keep left/right selection live while a play is in the air. Confirm and
@@ -398,7 +397,28 @@ bool GameContext::handle_input_presentation()
             const bool still_held = bn::keypad::b_held() &&
                                     (swap_direction == 1 ? bn::keypad::right_held() : bn::keypad::left_held());
 
-            if (swap_first_step && !still_held)
+            if(mode == GameMode::SCRY)
+            {
+                state.selection.cursor += swap_direction;
+                sync_target_row_scroll(state.selection.cursor, state.selection.scry_buffer.size());
+            }
+            else
+            {
+                selected_card += swap_direction;
+                update_target_scroll();
+            }
+
+            const bool can_continue = mode == GameMode::SCRY
+                ? (swap_direction == 1
+                    ? state.selection.cursor < state.selection.scry_buffer.size() - 1
+                    : state.selection.cursor > 0)
+                : (swap_direction == 1 ? selected_card < state.hand.size() - 1 : selected_card > 0);
+
+            if(still_held && can_continue)
+            {
+                swap_frame = 0;
+            }
+            else
             {
                 swapping_card = false;
                 swap_direction = 0;
@@ -421,55 +441,6 @@ bool GameContext::handle_input_presentation()
                     draw_total_score();
                 }
             }
-            else
-            {
-                if(mode == GameMode::SCRY)
-                {
-                    state.selection.cursor += swap_direction;
-                    sync_target_row_scroll(state.selection.cursor, state.selection.scry_buffer.size());
-                }
-                else
-                {
-                    selected_card += swap_direction;
-                    update_target_scroll();
-                }
-
-                swap_first_step = false;
-
-                const bool can_continue = mode == GameMode::SCRY
-                    ? (swap_direction == 1
-                        ? state.selection.cursor < state.selection.scry_buffer.size() - 1
-                        : state.selection.cursor > 0)
-                    : (swap_direction == 1 ? selected_card < state.hand.size() - 1 : selected_card > 0);
-
-                if (still_held && can_continue)
-                {
-                    swap_frame = 0;
-                }
-                else
-                {
-                    swapping_card = false;
-                    swap_direction = 0;
-
-                    if(mode == GameMode::SCRY)
-                    {
-                        combo_check_zone(state, ComboZone::REVEALED);
-
-                        if(try_start_pending_combo())
-                        {
-                            draw_round_score();
-                        }
-                    }
-                    else if(try_start_pending_combo())
-                    {
-                        draw_round_score();
-                    }
-                    else
-                    {
-                        draw_total_score();
-                    }
-                }
-            }
         }
 
         return true;
@@ -483,29 +454,23 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
 {
     const int slot_count = playable_slot_count(state);
     const bool live_selected = selected_card >= 0 && selected_card < state.hand.size();
+    const bool roll_over_pick_selected =
+        roll_over_pick_active(state) && selected_card >= 0 &&
+        selected_card < state.roll_over_choice_count;
+    const bool longsleeve_selected = playable_slot_is_longsleeve(state, selected_card);
     const bool ghost_selected = playable_slot_is_ghost(state, selected_card);
     const bool combine_selected = playable_slot_is_combine_offer(state, selected_card);
     const bool lock_for_scroll = scrolling && !removing_card;
 
     if(!game_over && !scrolling && !inspecting &&
        side_panel == SidePanel::NONE && !panel_transition_active() && state.hand.size() && bn::keypad::b_held() &&
-       !removing_card &&
-       bn::keypad::right_pressed() && live_selected && selected_card < state.hand.size() - 1)
+       !removing_card && !swapping_card && direction_triggered && current_direction != 0 && live_selected &&
+       ((current_direction == 1 && selected_card < state.hand.size() - 1) ||
+        (current_direction == -1 && selected_card > 0)))
     {
         swapping_card = true;
         swap_frame = 0;
-        swap_direction = 1;
-        swap_first_step = true; // new
-    }
-    else if(!game_over && !scrolling && !inspecting &&
-            side_panel == SidePanel::NONE && !panel_transition_active() && state.hand.size() && bn::keypad::b_held() &&
-            !removing_card &&
-            bn::keypad::left_pressed() && live_selected && selected_card > 0)
-    {
-        swapping_card = true;
-        swap_frame = 0;
-        swap_direction = -1;
-        swap_first_step = true;
+        swap_direction = current_direction;
     }
     else if(!game_over && !scrolling && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() && bn::keypad::l_pressed())
@@ -525,10 +490,14 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
     }
     else if(!game_over && !scrolling && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() &&
-            state.hand.empty() && has_optional_ghost_plays(state) && bn::keypad::b_pressed())
+            state.hand.empty() && !state.finale_active && bn::keypad::b_pressed())
     {
-        state.waive_optional_ghost_plays = true;
-        skip_pending_combine = true;
+        if(has_optional_ghost_plays(state))
+        {
+            state.waive_optional_ghost_plays = true;
+            skip_pending_combine = true;
+        }
+
         finish_empty_hand_round();
     }
     else if(!game_over && !lock_for_scroll && side_panel == SidePanel::NONE &&
@@ -566,6 +535,7 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
     }
     else if(!game_over && !lock_for_scroll && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() && live_selected &&
+            !state.build_a_number_active &&
             bn::keypad::down_pressed() &&
             card_has_cycle(state.hand[selected_card].type))
     {
@@ -587,6 +557,11 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
         }
         else if(combine_selected)
         {
+            if(state.build_a_number_active)
+            {
+                return;
+            }
+
             if(removing_card && !play_can_overlap())
             {
                 return;
@@ -603,6 +578,51 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
             try_start_pending_combo();
             update_target_scroll();
         }
+        else if(roll_over_pick_selected)
+        {
+            if(removing_card && !play_can_overlap())
+            {
+                return;
+            }
+
+            roll_over_commit_pick(selected_card);
+        }
+        else if(longsleeve_selected)
+        {
+            if(removing_card && !play_can_overlap())
+            {
+                return;
+            }
+
+            const int longsleeve_index = playable_slot_longsleeve_index(state, selected_card);
+            const CardRef played_ref = playable_slot_card(state, selected_card);
+
+            if(longsleeve_index < 0)
+            {
+                return;
+            }
+
+            if(state.build_a_number_active &&
+               !build_a_number_can_play_card(state, played_ref, PlaySource::HAND))
+            {
+                return;
+            }
+
+            capture_removal_start();
+            PlayResolutionContext context;
+            context.source = PlaySource::LONGSLEEVE;
+            context.hand_index = longsleeve_index;
+            context.selected_card = &selected_card;
+            context.apply_destination = false;
+
+            echo_play_badge_active = state.echo_first_play_active() &&
+                                     card_has_play_effect(state, played_ref);
+            begin_play_presentation(
+                played_ref,
+                removal_start_x,
+                removal_start_y,
+                PlayPresentOrigin::HAND, context, RemovalStyle::EXILE_DISSIPATE);
+        }
         else if(ghost_selected)
         {
             if(removing_card && !play_can_overlap())
@@ -614,6 +634,12 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
             const CardRef played_ref = playable_slot_card(state, selected_card);
 
             if(gy_index < 0)
+            {
+                return;
+            }
+
+            if(state.build_a_number_active &&
+               !build_a_number_can_play_card(state, played_ref, PlaySource::GHOST))
             {
                 return;
             }
@@ -669,6 +695,13 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
             }
 
             const CardRef played_ref = state.hand[selected_card];
+
+            if(state.build_a_number_active &&
+               !build_a_number_can_play_card(state, played_ref, PlaySource::HAND))
+            {
+                return;
+            }
+
             echo_play_badge_active = state.echo_first_play_active() &&
                                      card_has_play_effect(state, played_ref);
             capture_removal_start();
@@ -716,11 +749,18 @@ void GameContext::handle_input_discard_target(int current_direction, bool direct
             bn::keypad::b_pressed())
     {
         purge_pending_overclock_discard_prompts(state);
-        begin_next_pending_or_finish();
+        begin_next_pending_or_finish(true);
     }
     else if(!scrolling && !inspecting && state.hand.size() &&
             (confirm_pressed() || bn::keypad::down_pressed()))
     {
+        if(state.selection.remaining_picks <= 0)
+        {
+            return;
+        }
+
+        --state.selection.remaining_picks;
+
         if(state.selection.type == PendingActionType::PAPER_SWAP_HAND)
         {
             const int anchor = state.selection.multiply_factor;
@@ -731,7 +771,7 @@ void GameContext::handle_input_discard_target(int current_direction, bool direct
                 hand_swap_cards(state, anchor, selected_card);
             }
 
-            begin_next_pending_or_finish();
+            begin_next_pending_or_finish(true);
         }
         else if(state.selection.type == PendingActionType::PUT_HAND_ON_DECK_TOP)
         {
@@ -744,7 +784,7 @@ void GameContext::handle_input_discard_target(int current_direction, bool direct
             hand_remove_at_exiled(state, removed, selected_card);
             shift_card_raise_after_remove(removed);
             draw_round_score();
-            begin_next_pending_or_finish();
+            begin_next_pending_or_finish(true);
         }
         else if(card_has_discard_effect(state.hand[selected_card].type))
         {
@@ -784,20 +824,21 @@ void GameContext::handle_input_graveyard_target(int current_direction, bool dire
             state.selection.type == PendingActionType::EXILE_FROM_GRAVEYARD_THEN_MULTIPLY &&
             bn::keypad::b_pressed())
     {
-        begin_next_pending_or_finish();
+        begin_next_pending_or_finish(true);
     }
     else if(!inspecting &&
             state.selection.type == PendingActionType::EXILE_GRAVEYARD_MULTIPLY_BY_COUNT &&
             bn::keypad::b_pressed())
     {
-        if(state.selection.exiled_count > 0)
+        if(state.selection.exiled_count > 0 && !rags_exile_deferred_finish)
         {
             state.mul_from_card(state.selection.exiled_count);
+            state.selection.exiled_count = 0;
             draw_round_score();
         }
 
         clear_graveyard_exile_fx();
-        begin_next_pending_or_finish();
+        begin_next_pending_or_finish(true);
     }
     else if(!inspecting && !gy_fx_blocks_input &&
             !state.graveyard.empty() && confirm_pressed())
@@ -808,6 +849,12 @@ void GameContext::handle_input_graveyard_target(int current_direction, bool dire
 
         if(state.selection.type == PendingActionType::EXILE_FROM_GRAVEYARD)
         {
+            if(state.selection.remaining_picks <= 0)
+            {
+                return;
+            }
+
+            --state.selection.remaining_picks;
             begin_graveyard_card_fx(GraveyardExilePickKind::EXILE_ONE);
         }
         else if(state.selection.type == PendingActionType::EXILE_GRAVEYARD_MULTIPLY_BY_COUNT)
@@ -816,18 +863,35 @@ void GameContext::handle_input_graveyard_target(int current_direction, bool dire
         }
         else if(state.selection.type == PendingActionType::EXILE_FROM_GRAVEYARD_THEN_MULTIPLY)
         {
-            begin_graveyard_card_fx(GraveyardExilePickKind::FROM_GRAVEYARD_THEN_MULTIPLY);
+            confirm_graveyard_clover_exile_pick();
         }
         else if(state.selection.type == PendingActionType::RETRIEVE_FROM_GRAVEYARD_TO_TOP)
         {
+            if(state.selection.remaining_picks <= 0)
+            {
+                return;
+            }
+
+            --state.selection.remaining_picks;
             begin_graveyard_card_fx(GraveyardExilePickKind::TO_DECK_TOP);
         }
         else if(state.selection.type == PendingActionType::RETRIEVE_FROM_GRAVEYARD)
         {
+            if(state.selection.remaining_picks <= 0)
+            {
+                return;
+            }
+
+            --state.selection.remaining_picks;
             begin_graveyard_card_fx(GraveyardExilePickKind::TO_HAND);
         }
         else if(state.selection.type == PendingActionType::GRAVEYARD_PAIR_SWAP)
         {
+            if(state.selection.remaining_picks <= 0)
+            {
+                return;
+            }
+
             const int cursor = state.selection.cursor;
 
             if(state.selection.graveyard_swap_first < 0)
@@ -854,13 +918,13 @@ void GameContext::handle_input_graveyard_target(int current_direction, bool dire
                 if(state.selection.remaining_picks <= 0)
                 {
                     action_prompt_sprites.clear();
-                    begin_next_pending_or_finish();
+                    begin_next_pending_or_finish(true);
                 }
             }
         }
         else if(type != state.selection.graveyard_exclude)
         {
-            begin_next_pending_or_finish();
+            begin_next_pending_or_finish(true);
         }
     }
 }
@@ -895,7 +959,7 @@ void GameContext::handle_input_deck_search(int current_direction, bool direction
 
         if(prepared.card.type == CardType::COUNT)
         {
-            begin_next_pending_or_finish();
+            begin_next_pending_or_finish(true);
             return;
         }
 
@@ -925,6 +989,7 @@ void GameContext::handle_input_deck_search(int current_direction, bool direction
         row_scroll_x = 0;
         target_row_scroll_x = 0;
         target_row_scroll_index = 0;
+        sync_hand_selection();
     }
 }
 
@@ -952,6 +1017,11 @@ void GameContext::handle_input_graveyard_pick(int current_direction, bool direct
     }
     else if(!inspecting && !state.graveyard.empty() && confirm_pressed())
     {
+        if(state.selection.remaining_picks <= 0)
+        {
+            return;
+        }
+
         state.selection.cursor = clamp_graveyard_cursor(state.selection.cursor, state.graveyard.size());
         const CardRef picked = state.graveyard[state.selection.cursor];
 
@@ -1009,7 +1079,7 @@ void GameContext::handle_input_graveyard_pick(int current_direction, bool direct
             draw_round_score();
 
             state.selection.picked_ordered.clear();
-            begin_next_pending_or_finish();
+            begin_next_pending_or_finish(true);
         }
     }
 }
@@ -1018,21 +1088,14 @@ void GameContext::handle_input_scry(int current_direction, bool direction_trigge
                                     bool row_scrolling)
 {
     // --- SCRY: reorder peeked cards (B+Left/Right), play one (Up), rest return to deck ---
-    if(!row_scrolling && !inspecting && bn::keypad::b_held() &&
-       bn::keypad::right_pressed() && state.selection.cursor < state.selection.scry_buffer.size() - 1)
+    if(!row_scrolling && !inspecting && bn::keypad::b_held() && !swapping_card && direction_triggered &&
+       current_direction != 0 &&
+       ((current_direction == 1 && state.selection.cursor < state.selection.scry_buffer.size() - 1) ||
+        (current_direction == -1 && state.selection.cursor > 0)))
     {
         swapping_card = true;
         swap_frame = 0;
-        swap_direction = 1;
-        swap_first_step = true;
-    }
-    else if(!row_scrolling && !inspecting && bn::keypad::b_held() &&
-            bn::keypad::left_pressed() && state.selection.cursor > 0)
-    {
-        swapping_card = true;
-        swap_frame = 0;
-        swap_direction = -1;
-        swap_first_step = true;
+        swap_direction = current_direction;
     }
     else if(!row_scrolling && !swapping_card && !bn::keypad::b_held() && direction_triggered)
     {
@@ -1087,6 +1150,7 @@ void GameContext::handle_input_scry(int current_direction, bool direction_trigge
         row_scroll_x = 0;
         target_row_scroll_x = 0;
         target_row_scroll_index = 0;
+        sync_hand_selection();
     }
 }
 
@@ -1111,7 +1175,7 @@ void GameContext::handle_input_build_number_digit(int current_direction, bool di
             {
                 state.build_a_number_complete_payout();
                 draw_round_score();
-                begin_next_pending_or_finish();
+                begin_next_pending_or_finish(true);
                 return;
             }
 
@@ -1127,7 +1191,7 @@ void GameContext::handle_input_build_number_digit(int current_direction, bool di
             draw_round_score();
         }
 
-        begin_next_pending_or_finish();
+        begin_next_pending_or_finish(true);
     }
 }
 

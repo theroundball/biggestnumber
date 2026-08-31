@@ -37,6 +37,7 @@ enum class TrinketType : uint8_t
     PRIME_TIME,
     FIBONACCI,
     STAIRCASE,
+    LONGSLEEVES,
     COUNT,
 };
 
@@ -53,6 +54,7 @@ struct BattleLaunch
         TrinketType::PRIME_TIME,
     };
     InstancePool instance_pool{};
+    bn::array<CardRef, 2> longsleeve_cards = {};
     CampaignUiContext campaign_ui{};
     CampaignMode campaign_mode = CampaignMode::NONE;
     int same_number_target = 0;
@@ -219,14 +221,18 @@ struct GameState
     bool first_deck_draw_this_round = true;
     int prime_time_total_procs = 0;
     int prime_time_round_procs = 0;
-    int fibonacci_previous = 0;
-    int fibonacci_current = 1;
+    bn::vector<CardRef, 2> longsleeve_cards;
     BattleStats battle_stats;
     int effect_draw_remaining = 0;
     bool effect_draw_miracle_first = false;
     bool effect_draw_miracle_chaining = false;
     bool roll_over_substitution_active = false;
+    bool roll_over_pick_active = false;
+    bool roll_over_awaiting_follow_up = false;
     bn::vector<CardRef, 60> roll_over_stashed_hand;
+    bn::array<CardRef, 2> roll_over_choices = {};
+    int roll_over_choice_count = 0;
+    CardRef roll_over_follow_up_card{};
     // Per physical Bounty copy (CardRef.bounty_id), not save instance_id.
     bn::array<uint8_t, InstancePool::CAPACITY> bounty_instance_plays{};
     bn::array<int, InstancePool::CAPACITY> bounty_instance_return_anchor{};
@@ -251,6 +257,11 @@ struct GameState
     };
 
     InstancePool instance_pool;
+
+    bool has_longsleeves() const
+    {
+        return has_trinket(TrinketType::LONGSLEEVES);
+    }
 
     // Morel +2 stacks deferred until Lucky 7 / Prime reactions from the card add settle.
     int deferred_morel_count = 0;
@@ -352,9 +363,14 @@ struct GameState
         echo_replay_card = CardRef{};
         first_deck_draw_this_round = true;
         roll_over_substitution_active = false;
+        roll_over_pick_active = false;
+        roll_over_awaiting_follow_up = false;
         roll_over_stashed_hand.clear();
-        // waive_optional_ghost_plays stays set until the round-finish pipeline
-        // has committed and run end_run_if_needed (Option B: B always ends the round).
+        roll_over_choices = {};
+        roll_over_choice_count = 0;
+        roll_over_follow_up_card = CardRef{};
+        // waive_optional_ghost_plays is cleared after the round-finish pipeline runs
+        // end_run_if_needed (see try_finish_round_after_empty_hand / finish_deferred_round_start).
         bounty_on_round_start(*this);
     }
 };

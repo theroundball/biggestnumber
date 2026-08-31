@@ -25,6 +25,7 @@
 #include "common_variable_8x16_sprite_font.h"
 #include "game_helpers.h"
 #include "game_types.h"
+#include "longsleeve_pick_scene.h"
 #include "save_data.h"
 #include "ui_common.h"
 #include "ui_inspect.h"
@@ -85,6 +86,8 @@ namespace
             return "Fibonacci";
         case TrinketType::STAIRCASE:
             return "Staircase";
+        case TrinketType::LONGSLEEVES:
+            return "Longsleeves";
         default:
             return "none";
         }
@@ -114,7 +117,7 @@ namespace
         }
     }
 
-    void cycle_trinket_slot(SavedDeck& deck, int slot, const SaveData& save)
+    void cycle_trinket_slot(SavedDeck& deck, int slot, const SaveData& save, int deck_index)
     {
         bn::vector<TrinketType, 8> options;
         build_trinket_options(save, deck, options);
@@ -122,15 +125,16 @@ namespace
         if(options.empty())
         {
             deck.trinkets[slot] = uint8_t(TrinketType::NONE);
+            saved_deck_clear_longsleeves(deck);
             return;
         }
 
-        const TrinketType current = static_cast<TrinketType>(deck.trinkets[slot]);
+        const TrinketType previous = static_cast<TrinketType>(deck.trinkets[slot]);
         int current_index = 0;
 
         for(int index = 0; index < options.size(); ++index)
         {
-            if(options[index] == current)
+            if(options[index] == previous)
             {
                 current_index = index;
                 break;
@@ -138,7 +142,26 @@ namespace
         }
 
         const int next_index = (current_index + 1) % options.size();
-        deck.trinkets[slot] = uint8_t(options[next_index]);
+        const TrinketType next = options[next_index];
+        deck.trinkets[slot] = uint8_t(next);
+
+        if(previous == TrinketType::LONGSLEEVES && next != TrinketType::LONGSLEEVES)
+        {
+            saved_deck_clear_longsleeves(deck);
+        }
+
+        if(next == TrinketType::LONGSLEEVES)
+        {
+            SaveData& save_mut = save_data_mut();
+            bn::array<uint8_t, 2> picks = {
+                deck.longsleeve_instance_ids[0],
+                deck.longsleeve_instance_ids[1],
+            };
+            run_longsleeve_deck_pick_scene(save_mut, deck_index, picks);
+            deck.longsleeve_instance_ids[0] = picks[0];
+            deck.longsleeve_instance_ids[1] = picks[1];
+            save_data_write();
+        }
     }
 
     bn::string<24> trinket_slot_label(int slot_index, const SavedDeck& deck)
@@ -725,7 +748,8 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck)
 
                     if(card_data(type).text_only)
                     {
-                        card.sync_face_labels(&body_generator, catalog_display_instance(save, type));
+                        card.sync_face_labels(&body_generator, nullptr, CardRef{type, NO_INSTANCE},
+                                              catalog_display_instance(save, type));
                     }
                     else
                     {
@@ -897,7 +921,7 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck)
                 }
                 else
                 {
-                    cycle_trinket_slot(working, actions_cursor - 1, save);
+                    cycle_trinket_slot(working, actions_cursor - 1, save, deck_index);
                 }
             }
         }

@@ -434,16 +434,13 @@ void GameContext::render_graveyard_selection_frame(int main_x)
             const int grave_cursor = state.selection.cursor;
             const CardRowResult r = render_graveyard_view(main_x, grave_cursor);
 
-            if(graveyard_card_fx_active && graveyard_card_fx_index >= 0)
-            {
-                const int first_visible = row_scroll_x / game_layout::GRAVE_SPACING;
+            const int first_visible = row_scroll_x / game_layout::GRAVE_SPACING;
 
-                for(int slot = 0; slot < grave_row_display.size(); ++slot)
+            for(int slot = 0; slot < grave_row_display.size(); ++slot)
+            {
+                if(graveyard_slot_hidden_by_transit(first_visible + slot))
                 {
-                    if(first_visible + slot == graveyard_card_fx_index)
-                    {
-                        grave_row_display[slot].set_visible(false);
-                    }
+                    grave_row_display[slot].set_visible(false);
                 }
             }
 
@@ -472,8 +469,8 @@ void GameContext::render_graveyard_selection_frame(int main_x)
                state.selection.graveyard_swap_first >= 0)
             {
                 const int locked = state.selection.graveyard_swap_first;
-                const int first_visible = row_scroll_x / game_layout::GRAVE_SPACING;
-                const int locked_slot = locked - first_visible;
+                const int roll_first_visible = row_scroll_x / game_layout::GRAVE_SPACING;
+                const int locked_slot = locked - roll_first_visible;
 
                 if(locked_slot >= 0 && locked_slot < r.visible_count)
                 {
@@ -589,6 +586,8 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
             for(int visual_index = 0; visual_index < visual_count; ++visual_index)
             {
                 const bool is_ghost = playable_slot_is_ghost(state, visual_index);
+                const bool is_longsleeve = playable_slot_is_longsleeve(state, visual_index);
+                const bool ghost_style = is_ghost || is_longsleeve;
                 const bool is_combine = playable_slot_is_combine_offer(state, visual_index);
                 const int hand_index = playable_slot_hand_index(state, visual_index);
                 const CardRef slot_card = playable_slot_card(state, visual_index);
@@ -700,7 +699,7 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                     card.set_position(card_x, card_y);
                     card.clear_visual();
 
-                    if(is_ghost || is_combine)
+                    if(ghost_style || is_combine)
                     {
                         bn::blending::set_transparency_alpha(bn::fixed(0.45));
                         card.set_blending_enabled(true);
@@ -721,7 +720,7 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
 
                 if(card_data(slot_card.type).text_only)
                 {
-                    card.sync_face_labels(&hud_count_generator, slot_instance);
+                    card.sync_face_labels(&hud_count_generator, &state, slot_card, slot_instance);
                 }
                 else
                 {
@@ -737,10 +736,30 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                     card.clear_upgrade_pips();
                 }
 
-                const int preview_plus = card_preview_plus(state, slot_card, is_ghost);
-                const bool show_overlay = state.pending_double_adds || is_ghost;
+                const int preview_plus = card_preview_plus(state, slot_card, is_ghost && !is_longsleeve);
+                const bool show_overlay = state.pending_double_adds || ghost_style;
+                const PlaySource overlay_source =
+                    is_ghost && !is_longsleeve ? PlaySource::GHOST : PlaySource::HAND;
 
-                if(is_combine)
+                if(state.build_a_number_active)
+                {
+                    const int build_digit =
+                        build_a_number_card_digit(state, slot_card, overlay_source);
+
+                    if(card_data(slot_card.type).text_only)
+                    {
+                        card.clear_amount_overlay();
+                    }
+                    else if(build_digit >= 1)
+                    {
+                        card.set_amount_overlay(&hud_count_generator, bn::to_string<1>(build_digit));
+                    }
+                    else
+                    {
+                        card.clear_amount_overlay();
+                    }
+                }
+                else if(is_combine)
                 {
                     const int ordinal = playable_slot_combine_ordinal(state, visual_index);
                     const uint8_t combo_id = combo_ready_id_by_ordinal(state, ordinal);
@@ -753,10 +772,6 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
                     bn::string<8> amount_text = "+";
                     amount_text += bn::to_string<4>(preview_plus);
                     card.set_amount_overlay(&hud_count_generator, amount_text);
-                }
-                else if(slot_card.type == CardType::BOUNTY)
-                {
-                    sync_bounty_card_overlay(state, card, slot_card, is_ghost, &hud_count_generator);
                 }
                 else
                 {
@@ -882,8 +897,8 @@ void GameContext::sync_score_sprite_depth()
     {
         for(bn::sprite_ptr& sprite : pop.sprites)
         {
-            sprite.set_z_order(score_z);
-            sprite.set_bg_priority(score_bg_priority);
+            sprite.set_z_order(game_layout::SCORE_POP_Z);
+            sprite.set_bg_priority(game_layout::SCORE_POP_BG_PRIORITY);
         }
     }
 }
@@ -928,7 +943,7 @@ void GameContext::render_one_play_flight(PlayFlight& flight, int main_x, bool sk
 
     if(!skip_face_labels && card_data(flight.played_ref.type).text_only)
     {
-        fx_card.sync_face_labels(&hud_count_generator, removal_instance);
+        fx_card.sync_face_labels(&hud_count_generator, &state, flight.played_ref, removal_instance);
     }
     else
     {
@@ -977,9 +992,8 @@ void GameContext::render_one_play_flight(PlayFlight& flight, int main_x, bool sk
 
 void GameContext::render_play_presentation_overlay(int main_x)
 {
-    if(graveyard_card_fx_active || hand_draw_fx_active ||
-       (deck_search_resolve_fx.active &&
-        deck_search_resolve_fx.phase == DeckSearchResolvePhase::PICK_FLIGHT))
+    if(deck_search_resolve_fx.active &&
+       deck_search_resolve_fx.phase == DeckSearchResolvePhase::PICK_FLIGHT)
     {
         return;
     }
@@ -1109,6 +1123,9 @@ void GameContext::render_frame()
 
             switch(score_swap_fx.edit_mode)
             {
+            case ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL:
+                prompt = "Lift 4  B+LR changes 4";
+                break;
             case ScoreDigitEditMode::MOVE_FOUR:
                 prompt = "Move 4  B+LR changes 4";
                 break;
@@ -1124,7 +1141,8 @@ void GameContext::render_frame()
             hud_mod_generator.set_left_alignment();
             hud_mod_generator.generate(-112, -48, "Total", action_prompt_sprites);
 
-            if(score_swap_fx.edit_mode == ScoreDigitEditMode::SWAP)
+            if(score_swap_fx.edit_mode == ScoreDigitEditMode::SWAP ||
+               score_swap_fx.edit_mode == ScoreDigitEditMode::LIFT_FOUR_ROUND_TO_TOTAL)
             {
                 hud_mod_generator.generate(-112, 0, "Round", action_prompt_sprites);
             }
@@ -1138,136 +1156,9 @@ void GameContext::render_frame()
             render_hand_frame(main_x, swap_shift, removal_shift);
         }
 
-        if(graveyard_card_fx_active)
-        {
-            const int deck_target_x = card_target_x_for_hud_icon(game_layout::HUD_DECK_X, main_x);
-            const int deck_target_y = card_target_y_for_hud_icon(game_layout::HUD_DECK_Y);
-            const int score_target_x = card_target_x_for_score_center(main_x);
-            const int score_target_y = card_target_y_for_score_center();
-            const int frame_count = graveyard_card_fx_frame_count();
-            CardFlightSample flight;
+        render_transit_flights(main_x);
 
-            if(graveyard_card_fx_kind == GraveyardExilePickKind::TO_HAND)
-            {
-                flight = sample_graveyard_to_hand_flight(
-                    graveyard_card_fx_start_x, graveyard_card_fx_start_y,
-                    graveyard_card_fx_dest_x, graveyard_card_fx_dest_y,
-                    graveyard_card_fx_frame, frame_count);
-            }
-            else if(graveyard_card_fx_kind == GraveyardExilePickKind::TO_DECK_TOP ||
-                    graveyard_card_fx_kind == GraveyardExilePickKind::SHUFFLE_TO_DECK)
-            {
-                flight = sample_graveyard_to_deck_flight(
-                    graveyard_card_fx_start_x, graveyard_card_fx_start_y,
-                    graveyard_card_fx_dest_x, graveyard_card_fx_dest_y,
-                    graveyard_card_fx_frame, frame_count);
-            }
-            else if(graveyard_card_fx_kind == GraveyardExilePickKind::BIRDS_TO_DECK)
-            {
-                flight = sample_hud_via_center_flight(
-                    graveyard_card_fx_start_x, graveyard_card_fx_start_y,
-                    score_target_x, score_target_y,
-                    graveyard_card_fx_dest_x, graveyard_card_fx_dest_y,
-                    graveyard_card_fx_frame, frame_count);
-            }
-            else if(graveyard_card_fx_style == RemovalStyle::TO_DECK_TOP)
-            {
-                flight = sample_card_to_deck(
-                    graveyard_card_fx_start_x, graveyard_card_fx_start_y,
-                    deck_target_x, deck_target_y,
-                    graveyard_card_fx_frame, frame_count);
-            }
-            else
-            {
-                flight = sample_card_exile_dissipate(
-                    graveyard_card_fx_start_x, graveyard_card_fx_start_y,
-                    score_target_x, score_target_y,
-                    graveyard_card_fx_frame, frame_count);
-            }
-
-            exclusive_fx_card().set_type(graveyard_card_fx_type);
-
-            const CardInstance* graveyard_fx_instance =
-                graveyard_card_fx_instance_id != NO_INSTANCE
-                    ? instance_at(state.instance_pool, graveyard_card_fx_instance_id)
-                    : nullptr;
-
-            if(card_data(graveyard_card_fx_type).text_only)
-            {
-                exclusive_fx_card().sync_face_labels(&hud_count_generator, graveyard_fx_instance);
-            }
-            else
-            {
-                exclusive_fx_card().clear_face_labels();
-            }
-
-            if(graveyard_card_fx_instance_id != NO_INSTANCE)
-            {
-                exclusive_fx_card().set_upgrade_pips(&hud_count_generator, graveyard_fx_instance);
-            }
-            else
-            {
-                exclusive_fx_card().clear_upgrade_pips();
-            }
-
-            exclusive_fx_card().set_position(flight.x, flight.y);
-            exclusive_fx_card().set_visual(flight.scale, 0);
-            exclusive_fx_card().set_draw_on_top(true);
-            exclusive_fx_card().set_visible(true);
-
-            if(flight.alpha < 1)
-            {
-                bn::blending::set_transparency_alpha(
-                    flight.alpha < bn::fixed(0.05) ? bn::fixed(0.05) : flight.alpha);
-                exclusive_fx_card().set_blending_enabled(true);
-            }
-            else
-            {
-                exclusive_fx_card().set_blending_enabled(false);
-            }
-        }
-        else if(hand_draw_fx_active)
-        {
-            int dest_x = 0;
-            int dest_y = 0;
-            hand_slot_screen_position(hand_draw_fx_dest_index, main_x, dest_x, dest_y);
-            const CardFlightSample flight = sample_deck_to_hand_flight(
-                hand_draw_fx_start_x, hand_draw_fx_start_y,
-                dest_x, dest_y,
-                hand_draw_fx_frame, game_layout::HAND_DRAW_FRAMES);
-
-            exclusive_fx_card().set_type(hand_draw_fx_card.type);
-
-            const CardInstance* draw_fx_instance =
-                hand_draw_fx_card.has_instance()
-                    ? instance_at(state.instance_pool, hand_draw_fx_card.instance_id)
-                    : nullptr;
-
-            if(card_data(hand_draw_fx_card.type).text_only)
-            {
-                exclusive_fx_card().sync_face_labels(&hud_count_generator, draw_fx_instance);
-            }
-            else
-            {
-                exclusive_fx_card().clear_face_labels();
-            }
-
-            if(hand_draw_fx_card.has_instance())
-            {
-                exclusive_fx_card().set_upgrade_pips(&hud_count_generator, draw_fx_instance);
-            }
-            else
-            {
-                exclusive_fx_card().clear_upgrade_pips();
-            }
-
-            exclusive_fx_card().set_position(flight.x, flight.y);
-            exclusive_fx_card().set_visual(flight.scale, 0);
-            exclusive_fx_card().set_draw_on_top(true);
-            exclusive_fx_card().set_visible(true);
-            exclusive_fx_card().set_blending_enabled(false);
-        }
-        else if(deck_search_resolve_fx.active &&
+        if(deck_search_resolve_fx.active &&
                 deck_search_resolve_fx.phase == DeckSearchResolvePhase::PICK_FLIGHT)
         {
             const int deck_target_x = card_target_x_for_hud_icon(game_layout::HUD_DECK_X, main_x);
@@ -1307,7 +1198,9 @@ void GameContext::render_frame()
 
             if(card_data(deck_search_resolve_fx.picked_type).text_only)
             {
-                exclusive_fx_card().sync_face_labels(&hud_count_generator, nullptr);
+                exclusive_fx_card().sync_face_labels(
+                    &hud_count_generator, &state,
+                    CardRef{deck_search_resolve_fx.picked_type, NO_INSTANCE}, nullptr);
             }
             else
             {
@@ -1361,7 +1254,7 @@ void GameContext::render_frame()
                                      combo_any_progress_bar_enabled(state);
         combo_progress_bars.set_visible(show_combo_bars);
 
-        score_pop_render(*this, show_round_score && !inspecting);
+        score_pop_render(*this, !inspecting);
         sync_score_sprite_depth();
         render_play_presentation_overlay(main_x);
 

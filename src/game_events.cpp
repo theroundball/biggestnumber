@@ -91,30 +91,21 @@ namespace
     }
 }
 
-int hand_scheduled_count(const GameState& state, bool include_in_flight_draw)
+int hand_scheduled_count(const GameState& state, int in_flight_deck_draws)
 {
-    int count = state.hand.size() + state.pending_hand_draws.size();
-
-    if(include_in_flight_draw)
-    {
-        // Reserved for callers that track an in-flight draw outside pending_hand_draws.
-        ++count;
-    }
-
-    return count;
+    return state.hand.size() + state.pending_hand_draws.size() + in_flight_deck_draws;
 }
 
-bool run_should_end(const GameState& state, bool hand_draw_fx_active)
+bool run_should_end(const GameState& state, int in_flight_deck_draws)
 {
-    // Aligned with empty_hand_triggers_round_end() for ghosts, but this is the
-    // run-level check (deck empty + no scheduled hand). Call only from the
+    // Run-level check (deck empty + no scheduled hand). Call only from the
     // round-finish pipeline or after opening-deal FX, never while round_end_pending.
     if(!state.deck.empty())
     {
         return false;
     }
 
-    if(hand_scheduled_count(state, hand_draw_fx_active) > 0)
+    if(hand_scheduled_count(state, in_flight_deck_draws) > 0)
     {
         return false;
     }
@@ -129,23 +120,12 @@ bool run_should_end(const GameState& state, bool hand_draw_fx_active)
         return false;
     }
 
-    if(has_optional_ghost_plays(state) && !state.waive_optional_ghost_plays)
-    {
-        return false;
-    }
-
     return true;
 }
 
-int deck_hud_display_count(const GameState& state, bool hand_draw_fx_active)
+int deck_hud_display_count(const GameState& state, int in_flight_deck_draws)
 {
-    int in_transit = state.pending_hand_draws.size();
-
-    if(hand_draw_fx_active)
-    {
-        ++in_transit;
-    }
-
+    const int in_transit = state.pending_hand_draws.size() + in_flight_deck_draws;
     return state.deck.remaining() + in_transit;
 }
 

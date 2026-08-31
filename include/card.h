@@ -59,7 +59,8 @@ public:
     void clear_upgrade_pips();
     void set_amount_overlay(bn::sprite_text_generator* generator, const bn::string<8>& text);
     void clear_amount_overlay();
-    void sync_face_labels(bn::sprite_text_generator* generator, const CardInstance* instance);
+    void sync_face_labels(bn::sprite_text_generator* generator, const GameState* state, CardRef ref,
+                          const CardInstance* instance, bool in_graveyard = false);
     void clear_face_labels();
 
 private:

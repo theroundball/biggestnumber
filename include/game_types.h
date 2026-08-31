@@ -92,23 +92,29 @@ namespace game_layout
     constexpr int SELECTED_RAISE = 8;
     constexpr bn::fixed EDGE_FADE_ALPHA = bn::fixed(0.7);
     constexpr int SCROLL_SPEED = 6;
-    constexpr int DIRECTION_INITIAL_DELAY = 15;
-    constexpr int DIRECTION_REPEAT_INTERVAL = 8;
+    constexpr int DIRECTION_INITIAL_DELAY = 10;
+    constexpr int DIRECTION_REPEAT_INTERVAL = 4;
     // Hold-acceleration floors (intervals shorter than this feel stuttery vs scroll anim).
-    constexpr int DIRECTION_REPEAT_INTERVAL_MIN = 2;
-    constexpr int DIRECTION_ACCEL_STEPS_MAX = 4;
+    constexpr int DIRECTION_REPEAT_INTERVAL_MIN = 1;
+    constexpr int DIRECTION_ACCEL_STEPS_MAX = 6;
     constexpr int HAND_RAISE_EASE_DIVISOR = 3;
     constexpr int SWAP_FRAMES = 12;
     constexpr int SWAP_EASE_SCALE = 256;
     constexpr int SWAP_ARC_PEAK = 5;
-    constexpr int MAX_PLAY_FLIGHTS = 2;
+    constexpr int MAX_PLAY_FLIGHTS = 4;
+    constexpr int PLAY_FAN_SPACING = 18;
+    constexpr int PLAY_CHAIN_HOLD_FRAMES = 3;
     constexpr int REMOVAL_FRAMES = 16;
     constexpr int PLAY_APPROACH_FRAMES = 12;
     constexpr int PLAY_DECK_APPROACH_FRAMES = 28;
     constexpr int PLAY_HOLD_FRAMES = 10;
     constexpr int PLAY_DEPART_FRAMES = 18;
-    constexpr int HAND_DRAW_FRAMES = 24;
+    constexpr int HAND_DRAW_FRAMES = 18;
     constexpr int ZONE_TRANSFER_FRAMES = 28;
+    constexpr int DECK_DRAW_STAGGER_FRAMES = 2;
+    constexpr int DECK_DRAW_ARC_DROP = 32;
+    constexpr int MAX_TRANSIT_FLIGHTS = 5;
+    constexpr int TRANSIT_STAGGER_FRAMES = 6;
     constexpr int REMOVAL_MIN_SCALE = 1;
     constexpr int REMOVAL_MIN_SCALE_DIVISOR = 8;
     constexpr int EXILE_MIN_SCALE = 1;
@@ -122,12 +128,17 @@ namespace game_layout
     constexpr int CARD_FACE_TEXT_Z = HAND_CARD_Z + 1;
     constexpr int PLAY_PRESENTATION_CARD_Z = -8;
     constexpr int PLAY_PRESENTATION_SCORE_Z = -30;
+    // Same on-top layer as pause / score-swap markers (lower z drawn later = in front).
+    constexpr int SCORE_POP_Z = -32767;
+    constexpr int SCORE_POP_BG_PRIORITY = 0;
     constexpr int MARKER_Z_ORDER = -10;
     constexpr int SCORE_CENTER_Y = -41;
     constexpr int SCORE_BAR_Y = -66;
     constexpr int SCORE_BAR_WIDTH = 192;
     constexpr int SCORE_BAR_SEGMENT = 8;
     constexpr int SCORE_BAR_SEGMENT_COUNT = SCORE_BAR_WIDTH / SCORE_BAR_SEGMENT;
+    constexpr int TOTAL_SCORE_VISIBLE_CHARS = 6;
+    constexpr int ROUND_SCORE_VISIBLE_CHARS = 14;
     // Right-rail stack (below tombstone): compact trinkets, combo bars, bounty bar, then hand.
     constexpr int COMBO_BAR_X = 108;
     constexpr int TRINKET_ROW_Y0 = -52;
@@ -183,6 +194,16 @@ struct CardRowResult
     int scroll_sub = 0;
     bool has_left;
     bool has_right;
+};
+
+enum class TransitKind : uint8_t
+{
+    NONE,
+    DECK_TO_HAND,
+    GY_TO_HAND,
+    GY_TO_DECK,
+    GY_BIRDS_TO_DECK,
+    GY_EXILE,
 };
 
 #endif

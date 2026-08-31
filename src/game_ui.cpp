@@ -804,7 +804,42 @@ CardFlightSample sample_card_to_deck(int from_x, int from_y, int to_x, int to_y,
 CardFlightSample sample_deck_to_hand_flight(int from_x, int from_y, int to_x, int to_y, int frame,
                                               int total_frames)
 {
-    return sample_graveyard_to_hand_flight(from_x, from_y, to_x, to_y, frame, total_frames);
+    CardFlightSample sample;
+    sample.rotation = 0;
+    sample.alpha = 1;
+
+    if(total_frames <= 1)
+    {
+        sample.x = to_x;
+        sample.y = to_y;
+        sample.scale = 1;
+        return sample;
+    }
+
+    int linear = frame * 256 / (total_frames - 1);
+
+    if(linear > 256)
+    {
+        linear = 256;
+    }
+
+    // Ease-out along the path: quick off the deck, direct into the slot.
+    const int inv = 256 - linear;
+    const int t = 256 - inv * inv / 256;
+
+    // Bow down and to the right from the deck icon toward the hand row.
+    const int ctrl_x = from_x + (to_x - from_x) / 3 + 10;
+    const int ctrl_y = from_y + game_layout::DECK_DRAW_ARC_DROP;
+    const int u = 256 - t;
+
+    sample.x = (u * u / 256 * from_x + 2 * u * t / 256 * ctrl_x + t * t / 256 * to_x) / 256;
+    sample.y = (u * u / 256 * from_y + 2 * u * t / 256 * ctrl_y + t * t / 256 * to_y) / 256;
+
+    const bn::fixed min_scale = bn::fixed(game_layout::REMOVAL_MIN_SCALE) /
+                                bn::fixed(game_layout::REMOVAL_MIN_SCALE_DIVISOR);
+    const int scale_progress = t < 128 ? t * 256 / 128 : 256;
+    sample.scale = min_scale + (bn::fixed(1) - min_scale) * bn::fixed(scale_progress) / bn::fixed(256);
+    return sample;
 }
 
 CardFlightSample sample_graveyard_to_hand_flight(int from_x, int from_y, int to_x, int to_y, int frame,

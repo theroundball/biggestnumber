@@ -1,12 +1,19 @@
 #include "score_pop_system.h"
 
 #include "bn_affine_mat_attributes.h"
+#include "bn_array.h"
 #include "bn_blending.h"
+#include "bn_bpp_mode.h"
+#include "bn_color.h"
 #include "bn_math.h"
+#include "bn_span.h"
+#include "bn_sprite_palette_item.h"
+#include "bn_sprite_palette_ptr.h"
 #include "bn_string.h"
 
 #include "game_context.h"
 #include "game_state.h"
+#include "game_types.h"
 #include "score_count_system.h"
 #include "trinket_system.h"
 
@@ -16,8 +23,11 @@ namespace
     constexpr int ROUND_SCORE_Y = 0;
     constexpr int TOTAL_SCORE_Y = -48;
     constexpr int CARD_POP_OFFSET_X = 14;
-    constexpr int CARD_POP_OFFSET_Y = -10;
+    constexpr int CARD_POP_OFFSET_Y = 0;
+    constexpr int CARD_POP_RIGHT_PAD = 12;
     constexpr int TRINKET_POP_OFFSET_X = -18;
+    constexpr bn::fixed FLOAT_POP_SCALE = bn::fixed(3) / 2;
+    constexpr bn::color POP_GOLD(31, 25, 5);
     constexpr int TRINKET_POP_OFFSET_Y = 0;
     constexpr int FLIGHT_TARGET_OFFSET_X = 18;
     constexpr int FLIGHT_TARGET_OFFSET_Y = -8;
@@ -101,6 +111,9 @@ namespace
             sprite.set_position(anchor_x + pop.glyph_offset_x[sprite_index],
                                 anchor_y + pop.glyph_offset_y[sprite_index]);
             sprite.set_visible(visible);
+            sprite.set_z_order(game_layout::SCORE_POP_Z);
+            sprite.set_bg_priority(game_layout::SCORE_POP_BG_PRIORITY);
+            sprite.put_above();
 
             if(pop.affine_mat.has_value())
             {
@@ -116,7 +129,7 @@ namespace
         const int rise = float_pop_rise(pop.frame);
         const bool visible = float_pop_visible(pop);
         const int panel_x = ctx.main_panel_offset_x();
-        apply_pop_anchor(pop, pop.from_x + panel_x, pop.from_y - rise, 1, 1, visible);
+        apply_pop_anchor(pop, pop.from_x + panel_x, pop.from_y - rise, FLOAT_POP_SCALE, 1, visible);
     }
 
     void update_trinket_flight_pop(GameContext& ctx, ScorePop& pop)
@@ -218,6 +231,76 @@ namespace
             pop.glyph_offset_x.push_back(sprite.x() - anchor_x);
             pop.glyph_offset_y.push_back(sprite.y() - anchor_y);
         }
+    }
+
+    const bn::sprite_palette_ptr& pop_gold_palette(const bn::sprite_ptr& sample)
+    {
+        static bn::optional<bn::sprite_palette_ptr> palette;
+
+        if(!palette.has_value())
+        {
+            bn::array<bn::color, 16> colors;
+            const bn::span<const bn::color> source = sample.palette().colors();
+
+            for(int index = 0; index < 16; ++index)
+            {
+                colors[index] = index < source.size() ? source[index] : bn::color();
+            }
+
+            for(int index = 1; index < 16; ++index)
+            {
+                if(colors[index].red() + colors[index].green() + colors[index].blue() > 24)
+                {
+                    colors[index] = POP_GOLD;
+                }
+            }
+
+            const bn::sprite_palette_item item(
+                bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4);
+            palette = bn::sprite_palette_ptr::create(item);
+        }
+
+        return *palette;
+    }
+
+    void tint_pop_sprites(ScorePop& pop)
+    {
+        if(pop.sprites.empty())
+        {
+            return;
+        }
+
+        const bn::sprite_palette_ptr& palette = pop_gold_palette(pop.sprites[0]);
+
+        for(bn::sprite_ptr& sprite : pop.sprites)
+        {
+            sprite.set_palette(palette);
+        }
+    }
+
+    int score_cluster_right_x(const GameContext& ctx)
+    {
+        int right = CARD_POP_OFFSET_X;
+
+        for(const bn::sprite_ptr& sprite : ctx.round_text_sprites)
+        {
+            const int edge = sprite.x().integer() + 8;
+            if(edge > right)
+            {
+                right = edge;
+            }
+        }
+
+        for(const bn::sprite_ptr& sprite : ctx.text_sprites)
+        {
+            const int edge = sprite.x().integer() + 16;
+            if(edge > right)
+            {
+                right = edge;
+            }
+        }
+
+        return right + CARD_POP_RIGHT_PAD;
     }
 
     bool resolve_trinket_anchor(GameContext& ctx, TrinketType trinket, int& out_x, int& out_y)
@@ -331,22 +414,49 @@ void score_pop_process_pending(GameContext& ctx)
         }
         else
         {
+            int stagger_slot = 0;
+
+            for(const ScorePop& existing : ctx.score_pops)
+            {
+                if(existing.field == request.field && existing.motion == ScorePopMotion::FLOAT_RISE)
+                {
+                    ++stagger_slot;
+                }
+            }
+
+            const int stagger_offset = stagger_slot == 0
+                ? 0
+                : ((stagger_slot % 3) - 1) * SCORE_POP_STAGGER_SPACING;
+
             pop.motion = ScorePopMotion::FLOAT_RISE;
-            pop.from_x = ROUND_SCORE_X + CARD_POP_OFFSET_X;
+            pop.from_x = score_cluster_right_x(ctx) + stagger_offset;
             pop.from_y = score_y + CARD_POP_OFFSET_Y;
             pop.to_x = pop.from_x;
             pop.to_y = pop.from_y;
+            pop.affine_mat = bn::sprite_affine_mat_ptr::create();
         }
 
+        const int old_z = ctx.round_text_generator.z_order();
+        const int old_bg = ctx.round_text_generator.bg_priority();
+        const bool old_one_sprite = ctx.round_text_generator.one_sprite_per_character();
+
+        ctx.round_text_generator.set_z_order(game_layout::SCORE_POP_Z);
+        ctx.round_text_generator.set_bg_priority(game_layout::SCORE_POP_BG_PRIORITY);
+        ctx.round_text_generator.set_one_sprite_per_character(true);
         ctx.round_text_generator.set_center_alignment();
-        ctx.round_text_generator.generate(pop.from_x, pop.from_y, format_score_pop(request), pop.sprites);
+        ctx.round_text_generator.generate_optional(pop.from_x, pop.from_y, format_score_pop(request),
+                                                   pop.sprites);
         ctx.round_text_generator.set_left_alignment();
+        ctx.round_text_generator.set_z_order(old_z);
+        ctx.round_text_generator.set_bg_priority(old_bg);
+        ctx.round_text_generator.set_one_sprite_per_character(old_one_sprite);
 
         if(pop.sprites.empty())
         {
             continue;
         }
 
+        tint_pop_sprites(pop);
         capture_glyph_offsets(pop, pop.from_x, pop.from_y);
         update_pop_sprites(ctx, pop);
         ctx.score_pops.push_back(pop);

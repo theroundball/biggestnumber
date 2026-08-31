@@ -9,6 +9,7 @@
 #include "bn_optional.h"
 #include "bn_span.h"
 #include "bn_sprite_item.h"
+#include "bn_span.h"
 #include "bn_sprite_palette_item.h"
 #include "bn_sprite_palette_ptr.h"
 #include "bn_sprite_shape_size.h"
@@ -17,6 +18,7 @@
 #include "card_data.h"
 #include "card_instance.h"
 #include "game_events.h"
+#include "game_helpers.h"
 #include "game_types.h"
 #include "card_meta.h"
 #include "game_state.h"
@@ -291,66 +293,156 @@ namespace
         append_face_word(line_a, line_b, word);
     }
 
-    void build_face_stat_line(const CardData& data, const CardInstance* instance, bn::string<12>& out)
+
+    bn::string<32> serialize_face_stat_segments(const bn::span<const CardFaceStatSegment>& segments)
     {
-        out.clear();
+        bn::string<32> key;
 
-        int plus = data.immediate_plus;
-        int multiply = data.immediate_multiply;
-
-        if(instance)
+        for(int index = 0; index < segments.size(); ++index)
         {
-            plus = effective_immediate_plus(*instance);
-            multiply = effective_immediate_multiply(*instance);
-        }
-
-        if(plus != 0)
-        {
-            out.append(plus > 0 ? "+" : "-");
-            out.append(bn::to_string<8>(plus > 0 ? plus : -plus));
-        }
-
-        if(multiply > 1)
-        {
-            if(!out.empty())
+            if(index > 0)
             {
-                out.append(' ');
+                key.append('|');
             }
 
-            out.append("x");
-            out.append(bn::to_string<8>(multiply));
+            key.append(char('0' + int(segments[index].color)));
+            key.append(':');
+            key.append(segments[index].text);
         }
 
-        if(data.has_cycle)
+        return key;
+    }
+
+    const bn::sprite_palette_ptr& card_stat_green_palette(const bn::sprite_ptr& sample)
+    {
+        static bn::optional<bn::sprite_palette_ptr> palette;
+        constexpr bn::color CARD_STAT_GREEN(6, 28, 10);
+
+        if(!palette.has_value())
         {
-            if(!out.empty())
+            bn::array<bn::color, 16> colors;
+            const bn::span<const bn::color> source = sample.palette().colors();
+
+            for(int index = 0; index < 16; ++index)
             {
-                out.append(' ');
+                colors[index] = index < source.size() ? source[index] : bn::color();
             }
 
-            out.append("Cyc");
+            for(int index = 1; index < 16; ++index)
+            {
+                if(colors[index].red() + colors[index].green() + colors[index].blue() > 24)
+                {
+                    colors[index] = CARD_STAT_GREEN;
+                }
+            }
+
+            const bn::sprite_palette_item item(
+                bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4);
+            palette = bn::sprite_palette_ptr::create(item);
         }
 
-        if(data.has_ghost)
+        return *palette;
+    }
+
+    const bn::sprite_palette_ptr& card_stat_gold_palette(const bn::sprite_ptr& sample)
+    {
+        static bn::optional<bn::sprite_palette_ptr> palette;
+        constexpr bn::color CARD_STAT_GOLD(31, 25, 5);
+
+        if(!palette.has_value())
         {
-            if(!out.empty())
+            bn::array<bn::color, 16> colors;
+            const bn::span<const bn::color> source = sample.palette().colors();
+
+            for(int index = 0; index < 16; ++index)
             {
-                out.append(' ');
+                colors[index] = index < source.size() ? source[index] : bn::color();
             }
 
-            out.append("Gh");
-
-            if(data.ghost_plus != 0)
+            for(int index = 1; index < 16; ++index)
             {
-                out.append(data.ghost_plus > 0 ? "+" : "-");
-                out.append(bn::to_string<4>(data.ghost_plus > 0 ? data.ghost_plus
-                                                                    : -data.ghost_plus));
+                if(colors[index].red() + colors[index].green() + colors[index].blue() > 24)
+                {
+                    colors[index] = CARD_STAT_GOLD;
+                }
+            }
+
+            const bn::sprite_palette_item item(
+                bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4);
+            palette = bn::sprite_palette_ptr::create(item);
+        }
+
+        return *palette;
+    }
+
+    void apply_card_stat_palette(bn::span<bn::sprite_ptr> sprites, CardStatColor color)
+    {
+        if(sprites.empty() || color == CardStatColor::DEFAULT)
+        {
+            return;
+        }
+
+        const bn::sprite_palette_ptr& palette =
+            color == CardStatColor::GREEN ? card_stat_green_palette(sprites[0])
+                                          : card_stat_gold_palette(sprites[0]);
+
+        for(bn::sprite_ptr& sprite : sprites)
+        {
+            sprite.set_palette(palette);
+        }
+    }
+
+    void generate_face_stat_segments(bn::sprite_text_generator& generator, int center_x, int center_y,
+                                     const bn::span<const CardFaceStatSegment>& segments,
+                                     bn::vector<bn::sprite_ptr, 8>& output_sprites)
+    {
+        if(segments.empty())
+        {
+            return;
+        }
+
+        int total_width = 0;
+
+        for(int index = 0; index < segments.size(); ++index)
+        {
+            total_width += generator.width(segments[index].text);
+
+            if(index + 1 < segments.size())
+            {
+                total_width += generator.font().space_between_characters();
             }
         }
 
-        if(out.empty() && data.on_play != nullptr && data.immediate_plus == 0 && data.immediate_multiply <= 1)
+        int cursor_x = center_x - total_width / 2;
+
+        for(int index = 0; index < segments.size(); ++index)
         {
-            out.append("FX");
+            const CardFaceStatSegment& segment = segments[index];
+
+            if(segment.text.empty())
+            {
+                continue;
+            }
+
+            const int before = output_sprites.size();
+            generator.set_left_alignment();
+            generator.generate(cursor_x, center_y, segment.text, output_sprites);
+            generator.set_center_alignment();
+
+            const int added = output_sprites.size() - before;
+
+            if(added > 0)
+            {
+                apply_card_stat_palette(
+                    bn::span<bn::sprite_ptr>(output_sprites.data() + before, added), segment.color);
+            }
+
+            cursor_x += generator.width(segment.text);
+
+            if(index + 1 < segments.size())
+            {
+                cursor_x += generator.font().space_between_characters();
+            }
         }
     }
 }
@@ -394,6 +486,11 @@ void apply_card_play(GameState& state, CardRef card)
 
 void apply_card_play(GameState& state, CardRef card, PlaySource source)
 {
+    if(state.build_a_number_active && !state.applying_build_a_number_payout)
+    {
+        return;
+    }
+
     if(source == PlaySource::GHOST)
     {
         battle_stat_record_ghost(state);
@@ -693,7 +790,8 @@ void Card::reposition_face_labels()
     _face_anchor_y = _y;
 }
 
-void Card::sync_face_labels(bn::sprite_text_generator* generator, const CardInstance* instance)
+void Card::sync_face_labels(bn::sprite_text_generator* generator, const GameState* state, CardRef ref,
+                            const CardInstance* instance, bool in_graveyard)
 {
     if(!generator || !card_data(_type).text_only)
     {
@@ -705,8 +803,10 @@ void Card::sync_face_labels(bn::sprite_text_generator* generator, const CardInst
     bn::string<32> line_b;
     format_face_name_lines(card_data(_type).name, line_a, line_b);
 
-    bn::string<12> stat_line;
-    build_face_stat_line(card_data(_type), instance, stat_line);
+    bn::vector<CardFaceStatSegment, 4> stat_segments;
+    format_card_face_stat(state, ref, instance, in_graveyard, stat_segments);
+    const bn::string<32> stat_line =
+        serialize_face_stat_segments(bn::span<const CardFaceStatSegment>(stat_segments.data(), stat_segments.size()));
 
     bn::string<40> name_block;
 
@@ -761,10 +861,11 @@ void Card::sync_face_labels(bn::sprite_text_generator* generator, const CardInst
         }
     }
 
-    if(!stat_line.empty())
+    if(!stat_segments.empty())
     {
-        generator->generate(_x.integer() + BODY_W.integer() / 2, _y.integer() + 52, stat_line,
-                              _face_stat_sprites);
+        generate_face_stat_segments(
+            *generator, _x.integer() + BODY_W.integer() / 2, _y.integer() + 52,
+            bn::span<const CardFaceStatSegment>(stat_segments.data(), stat_segments.size()), _face_stat_sprites);
     }
 
     sync_face_label_visibility();

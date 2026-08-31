@@ -58,6 +58,8 @@ namespace
             return "Fibonacci";
         case TrinketType::STAIRCASE:
             return "Staircase";
+        case TrinketType::LONGSLEEVES:
+            return "Longsleeves";
         default:
             return "Trinket";
         }
@@ -78,9 +80,11 @@ namespace
         case TrinketType::PRIME_TIME:
             return "When round or total score are prime numbers, add n where n is the number of times your round or total score have been a prime number.";
         case TrinketType::FIBONACCI:
-            return "At each round start, add the next value in 1, 1, 2, 3, 5, 8...";
+            return "At each round start, add the Fibonacci value for that round number (1, 1, 2, 3, 5...).";
         case TrinketType::STAIRCASE:
             return "Play +N cards in strictly ascending order. When the climb ends, add (sum of climb) x (climb length).";
+        case TrinketType::LONGSLEEVES:
+            return "Choose two collection cards not in your deck. Play them anytime; they stay outside hand and graveyard.";
         default:
             return "Global modifier for your active deck.";
         }
@@ -115,7 +119,7 @@ void show_inspect_card(Card& card, CardType type, const CardInstance* instance,
 
     if(card_data(type).text_only)
     {
-        card.sync_face_labels(pip_generator, instance);
+        card.sync_face_labels(pip_generator, nullptr, CardRef{type, NO_INSTANCE}, instance);
     }
     else
     {

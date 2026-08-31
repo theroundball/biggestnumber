@@ -12,9 +12,9 @@ enum class GameEvent
     GRAVEYARD_CHANGED,
 };
 
-int hand_scheduled_count(const GameState& state, bool include_in_flight_draw);
-bool run_should_end(const GameState& state, bool hand_draw_fx_active);
-int deck_hud_display_count(const GameState& state, bool hand_draw_fx_active);
+int hand_scheduled_count(const GameState& state, int in_flight_deck_draws);
+bool run_should_end(const GameState& state, int in_flight_deck_draws);
+int deck_hud_display_count(const GameState& state, int in_flight_deck_draws);
 
 bool hand_add_card(GameState& state, CardRef card, bool from_deck_draw = false,
                    bool miracle_auto_play = false);

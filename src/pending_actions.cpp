@@ -243,6 +243,7 @@ namespace
         }
 
         begin_selection(ctx, action.type);
+        ctx.state.selection.remaining_picks = 1;
         ctx.state.selection.multiply_factor = action.count;
         ctx.mode = GameMode::DISCARD_TARGET;
         ctx.prepare_hand_selection_mode();
@@ -258,6 +259,7 @@ namespace
         }
 
         begin_selection(ctx, action.type);
+        ctx.state.selection.remaining_picks = 1;
         ctx.state.selection.multiply_factor = action.count;
         ctx.mode = GameMode::DISCARD_TARGET;
         ctx.prepare_hand_selection_mode();
@@ -273,6 +275,7 @@ namespace
         }
 
         begin_selection(ctx, action.type);
+        ctx.state.selection.remaining_picks = 1;
         ctx.mode = GameMode::DISCARD_TARGET;
         ctx.prepare_hand_selection_mode();
         return PendingStartResult::ENTERED_MODE;
@@ -286,7 +289,7 @@ namespace
             return PendingStartResult::FIZZLE;
         }
 
-        begin_graveyard_target(ctx, action, 0, 0);
+        begin_graveyard_target(ctx, action, 1, 0);
         return PendingStartResult::ENTERED_MODE;
     }
 
@@ -456,6 +459,7 @@ namespace
         }
 
         begin_selection(ctx, action.type);
+        ctx.state.selection.remaining_picks = 1;
         ctx.state.selection.multiply_factor = anchor;
         ctx.state.selection.cursor = anchor == 0 ? (ctx.state.hand.size() > 1 ? 1 : 0) : 0;
         ctx.mode = GameMode::DISCARD_TARGET;
@@ -813,7 +817,7 @@ namespace
                     ctx.finish_empty_hand_round();
                 }
 
-                ctx.update_target_scroll();
+                ctx.sync_hand_selection();
                 return;
             }
         }
@@ -824,7 +828,7 @@ namespace
         ctx.target_row_scroll_x = 0;
         ctx.target_row_scroll_index = 0;
 
-        try_finish_roll_over_substitution(ctx.state, &ctx.selected_card);
+        ctx.try_advance_roll_over_sequence();
 
         if(empty_hand_triggers_round_end(ctx.state))
         {
@@ -832,17 +836,12 @@ namespace
             ctx.finish_empty_hand_round();
         }
 
-        ctx.update_target_scroll();
+        ctx.sync_hand_selection();
     }
 }
 
-void GameContext::begin_next_pending_or_finish()
+void GameContext::begin_next_pending_or_finish(bool close_selection)
 {
-    if(hand_draw_fx_blocking() || removing_card)
-    {
-        return;
-    }
-
     while(!state.pending_actions.empty())
     {
         const PendingAction action = state.pending_actions.front();
@@ -856,7 +855,7 @@ void GameContext::begin_next_pending_or_finish()
         }
 
         // Draw-then-select chains (Shells) must wait for the card to land in hand.
-        if(hand_draw_fx_blocking() || removing_card)
+        if(hand_draw_fx_blocking())
         {
             return;
         }
@@ -866,6 +865,14 @@ void GameContext::begin_next_pending_or_finish()
         {
             return;
         }
+    }
+
+    // Interactive actions are popped when their mode opens. Automatic callers (e.g. play
+    // flight completion) must not clear an in-progress pick/scry. Explicit close_selection
+    // is used when the player or an effect handler finishes the current selection.
+    if(!close_selection && selection_blocks_pending_finish())
+    {
+        return;
     }
 
     finish_pending_queue(*this);
@@ -879,7 +886,7 @@ void GameContext::tick_evaluate_ghost_steps()
         return;
     }
 
-    if(presentation_fx_blocking() || hand_draw_fx_blocking() || removing_card)
+    if(hand_draw_fx_blocking())
     {
         return;
     }

@@ -13,6 +13,22 @@
 #include "game_state.h"
 #include "game_types.h"
 
+enum class CardStatColor : uint8_t
+{
+    DEFAULT,
+    GREEN,
+    GOLD,
+};
+
+struct CardFaceStatSegment
+{
+    bn::string<8> text;
+    CardStatColor color = CardStatColor::DEFAULT;
+};
+
+void format_card_face_stat(const GameState* state, CardRef ref, const CardInstance* instance,
+                           bool in_graveyard, bn::vector<CardFaceStatSegment, 4>& out);
+
 bool selection_sends_to_library(PendingActionType type);
 
 int initial_graveyard_cursor(const GameState& state, CardType exclude);
@@ -37,13 +53,21 @@ bool playable_slot_is_combine_offer(const GameState& state, int visual_index);
 int playable_slot_combine_ordinal(const GameState& state, int visual_index);
 bool empty_hand_triggers_round_end(const GameState& state);
 void try_finish_roll_over_substitution(GameState& state, int* selected_card);
+bool roll_over_pick_active(const GameState& state);
 bool begin_roll_over_substitution(GameState& state, int* selected_card);
+void roll_over_restore_stashed_hand(GameState& state);
+void roll_over_finish_sequence(GameState& state, int* selected_card);
 int playable_slot_count(const GameState& state);
+int longsleeve_count(const GameState& state);
+bool playable_slot_is_longsleeve(const GameState& state, int visual_index);
+int playable_slot_longsleeve_index(const GameState& state, int visual_index);
 bool playable_slot_is_ghost(const GameState& state, int visual_index);
 int playable_slot_hand_index(const GameState& state, int visual_index);
 int playable_slot_graveyard_index(const GameState& state, int visual_index);
 CardRef playable_slot_card(const GameState& state, int visual_index);
 void build_a_number_try_queue_digit_placement(GameState& state, CardRef card, PlaySource source);
+int build_a_number_card_digit(const GameState& state, CardRef card, PlaySource source);
+bool build_a_number_can_play_card(const GameState& state, CardRef card, PlaySource source);
 void bind_bounty_copy(GameState& state, CardRef& card);
 int bounty_instance_play_count(const GameState& state, CardRef card);
 int bounty_play_plus(const GameState& state);

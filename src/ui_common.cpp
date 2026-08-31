@@ -59,21 +59,21 @@ namespace
     {
         int interval = game_layout::DIRECTION_REPEAT_INTERVAL;
 
-        if(held_total_frames > 150)
+        if(held_total_frames > 75)
         {
-            interval = 2;
+            interval = 1;
         }
-        else if(held_total_frames > 120)
+        else if(held_total_frames > 60)
         {
-            interval = 3;
-        }
-        else if(held_total_frames > 90)
-        {
-            interval = 4;
+            interval = 1;
         }
         else if(held_total_frames > 45)
         {
-            interval = 5;
+            interval = 2;
+        }
+        else if(held_total_frames > 22)
+        {
+            interval = 3;
         }
 
         return interval < game_layout::DIRECTION_REPEAT_INTERVAL_MIN
@@ -83,17 +83,22 @@ namespace
 
     int direction_accel_steps(int held_total_frames)
     {
-        if(held_total_frames > 150)
+        if(held_total_frames > 75)
         {
             return game_layout::DIRECTION_ACCEL_STEPS_MAX;
         }
 
-        if(held_total_frames > 120)
+        if(held_total_frames > 45)
+        {
+            return 4;
+        }
+
+        if(held_total_frames > 30)
         {
             return 3;
         }
 
-        if(held_total_frames > 60)
+        if(held_total_frames > 15)
         {
             return 2;
         }

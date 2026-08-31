@@ -104,7 +104,7 @@ PostPlayDestination route_played_card(const GameState& state, CardType type, Pla
     (void)state;
     const CardData& data = card_data(type);
 
-    if(source == PlaySource::ECHO)
+    if(source == PlaySource::ECHO || source == PlaySource::LONGSLEEVE)
     {
         return PostPlayDestination::NONE;
     }
