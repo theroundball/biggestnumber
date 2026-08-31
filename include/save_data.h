@@ -9,7 +9,8 @@
 #include "card_meta.h"
 #include "card_instance.h"
 #include "card_type.h"
-#include "game_state.h"
+#include "campaign_types.h"
+#include "trinket_type.h"
 
 constexpr int SAVE_DATA_MAGIC = 0x424E554D; // 'BNUM'
 constexpr int SAVE_DATA_VERSION = 16;
@@ -25,7 +26,6 @@ constexpr int CAMPAIGN_NUMBER_NOW_ROUNDS = 10;
 constexpr int SAME_NUMBER_BRACKET_SIZE = 50;
 constexpr int SAME_NUMBER_USED_CAPACITY = 5;
 constexpr int CAMPAIGN_STICKER_PAPER_UPGRADE_COST = 10;
-constexpr int POKER_HAND_RANK_COUNT = 9;
 
 struct SavedDeck
 {

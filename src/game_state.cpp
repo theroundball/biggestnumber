@@ -395,6 +395,7 @@ void GameState::mul_from_card(int factor)
         return;
     }
     const int before_committed = round.committed();
+    const int before_running = round.running;
     round.running *= factor;
     const int after_running = round.running;
     const int after_committed = round.committed();

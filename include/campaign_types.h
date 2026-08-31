@@ -4,7 +4,8 @@
 #include <cstdint>
 
 #include "card_type.h"
-#include "save_data.h"
+
+constexpr int POKER_HAND_RANK_COUNT = 9;
 
 enum class CampaignMode : uint8_t
 {

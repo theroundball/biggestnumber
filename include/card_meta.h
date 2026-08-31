@@ -8,6 +8,8 @@
 
 #include "card_type.h"
 
+struct SaveData;
+
 enum class CardRarity : uint8_t
 {
     COMMON,

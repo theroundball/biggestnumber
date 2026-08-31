@@ -16,6 +16,7 @@
 #include "card_instance.h"
 #include "deck.h"
 #include "play_resolution.h"
+#include "trinket_type.h"
 
 constexpr int DEAD_RISING_GY_RETURNS_PER_ROUND = 2;
 
@@ -25,20 +26,6 @@ enum class TrinketScoreField : uint8_t
 {
     ROUND,
     TOTAL,
-};
-
-enum class TrinketType : uint8_t
-{
-    NONE,
-    MOREL,
-    LUCKY_SEVENS,
-    ECHO,
-    GET_WITH_THE_TIMES,
-    PRIME_TIME,
-    FIBONACCI,
-    STAIRCASE,
-    LONGSLEEVES,
-    COUNT,
 };
 
 // Options for launching a campaign battle.
