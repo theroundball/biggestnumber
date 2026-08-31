@@ -27,11 +27,8 @@ namespace
         launch.campaign_ui.number_now_round_peak = setup.number_now_round_peak;
         launch.campaign_ui.aint_got_time_record = save.aint_got_time_record;
         launch.campaign_ui.sharing_is_caring_record = save.sharing_is_caring_record;
-
-        for(int index = 0; index < POKER_HAND_RANK_COUNT; ++index)
-        {
-            launch.campaign_ui.poker_hand_records[index] = save.poker_hand_record[index];
-        }
+        launch.campaign_ui.poker_hand_record = save.poker_hand_record;
+        launch.campaign_ui.y2k_record = save.y2k_record;
     }
 
     void run_campaign_battle(CampaignMode mode, bn::seed_random& rng)
@@ -58,11 +55,8 @@ namespace
         intro_ctx.number_now_round_peak = setup.number_now_round_peak;
         intro_ctx.aint_got_time_record = save.aint_got_time_record;
         intro_ctx.sharing_is_caring_record = save.sharing_is_caring_record;
-
-        for(int index = 0; index < POKER_HAND_RANK_COUNT; ++index)
-        {
-            intro_ctx.poker_hand_records[index] = save.poker_hand_record[index];
-        }
+        intro_ctx.poker_hand_record = save.poker_hand_record;
+        intro_ctx.y2k_record = save.y2k_record;
 
         if(run_mode_intro_scene(mode, intro_ctx) == MenuSceneResult::MAIN_MENU)
         {

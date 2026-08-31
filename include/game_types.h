@@ -185,7 +185,7 @@ struct GameSceneResult
     int last_round_score = 0;
     int last_round_number = 0;
     bool exited_early = false;
-    bool poker_hand_beat_record = false;
+    bool y2k_busted = false;
     int poker_hand_rank = 0;
     int poker_hand_score = 0;
 };

@@ -239,8 +239,14 @@ struct GameState
     bool applying_build_a_number_payout = false;
     bool poker_hand_active = false;
     bn::array<int, 5> poker_digits = {-1, -1, -1, -1, -1};
+    int poker_hand_last_rank = -1;
+    int poker_hand_last_score = 0;
+    CardRef held_played_card{};
+    bool held_played_active = false;
     bool sharing_is_caring_active = false;
     int sharing_round_mult = 10;
+    bool y2k_active = false;
+    bool y2k_bust_requested = false;
 
     bn::array<TrinketType, 3> trinkets = {
         TrinketType::MOREL,
@@ -305,12 +311,9 @@ struct GameState
 
     void flush_staircase_climb();
 
-    void commit_round()
-    {
-        flush_staircase_climb();
-        total_score += round.committed();
-        round.reset();
-    }
+    void commit_round();
+    bool try_add_to_total_score(int delta);
+    bool try_set_total_score(int new_total);
 
     // Any positive round add that originates from a card (immediate play, discard,
     // future round seed, combo bonus, etc.). Trinket-sourced adds must not use this.
@@ -331,6 +334,8 @@ struct GameState
     int build_a_number_assembled_value() const;
     void build_a_number_complete_payout();
     int build_a_number_commit_prebuild();
+    void poker_hand_reset();
+    int poker_hand_commit_round();
     void sharing_reset_round_mult();
     void sharing_tick_mult_after_play();
 

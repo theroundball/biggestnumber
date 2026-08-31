@@ -100,8 +100,9 @@ GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const 
 
         ctx.tick_combo();
         ctx.tick_panel();
+        ctx.tick_y2k_bust();
 
-        if(!ctx.lucky_sevens_fx.active && !ctx.deck_search_resolve_active())
+        if(!ctx.lucky_sevens_fx.active && !ctx.deck_search_resolve_active() && !ctx.y2k_bust_modal_active)
         {
             ctx.handle_input();
         }

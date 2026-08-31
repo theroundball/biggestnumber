@@ -12,6 +12,7 @@ struct PokerHandEvaluation
 };
 
 PokerHandEvaluation poker_hand_evaluate(const bn::array<int, 5>& digits);
+int poker_hand_rank_points(PokerHandRank rank);
 const char* poker_hand_rank_name(PokerHandRank rank);
 
 #endif

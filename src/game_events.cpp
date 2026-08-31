@@ -230,6 +230,32 @@ void hand_remove_at_to_deck_top(GameState& state, int index, int& selected_card)
     game_events_dispatch(state, GameEvent::HAND_CHANGED);
 }
 
+void hand_stash_played_card(GameState& state, int index, int& selected_card)
+{
+    if(index < 0 || index >= state.hand.size())
+    {
+        return;
+    }
+
+    state.held_played_card = state.hand[index];
+    state.held_played_active = true;
+    state.hand.erase(state.hand.begin() + index);
+    adjust_selected_after_hand_remove(state, index, selected_card);
+    game_events_dispatch(state, GameEvent::HAND_CHANGED);
+}
+
+void finalize_held_played_card(GameState& state)
+{
+    if(!state.held_played_active)
+    {
+        return;
+    }
+
+    graveyard_push(state, state.held_played_card);
+    state.held_played_card = CardRef{};
+    state.held_played_active = false;
+}
+
 void trigger_discard_effect_if_any(GameState& state, CardType type)
 {
     const CardData& data = card_data(type);

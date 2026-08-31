@@ -197,7 +197,13 @@ namespace
             else
             {
                 const int before = ctx.state.total_score;
-                ctx.state.total_score += pop.amount;
+
+                if(!ctx.state.try_add_to_total_score(pop.amount))
+                {
+                    ctx.draw_total_score();
+                    return;
+                }
+
                 score_count_queue(ctx.state, TrinketScoreField::TOTAL, before, ctx.state.total_score);
                 trinket_queue_score_check(ctx.state, TrinketScoreField::TOTAL, before, ctx.state.total_score,
                                           true, pop.amount);

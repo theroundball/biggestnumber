@@ -119,6 +119,8 @@ public:
     int target_edge_shift = 0;
     bn::array<int, 60> card_raise_offset{};
     bool game_over = false;
+    bool y2k_bust_modal_active = false;
+    bn::vector<bn::sprite_ptr, 48> y2k_bust_sprites;
     bool round_end_pending = false;
     bool skip_pending_combine = false;
 
@@ -411,6 +413,8 @@ public:
     bool block_round_end_for_combo();
 
     void tick_combo();
+    void tick_y2k_bust();
+    void render_y2k_bust_overlay();
     void finish_combo_cinematic();
     void resume_after_combo();
     bool try_start_pending_combo();

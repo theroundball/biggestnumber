@@ -610,7 +610,12 @@ namespace
     void apply_total_edit(GameContext& ctx, int new_total)
     {
         const int total_before = ctx.state.total_score;
-        ctx.state.total_score = new_total;
+
+        if(!ctx.state.try_set_total_score(new_total))
+        {
+            return;
+        }
+
         score_count_queue(ctx.state, TrinketScoreField::TOTAL, total_before, new_total);
         trinket_queue_score_check(ctx.state, TrinketScoreField::TOTAL, total_before, new_total);
     }
@@ -667,7 +672,12 @@ namespace
         }
 
         ctx.state.round.running = new_round;
-        ctx.state.total_score = new_total;
+
+        if(!ctx.state.try_set_total_score(new_total))
+        {
+            return true;
+        }
+
         score_count_queue(ctx.state, TrinketScoreField::ROUND, old_round, new_round);
         score_count_queue(ctx.state, TrinketScoreField::TOTAL, old_total, new_total);
         trinket_queue_score_check(ctx.state, TrinketScoreField::ROUND, old_round, new_round);
@@ -728,7 +738,12 @@ namespace
         const int total_before = ctx.state.total_score;
         const int round_before = ctx.state.round.running;
         ctx.state.round.running = new_round;
-        ctx.state.total_score = new_total;
+
+        if(!ctx.state.try_set_total_score(new_total))
+        {
+            return true;
+        }
+
         trinket_queue_score_check(ctx.state, TrinketScoreField::ROUND, round_before, new_round);
         trinket_queue_score_check(ctx.state, TrinketScoreField::TOTAL, total_before, new_total);
         return true;

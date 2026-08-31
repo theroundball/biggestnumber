@@ -25,6 +25,8 @@ void hand_remove_at_to_graveyard(GameState& state, int index, int& selected_card
 void hand_remove_at_to_graveyard_played(GameState& state, int index, int& selected_card);
 void hand_remove_at_exiled(GameState& state, int index, int& selected_card);
 void hand_remove_at_to_deck_top(GameState& state, int index, int& selected_card);
+void hand_stash_played_card(GameState& state, int index, int& selected_card);
+void finalize_held_played_card(GameState& state);
 void trigger_discard_effect_if_any(GameState& state, CardType type);
 
 void graveyard_push(GameState& state, CardRef card);

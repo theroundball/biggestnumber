@@ -1276,7 +1276,12 @@ bool try_palindrome_play(GameState& state)
     if(plan_palindrome_wrap(state.total_score, state.applying_double_adds, new_score))
     {
         const int before = state.total_score;
-        state.total_score = new_score;
+
+        if(!state.try_set_total_score(new_score))
+        {
+            return true;
+        }
+
         score_count_queue(state, TrinketScoreField::TOTAL, before, new_score);
         trinket_queue_score_check(state, TrinketScoreField::TOTAL, before, new_score);
         return true;
@@ -1304,7 +1309,12 @@ bool try_minor_fall(GameState& state)
     }
 
     const int before = state.total_score;
-    state.total_score = plan.new_total;
+
+    if(!state.try_set_total_score(plan.new_total))
+    {
+        return true;
+    }
+
     score_count_queue(state, TrinketScoreField::TOTAL, before, plan.new_total);
     trinket_queue_score_check(state, TrinketScoreField::TOTAL, before, plan.new_total);
     return true;
@@ -1320,7 +1330,12 @@ bool try_major_lift(GameState& state)
     }
 
     const int before = state.total_score;
-    state.total_score = plan.new_total;
+
+    if(!state.try_set_total_score(plan.new_total))
+    {
+        return true;
+    }
+
     score_count_queue(state, TrinketScoreField::TOTAL, before, plan.new_total);
     trinket_queue_score_check(state, TrinketScoreField::TOTAL, before, plan.new_total);
     return true;

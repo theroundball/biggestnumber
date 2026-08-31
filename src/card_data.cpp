@@ -262,7 +262,10 @@ namespace
 
         if(field == TrinketScoreField::TOTAL)
         {
-            state.total_score = after;
+            if(!state.try_set_total_score(after))
+            {
+                return;
+            }
         }
         else
         {
@@ -336,7 +339,7 @@ namespace
     void effect_jacks(GameState& state)
     {
         // Playing card is still in hand when on_play runs; need another card to discard.
-        if(state.hand.size() <= 1 || state.graveyard.empty())
+        if(state.hand.size() <= 1)
         {
             return;
         }
@@ -347,7 +350,7 @@ namespace
 
     void effect_fishing_pole(GameState& state)
     {
-        if(state.hand.size() <= 1 || state.graveyard.empty())
+        if(state.hand.size() <= 1)
         {
             return;
         }
@@ -703,7 +706,7 @@ const CardData& card_data(CardType type)
         make_card("Bike", "+9", 9, 0, {}, {}, {},
                   nullptr, nullptr, false, false, CARD_SPRITES(bike)),
         make_card("Clover", "Exile 3 cards from your graveyard, multiply round score by 3. Nothing happens when played if you don't have enough cards in your graveyard.",
-                  0, 0, {}, {}, {}, effect_clover, nullptr, false, false, CARD_SPRITES(clover)),
+                  0, 0, {}, {}, {}, effect_clover, nullptr, true, false, CARD_SPRITES(clover)),
         make_card("Big Kurosawa Burger", "Discard a hand card to multiply this round by 4. Nothing if this is your only card.",
                   0, 0, {}, {}, {}, effect_big_kurosawa_burger, nullptr, false, false, CARD_SPRITES(bigkurosawaburger)),
         make_card("Rock", "+3", 3, 0, {}, {}, {},
@@ -762,11 +765,11 @@ const CardData& card_data(CardType type)
         make_card("Rags to Riches", "Exile n cards from your graveyard cards, then multiply your round total by the number of cards exiled this way.",
                   0, 0, {}, {}, {}, effect_rags_to_riches, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Jacks", "Discard another card, then put a card from your graveyard into your hand. Nothing happens if you have no other card to discard.",
-                  0, 0, {}, {}, {}, effect_jacks, nullptr, false, false, CARD_SPRITES(jacks)),
+                  0, 0, {}, {}, {}, effect_jacks, nullptr, true, false, CARD_SPRITES(jacks)),
         make_card("Fishing Pole", "Discard a card, then put a card from your graveyard on top of your deck. Nothing happens if you have no other card to discard.",
-                  0, 0, {}, {}, {}, effect_fishing_pole, nullptr, false, false, CARD_SPRITES(fishing_pole)),
+                  0, 0, {}, {}, {}, effect_fishing_pole, nullptr, true, false, CARD_SPRITES(fishing_pole)),
         make_card("Shells", "Draw 1, discard a card, then put a card from your graveyard on top of your deck. Skip any step that cannot be completed.",
-                  0, 0, {}, {}, {}, effect_shells, nullptr, false, false, CARD_SPRITES(cups)),
+                  0, 0, {}, {}, {}, effect_shells, nullptr, true, false, CARD_SPRITES(cups)),
         make_card("Swap", "Choose two digits in your total or round score and swap them.",
                   0, 0, {}, {}, {}, effect_swap, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Catnip", "+1 to this round. Draw 1.",

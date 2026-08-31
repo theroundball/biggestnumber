@@ -524,6 +524,7 @@ namespace
         }
 
         ctx.state.selection.multiply_factor = action.count;
+        ctx._round_score_initialized = false;
         ctx.mode = GameMode::BUILD_NUMBER_DIGIT;
         ctx.draw_round_score();
         return PendingStartResult::ENTERED_MODE;
@@ -539,6 +540,7 @@ namespace
         begin_selection(ctx, action.type);
         ctx.state.selection.cursor = 0;
         ctx.state.selection.multiply_factor = action.count;
+        ctx._round_score_initialized = false;
         ctx.mode = GameMode::POKER_HAND_DIGIT;
         ctx.draw_round_score();
         return PendingStartResult::ENTERED_MODE;
@@ -786,6 +788,8 @@ namespace
 
     void finish_pending_queue(GameContext& ctx)
     {
+        finalize_held_played_card(ctx.state);
+
         // combo_try_start_pending (via try_start_pending_combo) starts a match even
         // when COMBO_CINEMATIC is not at queue front; re-scan covers finalize → GY.
         if(ctx.state.pending_combo.length <= 0)

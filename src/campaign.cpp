@@ -220,8 +220,13 @@ CampaignBattleSetup campaign_battle_setup(const SaveData& save, CampaignMode mod
         break;
 
     case CampaignMode::POKER_HAND:
-        setup.peak_before = 0;
-        setup.band_score = 0;
+        setup.peak_before = save.poker_hand_record;
+        setup.band_score = setup.peak_before;
+        break;
+
+    case CampaignMode::Y2K:
+        setup.peak_before = save.y2k_record;
+        setup.band_score = setup.peak_before;
         break;
     }
 
@@ -254,7 +259,11 @@ bool campaign_evaluate_win(const SaveData& save, CampaignMode mode, const GameSc
         return result.final_score > peak_before;
 
     case CampaignMode::POKER_HAND:
-        return result.poker_hand_beat_record;
+        return result.final_score > peak_before;
+
+    case CampaignMode::Y2K:
+        return !result.y2k_busted && result.final_score > peak_before &&
+               result.final_score <= Y2K_SCORE_CAP;
 
     default:
         return false;
@@ -310,10 +319,17 @@ void campaign_apply_win(SaveData& save, CampaignMode mode, const GameSceneResult
         break;
 
     case CampaignMode::POKER_HAND:
-        if(result.poker_hand_rank >= 0 && result.poker_hand_rank < POKER_HAND_RANK_COUNT &&
-           result.poker_hand_score > save.poker_hand_record[result.poker_hand_rank])
+        if(result.final_score > save.poker_hand_record)
         {
-            save.poker_hand_record[result.poker_hand_rank] = result.poker_hand_score;
+            save.poker_hand_record = result.final_score;
+        }
+        break;
+
+    case CampaignMode::Y2K:
+        if(!result.y2k_busted && result.final_score > save.y2k_record &&
+           result.final_score <= Y2K_SCORE_CAP)
+        {
+            save.y2k_record = result.final_score;
         }
         break;
 

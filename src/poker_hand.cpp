@@ -2,6 +2,32 @@
 
 namespace
 {
+    int poker_hand_rank_base_points(PokerHandRank rank)
+    {
+        switch(rank)
+        {
+        case PokerHandRank::HIGH_CARD:
+            return 50;
+        case PokerHandRank::PAIR:
+            return 100;
+        case PokerHandRank::TWO_PAIR:
+            return 200;
+        case PokerHandRank::THREE_OF_A_KIND:
+            return 400;
+        case PokerHandRank::STRAIGHT:
+            return 600;
+        case PokerHandRank::FULL_HOUSE:
+            return 750;
+        case PokerHandRank::FOUR_OF_A_KIND:
+            return 900;
+        case PokerHandRank::FIVE_OF_A_KIND:
+            return 1000;
+        case PokerHandRank::FLUSH:
+        default:
+            return 0;
+        }
+    }
+
     int count_digit(const bn::array<int, 5>& digits, int digit, bool used[5])
     {
         int count = 0;
@@ -44,26 +70,51 @@ namespace
         }
     }
 
+    bool is_straight_five(const bn::array<int, 5>& digits)
+    {
+        int values[5] = {};
+        int count = 0;
+
+        for(int digit : digits)
+        {
+            if(digit > 0)
+            {
+                values[count++] = digit;
+            }
+        }
+
+        if(count != 5)
+        {
+            return false;
+        }
+
+        for(int first = 0; first < count - 1; ++first)
+        {
+            for(int second = first + 1; second < count; ++second)
+            {
+                if(values[first] > values[second])
+                {
+                    const int swap = values[first];
+                    values[first] = values[second];
+                    values[second] = swap;
+                }
+            }
+        }
+
+        for(int index = 1; index < 5; ++index)
+        {
+            if(values[index] != values[index - 1] + 1)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     int score_for_rank(PokerHandRank rank, const bn::array<int, 5>& digits, bool used[5])
     {
-        switch(rank)
-        {
-        case PokerHandRank::HIGH_CARD:
-            return sum_digits(digits, used);
-
-        case PokerHandRank::PAIR:
-        case PokerHandRank::TWO_PAIR:
-        case PokerHandRank::THREE_OF_A_KIND:
-        case PokerHandRank::FOUR_OF_A_KIND:
-        case PokerHandRank::FIVE_OF_A_KIND:
-        case PokerHandRank::FULL_HOUSE:
-        case PokerHandRank::STRAIGHT:
-        case PokerHandRank::FLUSH:
-            return sum_digits(digits, used);
-
-        default:
-            return 0;
-        }
+        return poker_hand_rank_base_points(rank) + sum_digits(digits, used);
     }
 
     PokerHandRank best_rank_from_digits(const bn::array<int, 5>& digits, bool used[5], int& out_score)
@@ -143,6 +194,20 @@ namespace
             return PokerHandRank::FULL_HOUSE;
         }
 
+        if(is_straight_five(digits))
+        {
+            for(int index = 0; index < 5; ++index)
+            {
+                if(digits[index] > 0)
+                {
+                    used[index] = true;
+                }
+            }
+
+            out_score = score_for_rank(PokerHandRank::STRAIGHT, digits, used);
+            return PokerHandRank::STRAIGHT;
+        }
+
         if(pair_count >= 2)
         {
             mark_digit(const_cast<bn::array<int, 5>&>(digits), used_local, pair_digits[1], 2);
@@ -191,6 +256,11 @@ namespace
         out_score = score_for_rank(PokerHandRank::HIGH_CARD, digits, used);
         return PokerHandRank::HIGH_CARD;
     }
+}
+
+int poker_hand_rank_points(PokerHandRank rank)
+{
+    return poker_hand_rank_base_points(rank);
 }
 
 PokerHandEvaluation poker_hand_evaluate(const bn::array<int, 5>& digits)

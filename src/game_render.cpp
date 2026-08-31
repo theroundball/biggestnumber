@@ -282,35 +282,47 @@ void GameContext::render_combo_frame(int main_x)
             const bool exile_combo = combo_resolves_to_exile(state.pending_combo.zone);
             const int exit_x = exile_combo ? score_target_x : deck_target_x;
             const int exit_y = exile_combo ? score_target_y : deck_target_y;
-
-            if (combo_focus_active())
-            {
-                render_combo_focus_frame(exit_x, exit_y);
-                return;
-            }
+            const bool gy_combo = state.pending_combo.zone == ComboZone::GRAVEYARD;
+            const int center_y = game_layout::PLAY_PRESENTATION_CENTER_Y;
+            const int gy_origin_x = card_target_x_for_hud_icon(game_layout::HUD_GRAVEYARD_X, main_x);
+            const int gy_origin_y = card_target_y_for_hud_icon(game_layout::HUD_GRAVEYARD_Y);
 
             for (int card_index = 0; card_index < count; ++card_index)
             {
                 const int gather_x = row_start + card_index * spacing + main_x;
+                const int gather_y = gy_combo ? center_y : game_layout::HAND_Y;
                 int card_x = gather_x;
-                int card_y = game_layout::HAND_Y;
+                int card_y = gather_y;
 
                 if (frame < COMBO_GATHER_FRAMES)
                 {
-                    card_x = gather_x * (COMBO_GATHER_FRAMES - frame) / COMBO_GATHER_FRAMES;
-                    combo_display[card_index].set_position(card_x, card_y);
-                    combo_display[card_index].clear_visual();
-                    combo_display[card_index].set_blending_enabled(false);
+                    if(gy_combo)
+                    {
+                        const CardFlightSample flight = sample_deck_to_hand_flight(
+                            gy_origin_x, gy_origin_y, gather_x, center_y, frame, COMBO_GATHER_FRAMES);
+                        card_x = flight.x;
+                        card_y = flight.y;
+                        combo_display[card_index].set_position(card_x, card_y);
+                        combo_display[card_index].set_visual(flight.scale, 0);
+                        combo_display[card_index].set_blending_enabled(false);
+                    }
+                    else
+                    {
+                        card_x = gather_x * (COMBO_GATHER_FRAMES - frame) / COMBO_GATHER_FRAMES;
+                        combo_display[card_index].set_position(card_x, card_y);
+                        combo_display[card_index].clear_visual();
+                        combo_display[card_index].set_blending_enabled(false);
+                    }
                 }
                 else
                 {
                     const int exit_frame = frame - COMBO_GATHER_FRAMES;
                     const CardFlightSample flight = exile_combo
                         ? sample_card_exile_dissipate(
-                            gather_x, game_layout::HAND_Y, exit_x, exit_y,
+                            gather_x, gather_y, exit_x, exit_y,
                             exit_frame, COMBO_EXIT_FRAMES)
                         : sample_card_to_deck(
-                            gather_x, game_layout::HAND_Y, exit_x, exit_y,
+                            gather_x, gather_y, exit_x, exit_y,
                             exit_frame, COMBO_EXIT_FRAMES);
                     card_x = flight.x;
                     card_y = flight.y;
@@ -334,69 +346,11 @@ void GameContext::render_combo_frame(int main_x)
             }
 }
 
-// Graveyard combos play over the browse row: matched cards lift out of their slots,
-// line up in the middle, then fly to the library (or exile, for in-deck matches).
+// Legacy graveyard pan path — kept for API compatibility; main-screen flight is in render_combo_frame.
 void GameContext::render_combo_focus_frame(int score_target_x, int score_target_y)
 {
-    // Before the gather the cards are still drawn by the graveyard row itself.
-    if(combo_focus != ComboFocusPhase::PLAYING)
-    {
-        return;
-    }
-
-    const int frame = state.combo_cinematic.frame;
-    const int count = state.combo_cinematic.card_count;
-    const int spacing = 36;
-    const int row_start = -(count * spacing) / 2 + spacing / 2;
-    const int line_y = game_layout::GRAVEYARD_BROWSE_Y;
-    const bool exile_combo = combo_resolves_to_exile(state.pending_combo.zone);
-
-    for(int card_index = 0; card_index < count; ++card_index)
-    {
-        const int line_x = row_start + card_index * spacing + combo_focus_anchor_x;
-
-        if(frame < COMBO_GATHER_FRAMES)
-        {
-            int slot_x = line_x;
-            int slot_y = line_y;
-            combo_focus_slot_position(card_index, combo_focus_anchor_x, slot_x, slot_y);
-
-            const int lift = combo_lift_progress(frame, COMBO_GATHER_FRAMES);
-            const int card_x = slot_x + (line_x - slot_x) * lift / 256;
-            const int card_y = slot_y + (line_y - slot_y) * lift / 256;
-
-            combo_display[card_index].set_position(card_x, card_y);
-            combo_display[card_index].clear_visual();
-            combo_display[card_index].set_blending_enabled(false);
-        }
-        else
-        {
-            const CardFlightSample flight = exile_combo
-                ? sample_card_exile_dissipate(
-                    line_x, line_y, score_target_x, score_target_y,
-                    frame - COMBO_GATHER_FRAMES, COMBO_EXIT_FRAMES)
-                : sample_graveyard_to_deck_flight(
-                    line_x, line_y, score_target_x, score_target_y,
-                    frame - COMBO_GATHER_FRAMES, COMBO_EXIT_FRAMES);
-
-            combo_display[card_index].set_position(flight.x, flight.y);
-            combo_display[card_index].set_visual(flight.scale, 0);
-
-            if(flight.alpha < 1)
-            {
-                bn::blending::set_transparency_alpha(
-                    flight.alpha < bn::fixed(0.05) ? bn::fixed(0.05) : flight.alpha);
-                combo_display[card_index].set_blending_enabled(true);
-            }
-            else
-            {
-                combo_display[card_index].set_blending_enabled(false);
-            }
-        }
-
-        combo_display[card_index].set_type(state.combo_cinematic.cards[card_index]);
-        combo_display[card_index].set_visible(true);
-    }
+    (void)score_target_x;
+    (void)score_target_y;
 }
 
 void GameContext::sync_pair_swap_prompt()
@@ -1287,4 +1241,5 @@ void GameContext::render_frame()
 
         position_inspect_sprites();
         trinket_render_fx(*this);
+        render_y2k_bust_overlay();
 }

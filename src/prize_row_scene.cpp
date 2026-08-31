@@ -242,6 +242,7 @@ PrizeRowResult run_prize_row_scene(const char* title, const PrizeOffer* offers, 
 
             if(!inspecting)
             {
+                hide_inspect_card(card_pool[0]);
                 inspect_sprites.clear();
                 inspect_shown_for = -1;
             }
@@ -261,6 +262,7 @@ PrizeRowResult run_prize_row_scene(const char* title, const PrizeOffer* offers, 
         {
             if(inspecting)
             {
+                hide_inspect_card(card_pool[0]);
                 inspecting = false;
                 inspect_sprites.clear();
                 inspect_shown_for = -1;
@@ -410,6 +412,7 @@ bool run_upgrade_target_scene(SaveData& save, PrizeOfferKind upgrade_kind, bn::s
 
             if(!inspecting)
             {
+                hide_inspect_card(card_pool[0]);
                 inspect_sprites.clear();
                 inspect_shown_for = -1;
             }
@@ -427,6 +430,7 @@ bool run_upgrade_target_scene(SaveData& save, PrizeOfferKind upgrade_kind, bn::s
         {
             if(inspecting)
             {
+                hide_inspect_card(card_pool[0]);
                 inspecting = false;
                 inspect_sprites.clear();
                 inspect_shown_for = -1;

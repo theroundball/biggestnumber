@@ -54,7 +54,7 @@ CampaignPlayMenuResult run_campaign_play_menu_scene(bn::seed_random& rng)
     SaveData& save = save_data_mut();
     campaign_prepare_same_number_target(save, rng);
 
-    constexpr int ITEM_COUNT = 8;
+    constexpr int ITEM_COUNT = 9;
     constexpr int VISIBLE_ROWS = 5;
     bn::string<32> labels[ITEM_COUNT];
     labels[0] = "Change / build deck";
@@ -63,6 +63,7 @@ CampaignPlayMenuResult run_campaign_play_menu_scene(bn::seed_random& rng)
     labels[4] = "Ain't Got Time";
     labels[5] = "Sharing is Caring";
     labels[6] = "Poker Hand";
+    labels[7] = "Y2K";
 
     auto refresh_same_number_label = [&]()
     {
@@ -171,8 +172,11 @@ CampaignPlayMenuResult run_campaign_play_menu_scene(bn::seed_random& rng)
             case 5:
                 result.mode = CampaignMode::SHARING_IS_CARING;
                 break;
-            default:
+            case 6:
                 result.mode = CampaignMode::POKER_HAND;
+                break;
+            default:
+                result.mode = CampaignMode::Y2K;
                 break;
             }
 
@@ -224,12 +228,18 @@ MenuSceneResult run_campaign_battle_results_scene(CampaignMode mode, const GameS
             target_line.append(bn::to_string<8>(same_number_target));
             label_generator.generate(0, -12, target_line, sprites);
         }
-        else if(mode == CampaignMode::POKER_HAND && result.poker_hand_score > 0)
+        else if(mode == CampaignMode::Y2K && result.y2k_busted)
+        {
+            label_generator.generate(0, -12, "Over 2000!", sprites);
+        }
+        else if(mode == CampaignMode::POKER_HAND && result.poker_hand_rank >= 0)
         {
             const PokerHandRank rank = PokerHandRank(result.poker_hand_rank);
-            bn::string<32> poker_line = poker_hand_rank_name(rank);
-            poker_line.append("! Score ");
+            bn::string<32> poker_line = "Last hand: ";
+            poker_line.append(poker_hand_rank_name(rank));
+            poker_line.append(" (");
             poker_line.append(bn::to_string<8>(result.poker_hand_score));
+            poker_line.append(')');
             label_generator.generate(0, -12, poker_line, sprites);
         }
 
@@ -525,6 +535,8 @@ namespace
             return "Sharing is Caring";
         case CampaignMode::POKER_HAND:
             return "Poker Hand";
+        case CampaignMode::Y2K:
+            return "Y2K";
         default:
             return "Campaign";
         }
@@ -553,6 +565,9 @@ namespace
             break;
         case CampaignMode::POKER_HAND:
             scene_text.draw_centered_line(-32, "Build best poker hand");
+            break;
+        case CampaignMode::Y2K:
+            scene_text.draw_centered_line(-32, "Get close to 2000");
             break;
         default:
             break;
@@ -585,7 +600,14 @@ namespace
             detail_line.append(bn::to_string<12>(ctx.sharing_is_caring_record));
             break;
         case CampaignMode::POKER_HAND:
-            detail_line = "Beat a hand record";
+            detail_line = "Record ";
+            detail_line.append(bn::to_string<12>(ctx.poker_hand_record));
+            break;
+        case CampaignMode::Y2K:
+            detail_line = "Record ";
+            detail_line.append(bn::to_string<12>(ctx.y2k_record));
+            detail_line.append("  Cap ");
+            detail_line.append(bn::to_string<8>(Y2K_SCORE_CAP));
             break;
         default:
             detail_line = "";

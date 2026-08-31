@@ -88,45 +88,6 @@ void GameContext::tick_combo()
         return;
     }
 
-    switch(combo_focus)
-    {
-    case ComboFocusPhase::PAN_IN:
-        if(panel_transition_active())
-        {
-            return;
-        }
-
-        combo_focus = ComboFocusPhase::REVEAL;
-        combo_focus_frame = 0;
-        return;
-
-    case ComboFocusPhase::REVEAL:
-        ++combo_focus_frame;
-
-        if(combo_focus_frame < COMBO_FOCUS_REVEAL_FRAMES)
-        {
-            return;
-        }
-
-        combo_focus = ComboFocusPhase::PLAYING;
-        combo_focus_anchor_x = graveyard_panel_offset_x();
-        break;
-
-    case ComboFocusPhase::PAN_OUT:
-        if(panel_transition_active())
-        {
-            return;
-        }
-
-        combo_focus = ComboFocusPhase::NONE;
-        combo_focus_panel_opened = false;
-        resume_after_combo();
-        return;
-
-    default:
-        break;
-    }
-
     if(!state.combo_cinematic.active)
     {
         return;
@@ -138,8 +99,6 @@ void GameContext::tick_combo()
     {
         combo_apply_score_bonus(state);
         draw_total_score();
-        // Slide back now so the cards land on a score that is on screen again.
-        begin_combo_focus_return();
     }
 
     if(state.combo_cinematic.frame >= COMBO_TOTAL_FRAMES)
@@ -323,7 +282,7 @@ void GameContext::handle_input_side_panel(int current_direction, bool direction_
 
 bool GameContext::handle_input_presentation()
 {
-    if(hand_draw_fx_blocking() && mode != GameMode::NORMAL)
+    if(hand_draw_fx_blocking() && mode != GameMode::NORMAL && !selection_mode_allows_input_during_presentation())
     {
         return true;
     }

@@ -878,7 +878,13 @@ void combo_apply_score_bonus(GameState& state)
     const int before = state.total_score;
     const long long multiplied =
         static_cast<long long>(before) * combo->total_score_multiplier;
-    state.total_score = multiplied > 2147483647 ? 2147483647 : int(multiplied);
+    const int new_total = multiplied > 2147483647 ? 2147483647 : int(multiplied);
+
+    if(!state.try_set_total_score(new_total))
+    {
+        return;
+    }
+
     score_pop_queue(state, combo->total_score_multiplier, false, TrinketScoreField::TOTAL, true);
     score_count_queue(state, TrinketScoreField::TOTAL, before, state.total_score);
     trinket_queue_score_check(state, TrinketScoreField::TOTAL, before, state.total_score);

@@ -13,7 +13,7 @@
 #include "trinket_type.h"
 
 constexpr int SAVE_DATA_MAGIC = 0x424E554D; // 'BNUM'
-constexpr int SAVE_DATA_VERSION = 16;
+constexpr int SAVE_DATA_VERSION = 18;
 constexpr int MAX_SAVED_DECKS = 6;
 constexpr int LIBRARY_COPY_LIMIT = 5;
 constexpr int DECK_MIN_CARDS = 1;
@@ -65,7 +65,8 @@ struct SaveData
     uint16_t sticker_paper = 0;
     int32_t aint_got_time_record = 0;
     int32_t sharing_is_caring_record = 0;
-    int32_t poker_hand_record[POKER_HAND_RANK_COUNT] = {};
+    int32_t poker_hand_record = 0;
+    int32_t y2k_record = 0;
 };
 
 void save_data_init();

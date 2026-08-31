@@ -6,6 +6,7 @@
 #include "card_type.h"
 
 constexpr int POKER_HAND_RANK_COUNT = 9;
+constexpr int Y2K_SCORE_CAP = 2000;
 
 enum class CampaignMode : uint8_t
 {
@@ -16,6 +17,7 @@ enum class CampaignMode : uint8_t
     AINT_GOT_TIME,
     SHARING_IS_CARING,
     POKER_HAND,
+    Y2K,
 };
 
 enum class PokerHandRank : uint8_t
@@ -43,7 +45,8 @@ struct CampaignUiContext
     int number_now_round_count = 1;
     int aint_got_time_record = 0;
     int sharing_is_caring_record = 0;
-    int poker_hand_records[POKER_HAND_RANK_COUNT] = {};
+    int poker_hand_record = 0;
+    int y2k_record = 0;
 };
 
 enum class PrizeOfferKind : uint8_t

@@ -215,6 +215,25 @@ namespace
             return;
         }
 
+        const CardData& data = card_data(card.type);
+
+        if(data.defer_graveyard_until_pending)
+        {
+            if(state.pending_actions.empty())
+            {
+                return;
+            }
+
+            if(context.hand_index >= 0 && context.hand_index < state.hand.size() && context.selected_card)
+            {
+                hand_stash_played_card(state, context.hand_index, *context.selected_card);
+            }
+
+            increment_play_counters(state, card.type, context.source);
+            maybe_draw_if_solo(state, card.type);
+            return;
+        }
+
         if(style == RemovalStyle::TO_DECK_TOP)
         {
             if(context.hand_index >= 0 && context.hand_index < state.hand.size() && context.selected_card)
@@ -314,6 +333,11 @@ GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const Battle
         state.sharing_is_caring_active = true;
     }
 
+    if(campaign_ui.mode == CampaignMode::Y2K)
+    {
+        state.y2k_active = true;
+    }
+
     switch(campaign_ui.mode)
     {
     case CampaignMode::BIGGEST_NUMBER:
@@ -337,6 +361,14 @@ GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const Battle
 
     case CampaignMode::SHARING_IS_CARING:
         score_to_beat = campaign_ui.sharing_is_caring_record;
+        break;
+
+    case CampaignMode::POKER_HAND:
+        score_to_beat = campaign_ui.poker_hand_record;
+        break;
+
+    case CampaignMode::Y2K:
+        score_to_beat = campaign_ui.y2k_record;
         break;
 
     default:
@@ -530,6 +562,12 @@ int GameContext::score_progress_goal() const
     case CampaignMode::SHARING_IS_CARING:
         return campaign_ui.sharing_is_caring_record;
 
+    case CampaignMode::POKER_HAND:
+        return campaign_ui.poker_hand_record;
+
+    case CampaignMode::Y2K:
+        return Y2K_SCORE_CAP;
+
     default:
         return score_to_beat;
     }
@@ -537,6 +575,11 @@ int GameContext::score_progress_goal() const
 
 bool GameContext::score_progress_visible() const
 {
+    if(campaign_ui.mode == CampaignMode::Y2K)
+    {
+        return true;
+    }
+
     return score_progress_goal() > 0;
 }
 
@@ -647,34 +690,22 @@ void GameContext::request_run_end()
 {
     game_over = true;
 
-    if(campaign_ui.mode == CampaignMode::POKER_HAND && state.poker_hand_active)
+    if(campaign_ui.mode == CampaignMode::Y2K && state.y2k_active)
     {
-        bn::array<int, 5> digits;
-
-        for(int index = 0; index < 5; ++index)
-        {
-            digits[index] = state.poker_digits[index] > 0 ? state.poker_digits[index] : 0;
-        }
-
-        const PokerHandEvaluation evaluation = poker_hand_evaluate(digits);
-
-        if(evaluation.valid)
-        {
-            const int rank_index = int(evaluation.rank);
-            scene_result.poker_hand_rank = rank_index;
-            scene_result.poker_hand_score = evaluation.score;
-            scene_result.final_score = evaluation.score;
-
-            if(rank_index >= 0 && rank_index < POKER_HAND_RANK_COUNT &&
-               evaluation.score > campaign_ui.poker_hand_records[rank_index])
-            {
-                scene_result.poker_hand_beat_record = true;
-            }
-        }
+        scene_result.final_score = state.total_score <= Y2K_SCORE_CAP ? state.total_score : 0;
     }
     else
     {
         scene_result.final_score = state.total_score;
+    }
+
+    if(campaign_ui.mode == CampaignMode::POKER_HAND && state.poker_hand_active)
+    {
+        if(state.poker_hand_last_rank >= 0)
+        {
+            scene_result.poker_hand_rank = state.poker_hand_last_rank;
+            scene_result.poker_hand_score = state.poker_hand_last_score;
+        }
     }
 
     score_count_process_pending(*this);
@@ -715,14 +746,28 @@ void GameContext::draw_round_score()
 
     if(score_count_is_active(*this, TrinketScoreField::ROUND))
     {
-        return;
+        const bool slot_hud_update =
+            (state.build_a_number_active && mode == GameMode::BUILD_NUMBER_DIGIT) ||
+            (state.poker_hand_active && mode == GameMode::POKER_HAND_DIGIT);
+
+        if(!slot_hud_update)
+        {
+            return;
+        }
     }
 
     score_count_process_pending(*this);
 
     if(score_count_is_active(*this, TrinketScoreField::ROUND))
     {
-        return;
+        const bool slot_hud_update =
+            (state.build_a_number_active && mode == GameMode::BUILD_NUMBER_DIGIT) ||
+            (state.poker_hand_active && mode == GameMode::POKER_HAND_DIGIT);
+
+        if(!slot_hud_update)
+        {
+            return;
+        }
     }
 
     if(state.build_a_number_active || state.poker_hand_active)
@@ -772,16 +817,16 @@ void GameContext::show_round_score_running(int running, int end_multiplier)
             const int placed_digit = state.build_a_number_active ? state.build_digits[index]
                                                                  : state.poker_digits[index];
 
-            if(placed_digit >= 0)
-            {
-                builder_text.append(bn::to_string<1>(placed_digit));
-            }
-            else if(digit_pick_active && state.selection.cursor == index &&
+            if(digit_pick_active && state.selection.cursor == index &&
                     state.selection.multiply_factor >= 1 && state.selection.multiply_factor <= 9)
             {
                 builder_text.append('[');
                 builder_text.append(bn::to_string<1>(state.selection.multiply_factor));
                 builder_text.append(']');
+            }
+            else if(placed_digit >= 0)
+            {
+                builder_text.append(bn::to_string<1>(placed_digit));
             }
             else
             {
@@ -933,6 +978,18 @@ void GameContext::commit_round_with_checks()
             scene_result.last_round_number = round_number;
         }
     }
+    else if(state.poker_hand_active)
+    {
+        const int round_score = state.poker_hand_commit_round();
+        scene_result.last_round_score = round_score;
+        scene_result.last_round_number = round_number;
+
+        if(state.poker_hand_last_rank >= 0)
+        {
+            scene_result.poker_hand_rank = state.poker_hand_last_rank;
+            scene_result.poker_hand_score = state.poker_hand_last_score;
+        }
+    }
     else if(campaign_ui.mode == CampaignMode::NUMBER_NOW &&
             round_number != campaign_ui.number_now_scoring_round)
     {
@@ -954,8 +1011,69 @@ void GameContext::commit_round_with_checks()
     _round_score_initialized = false;
     round_score_wiggle_frames = 0;
     show_round_score_running(state.round.running, state.round.end_multiplier);
+
+    if(state.y2k_bust_requested)
+    {
+        return;
+    }
+
     score_count_queue(state, TrinketScoreField::TOTAL, before, state.total_score);
     trinket_queue_score_check(state, TrinketScoreField::TOTAL, before, state.total_score);
+}
+
+void GameContext::tick_y2k_bust()
+{
+    if(!state.y2k_active || run_finished)
+    {
+        return;
+    }
+
+    if(state.y2k_bust_requested && !y2k_bust_modal_active)
+    {
+        state.y2k_bust_requested = false;
+        y2k_bust_modal_active = true;
+        round_end_pending = false;
+        mode = GameMode::NORMAL;
+        state.selection = SelectionSession{};
+        y2k_bust_sprites.clear();
+
+        score_count_cancel(*this, TrinketScoreField::ROUND);
+        score_count_cancel(*this, TrinketScoreField::TOTAL);
+
+        if(score_swap_is_active(*this))
+        {
+            score_swap_marker_sprites.clear();
+            score_swap_fx = ScoreSwapFxState{};
+        }
+    }
+
+    if(y2k_bust_modal_active && bn::keypad::a_pressed())
+    {
+        y2k_bust_modal_active = false;
+        y2k_bust_sprites.clear();
+        scene_result.final_score = 0;
+        scene_result.y2k_busted = true;
+        state.total_score = 0;
+        game_over = true;
+        run_finished = true;
+    }
+}
+
+void GameContext::render_y2k_bust_overlay()
+{
+    if(!y2k_bust_modal_active)
+    {
+        return;
+    }
+
+    y2k_bust_sprites.clear();
+    round_text_generator.set_center_alignment();
+    round_text_generator.generate(0, -32, "Woah woah woah,", y2k_bust_sprites);
+    round_text_generator.generate(0, -16, "what are you trying", y2k_bust_sprites);
+    round_text_generator.generate(0, 0, "to do there,", y2k_bust_sprites);
+    round_text_generator.generate(0, 16, "end the world?", y2k_bust_sprites);
+    round_text_generator.generate(0, 40, "A continue", y2k_bust_sprites);
+    round_text_generator.set_left_alignment();
 }
 
 // The card the inspect view would describe, given the current mode, as an
@@ -3947,6 +4065,14 @@ void GameContext::sync_details_panel(bool force)
         goal_value = campaign_ui.sharing_is_caring_record;
         break;
 
+    case CampaignMode::POKER_HAND:
+        goal_value = campaign_ui.poker_hand_record;
+        break;
+
+    case CampaignMode::Y2K:
+        goal_value = campaign_ui.y2k_record;
+        break;
+
     default:
         break;
     }
@@ -4013,7 +4139,36 @@ void GameContext::sync_details_panel(bool force)
         }
 
         details_text_generator.generate(0, -24, slots_line, details_sprites);
-        details_text_generator.generate(0, -8, "Best hand at end", details_sprites);
+
+        bn::string<32> record_line = "Record ";
+        record_line.append(bn::to_string<12>(campaign_ui.poker_hand_record));
+        details_text_generator.generate(0, -8, record_line, details_sprites);
+
+        bn::string<32> total_line = "Total ";
+        total_line.append(bn::to_string<12>(state.total_score));
+        details_text_generator.generate(0, 8, total_line, details_sprites);
+    }
+    else if(campaign_ui.mode == CampaignMode::Y2K)
+    {
+        bn::string<24> library_line = "Library ";
+        library_line.append(bn::to_string<8>(library));
+        details_text_generator.generate(0, -56, library_line, details_sprites);
+
+        bn::string<16> round_line = "Round ";
+        round_line.append(bn::to_string<4>(round));
+        details_text_generator.generate(0, -40, round_line, details_sprites);
+
+        bn::string<32> cap_line = "Cap ";
+        cap_line.append(bn::to_string<8>(Y2K_SCORE_CAP));
+        details_text_generator.generate(0, -24, cap_line, details_sprites);
+
+        bn::string<32> record_line = "Record ";
+        record_line.append(bn::to_string<12>(campaign_ui.y2k_record));
+        details_text_generator.generate(0, -8, record_line, details_sprites);
+
+        bn::string<32> total_line = "Total ";
+        total_line.append(bn::to_string<12>(state.total_score));
+        details_text_generator.generate(0, 8, total_line, details_sprites);
     }
     else if(campaign_ui.mode == CampaignMode::AINT_GOT_TIME)
     {
@@ -4081,6 +4236,16 @@ void GameContext::sync_details_panel(bool force)
         case CampaignMode::SHARING_IS_CARING:
             goal_line = "Record: ";
             goal_line.append(bn::to_string<12>(campaign_ui.sharing_is_caring_record));
+            break;
+
+        case CampaignMode::POKER_HAND:
+            goal_line = "Record: ";
+            goal_line.append(bn::to_string<12>(campaign_ui.poker_hand_record));
+            break;
+
+        case CampaignMode::Y2K:
+            goal_line = "Record: ";
+            goal_line.append(bn::to_string<12>(campaign_ui.y2k_record));
             break;
 
         default:
@@ -4417,40 +4582,6 @@ void GameContext::begin_combo_focus()
     combo_focus_panel_opened = false;
     combo_focus_frame = 0;
     combo_focus_anchor_x = 0;
-
-    if(state.pending_combo.zone != ComboZone::GRAVEYARD || state.pending_combo.length <= 0)
-    {
-        return;
-    }
-
-    // Modes that already show a card row in the main view telegraph the match on
-    // their own, and a live selection owns row_scroll_x, which the pan would clobber.
-    if(combo_interrupted_mode != GameMode::NORMAL || inspecting ||
-       state.selection.type != PendingActionType::NONE)
-    {
-        return;
-    }
-
-    if(side_panel != SidePanel::NONE || panel_transition_active())
-    {
-        return;
-    }
-
-    browse_open_target = SidePanel::GRAVEYARD;
-    begin_panel_transition(PanelTransition::OPEN_GRAVEYARD);
-
-    if(panel_transition != PanelTransition::OPEN_GRAVEYARD)
-    {
-        return;
-    }
-
-    // begin_panel_transition parks the cursor on the newest card; scroll to the match instead.
-    const int match_center = state.pending_combo.start_index + state.pending_combo.length / 2;
-    browse_cursor = clamp_graveyard_cursor(match_center, state.graveyard.size());
-    sync_row_scroll_for_mode(browse_cursor, state.graveyard.size(), game_layout::GRAVE_SPACING);
-
-    combo_focus = ComboFocusPhase::PAN_IN;
-    combo_focus_panel_opened = true;
 }
 
 void GameContext::begin_combo_focus_return()
@@ -4519,7 +4650,7 @@ void GameContext::combo_focus_slot_position(int card_index, int panel_x, int& ou
 
 void GameContext::hide_combo_focus_row_cards()
 {
-    if(mode != GameMode::COMBO || combo_focus != ComboFocusPhase::PLAYING)
+    if(mode != GameMode::COMBO || !state.combo_cinematic.active)
     {
         return;
     }
@@ -4598,26 +4729,10 @@ void GameContext::finish_combo_cinematic()
 {
     combo_resume_type = state.selection.type;
 
-    // Clear active before removing cards so GRAVEYARD_CHANGED can queue the next match.
-    // (combo_check_zone no-ops while a cinematic is marked active.)
     state.combo_cinematic.active = false;
     combo_remove_resolved_cards(state, selected_card);
     browse_cursor = clamp_graveyard_cursor(browse_cursor, state.graveyard.size());
     state.selection.cursor = clamp_graveyard_cursor(state.selection.cursor, state.graveyard.size());
-
-    // Hold the resume until the camera is back on the main view, otherwise the player
-    // could act on a hand they cannot see yet.
-    if(combo_focus_panel_opened)
-    {
-        begin_combo_focus_return();
-
-        if(panel_transition_active() || side_panel != SidePanel::NONE)
-        {
-            combo_focus = ComboFocusPhase::PAN_OUT;
-            draw_round_score();
-            return;
-        }
-    }
 
     combo_focus = ComboFocusPhase::NONE;
     combo_focus_panel_opened = false;

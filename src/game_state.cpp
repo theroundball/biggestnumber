@@ -1,6 +1,8 @@
 #include "game_state.h"
+#include "campaign_types.h"
 #include "game_events.h"
 #include "game_helpers.h"
+#include "poker_hand.h"
 #include "score_pop_system.h"
 #include "score_count_system.h"
 #include "trinket_system.h"
@@ -320,13 +322,51 @@ int GameState::build_a_number_commit_prebuild()
         snapshot.running = build_pre_running;
         snapshot.end_multiplier = build_pre_end_multiplier;
         committed = snapshot.committed();
-        total_score += committed;
+        try_add_to_total_score(committed);
         build_pre_running = 0;
         build_pre_end_multiplier = 1;
     }
 
     round.reset();
     return committed;
+}
+
+void GameState::poker_hand_reset()
+{
+    for(int index = 0; index < 5; ++index)
+    {
+        poker_digits[index] = -1;
+    }
+}
+
+int GameState::poker_hand_commit_round()
+{
+    bn::array<int, 5> digits;
+
+    for(int index = 0; index < 5; ++index)
+    {
+        digits[index] = poker_digits[index] > 0 ? poker_digits[index] : 0;
+    }
+
+    const PokerHandEvaluation evaluation = poker_hand_evaluate(digits);
+    int round_score = 0;
+
+    if(evaluation.valid)
+    {
+        round_score = evaluation.score;
+        try_add_to_total_score(round_score);
+        poker_hand_last_rank = int(evaluation.rank);
+        poker_hand_last_score = evaluation.score;
+    }
+    else
+    {
+        poker_hand_last_rank = -1;
+        poker_hand_last_score = 0;
+    }
+
+    poker_hand_reset();
+    round.reset();
+    return round_score;
 }
 
 void GameState::sharing_reset_round_mult()
@@ -404,6 +444,51 @@ void GameState::finish_keep_going_round_start()
         apply_card_relocated(*this, CardType::GET_ME_OUTA_HERE);
         --keep_going_relocation_triggers;
     }
+}
+
+bool GameState::try_set_total_score(int new_total)
+{
+    if(y2k_active && new_total > Y2K_SCORE_CAP)
+    {
+        y2k_bust_requested = true;
+        return false;
+    }
+
+    total_score = new_total;
+    return true;
+}
+
+bool GameState::try_add_to_total_score(int delta)
+{
+    const long long next = static_cast<long long>(total_score) + delta;
+
+    if(y2k_active && next > Y2K_SCORE_CAP)
+    {
+        y2k_bust_requested = true;
+        return false;
+    }
+
+    if(next > 2147483647)
+    {
+        total_score = 2147483647;
+    }
+    else if(next < 0)
+    {
+        total_score = 0;
+    }
+    else
+    {
+        total_score = int(next);
+    }
+
+    return true;
+}
+
+void GameState::commit_round()
+{
+    flush_staircase_climb();
+    try_add_to_total_score(round.committed());
+    round.reset();
 }
 
 void GameState::mul_from_card(int factor)
