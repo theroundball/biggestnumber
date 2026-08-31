@@ -339,7 +339,7 @@ namespace
     void effect_jacks(GameState& state)
     {
         // Playing card is still in hand when on_play runs; need another card to discard.
-        if(state.hand.size() <= 1)
+        if(!discard_partner_play_cost_available(state))
         {
             return;
         }
@@ -350,7 +350,7 @@ namespace
 
     void effect_fishing_pole(GameState& state)
     {
-        if(state.hand.size() <= 1)
+        if(!discard_partner_play_cost_available(state))
         {
             return;
         }

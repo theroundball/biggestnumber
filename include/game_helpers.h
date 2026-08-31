@@ -98,6 +98,7 @@ void bounty_on_enter_graveyard(GameState& state, CardRef card);
 void bounty_on_round_start(GameState& state);
 void check_bounty_return(GameState& state);
 void queue_effect_draw(GameState& state, int count, bool miracle_on_first);
+bool discard_partner_play_cost_available(const GameState& state);
 bool try_draw_one_to_hand(GameState& state);
 void maybe_draw_if_solo(GameState& state, CardType type);
 void play_miracle_bonus(GameState& state, int amount);

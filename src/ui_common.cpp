@@ -166,6 +166,22 @@ SceneText::SceneText(bn::sprite_text_generator& generator) :
 {
 }
 
+void SceneText::apply_depth_to_range(int first_index)
+{
+    for(int index = first_index; index < _sprites.size(); ++index)
+    {
+        if(_z_order.has_value())
+        {
+            _sprites[index].set_z_order(_z_order.value());
+        }
+
+        if(_bg_priority.has_value())
+        {
+            _sprites[index].set_bg_priority(_bg_priority.value());
+        }
+    }
+}
+
 void SceneText::clear()
 {
     _sprites.clear();
@@ -181,6 +197,8 @@ void SceneText::set_visible(bool visible)
 
 void SceneText::set_z_order(int z)
 {
+    _z_order = z;
+
     for(bn::sprite_ptr& sprite : _sprites)
     {
         sprite.set_z_order(z);
@@ -189,6 +207,8 @@ void SceneText::set_z_order(int z)
 
 void SceneText::set_bg_priority(int priority)
 {
+    _bg_priority = priority;
+
     for(bn::sprite_ptr& sprite : _sprites)
     {
         sprite.set_bg_priority(priority);
@@ -202,14 +222,18 @@ void SceneText::draw_centered_line(int y, const bn::string_view& text)
 
 void SceneText::draw_centered_line(int x, int y, const bn::string_view& text)
 {
+    const int first_index = _sprites.size();
     _generator.set_center_alignment();
     _generator.generate(x, y, text, _sprites);
     _generator.set_left_alignment();
+    apply_depth_to_range(first_index);
 }
 
 void SceneText::draw_left_line(int x, int y, const bn::string_view& text)
 {
+    const int first_index = _sprites.size();
     _generator.generate(x, y, text, _sprites);
+    apply_depth_to_range(first_index);
 }
 
 SelectorGlyph::SelectorGlyph(bn::sprite_text_generator& generator, int anchor_x) :

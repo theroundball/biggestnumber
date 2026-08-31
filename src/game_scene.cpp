@@ -34,8 +34,8 @@ namespace
 
         bn::sprite_text_generator generator(common::variable_8x16_sprite_font);
         SceneText text(generator);
-        text.set_z_order(-32767);
-        text.set_bg_priority(0);
+        text.set_z_order(game_layout::OVERLAY_TEXT_Z);
+        text.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
         int cursor = 0;
 
         while(true)

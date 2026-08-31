@@ -132,6 +132,8 @@ namespace game_layout
     // Same on-top layer as pause / score-swap markers (lower z drawn later = in front).
     constexpr int SCORE_POP_Z = -32767;
     constexpr int SCORE_POP_BG_PRIORITY = 0;
+    constexpr int OVERLAY_TEXT_Z = SCORE_POP_Z;
+    constexpr int OVERLAY_TEXT_BG_PRIORITY = SCORE_POP_BG_PRIORITY;
     constexpr int MARKER_Z_ORDER = -10;
     constexpr int SCORE_CENTER_Y = -41;
     constexpr int SCORE_BAR_Y = -66;

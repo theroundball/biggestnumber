@@ -1,6 +1,7 @@
 #ifndef UI_COMMON_H
 #define UI_COMMON_H
 
+#include "bn_optional.h"
 #include "bn_sprite_ptr.h"
 #include "bn_sprite_text_generator.h"
 #include "bn_string.h"
@@ -54,8 +55,12 @@ public:
     void draw_left_line(int x, int y, const bn::string_view& text);
 
 private:
+    void apply_depth_to_range(int first_index);
+
     bn::sprite_text_generator& _generator;
     bn::vector<bn::sprite_ptr, 128> _sprites;
+    bn::optional<int> _z_order;
+    bn::optional<int> _bg_priority;
 };
 
 class SelectorGlyph

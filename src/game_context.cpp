@@ -219,19 +219,19 @@ namespace
 
         if(data.defer_graveyard_until_pending)
         {
-            if(state.pending_actions.empty())
+            if(!state.pending_actions.empty())
             {
+                if(context.hand_index >= 0 && context.hand_index < state.hand.size() && context.selected_card)
+                {
+                    hand_stash_played_card(state, context.hand_index, *context.selected_card);
+                }
+
+                increment_play_counters(state, card.type, context.source);
+                maybe_draw_if_solo(state, card.type);
                 return;
             }
 
-            if(context.hand_index >= 0 && context.hand_index < state.hand.size() && context.selected_card)
-            {
-                hand_stash_played_card(state, context.hand_index, *context.selected_card);
-            }
-
-            increment_play_counters(state, card.type, context.source);
-            maybe_draw_if_solo(state, card.type);
-            return;
+            // on_play fizzled (e.g. solo Jacks) — fall through to normal GY routing.
         }
 
         if(style == RemovalStyle::TO_DECK_TOP)
@@ -1068,11 +1068,17 @@ void GameContext::render_y2k_bust_overlay()
 
     y2k_bust_sprites.clear();
     round_text_generator.set_center_alignment();
+    const int old_z = round_text_generator.z_order();
+    const int old_bg = round_text_generator.bg_priority();
+    round_text_generator.set_z_order(game_layout::OVERLAY_TEXT_Z);
+    round_text_generator.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
     round_text_generator.generate(0, -32, "Woah woah woah,", y2k_bust_sprites);
     round_text_generator.generate(0, -16, "what are you trying", y2k_bust_sprites);
     round_text_generator.generate(0, 0, "to do there,", y2k_bust_sprites);
     round_text_generator.generate(0, 16, "end the world?", y2k_bust_sprites);
     round_text_generator.generate(0, 40, "A continue", y2k_bust_sprites);
+    round_text_generator.set_z_order(old_z);
+    round_text_generator.set_bg_priority(old_bg);
     round_text_generator.set_left_alignment();
 }
 

@@ -1778,6 +1778,11 @@ void queue_effect_draw(GameState& state, int count, bool miracle_on_first)
     state.pending_actions.push_back(action);
 }
 
+bool discard_partner_play_cost_available(const GameState& state)
+{
+    return state.hand.size() > 1;
+}
+
 void maybe_draw_if_solo(GameState& state, CardType type)
 {
     if(state.build_a_number_active || type != CardType::SOLO || !state.hand.empty())
