@@ -1,7 +1,16 @@
 #include "ui_common.h"
 
+#include "bn_bpp_mode.h"
+#include "bn_color.h"
+#include "bn_compression_type.h"
 #include "bn_core.h"
 #include "bn_keypad.h"
+#include "bn_optional.h"
+#include "bn_sprite_palette_item.h"
+#include "bn_sprite_palette_ptr.h"
+#include "bn_sprite_shape_size.h"
+#include "bn_sprite_tiles_ptr.h"
+#include "bn_tile.h"
 
 #include "battle_backdrop.h"
 
@@ -104,6 +113,86 @@ namespace
         }
 
         return 1;
+    }
+
+    constexpr int TEXT_BOX_FILL_COLOR = 1;
+    constexpr int TEXT_BOX_BORDER_COLOR = 2;
+    constexpr bn::color TEXT_BOX_FILL(26, 14, 6);
+    constexpr bn::color TEXT_BOX_BORDER(18, 8, 4);
+
+    struct TextBoxAssets
+    {
+        bn::optional<bn::sprite_tiles_ptr> fill_tiles;
+        bn::optional<bn::sprite_tiles_ptr> border_tiles;
+        bn::optional<bn::sprite_palette_ptr> palette;
+
+        void ensure()
+        {
+            if(fill_tiles.has_value())
+            {
+                return;
+            }
+
+            bn::array<bn::color, 16> colors;
+            colors[0] = bn::color(0, 0, 0);
+            colors[TEXT_BOX_FILL_COLOR] = TEXT_BOX_FILL;
+            colors[TEXT_BOX_BORDER_COLOR] = TEXT_BOX_BORDER;
+
+            const bn::sprite_palette_item palette_item(
+                bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4,
+                bn::compression_type::NONE);
+            palette = bn::sprite_palette_ptr::create(palette_item);
+
+            fill_tiles = bn::sprite_tiles_ptr::allocate(1, bn::bpp_mode::BPP_4);
+            border_tiles = bn::sprite_tiles_ptr::allocate(1, bn::bpp_mode::BPP_4);
+
+            auto paint_solid = [](bn::sprite_tiles_ptr& tiles, int color_index)
+            {
+                auto vram = tiles.vram();
+                auto* tile_span = vram.get();
+
+                if(!tile_span)
+                {
+                    return;
+                }
+
+                uint32_t row = 0;
+
+                for(int px = 0; px < 8; ++px)
+                {
+                    row |= uint32_t(color_index) << (px * 4);
+                }
+
+                for(int tile_index = 0; tile_index < tile_span->size(); ++tile_index)
+                {
+                    bn::tile& tile = (*tile_span)[tile_index];
+
+                    for(int row_index = 0; row_index < 8; ++row_index)
+                    {
+                        tile.data[row_index] = row;
+                    }
+                }
+            };
+
+            paint_solid(*fill_tiles, TEXT_BOX_FILL_COLOR);
+            paint_solid(*border_tiles, TEXT_BOX_BORDER_COLOR);
+        }
+    };
+
+    TextBoxAssets& text_box_assets()
+    {
+        static TextBoxAssets assets;
+        return assets;
+    }
+
+    int align_down_8(int value)
+    {
+        return value >= 0 ? (value / 8) * 8 : -(((-value) + 7) / 8) * 8;
+    }
+
+    int align_up_8(int value)
+    {
+        return value >= 0 ? ((value + 7) / 8) * 8 : (value / 8) * 8;
     }
 }
 
@@ -234,6 +323,85 @@ void SceneText::draw_left_line(int x, int y, const bn::string_view& text)
     const int first_index = _sprites.size();
     _generator.generate(x, y, text, _sprites);
     apply_depth_to_range(first_index);
+}
+
+void TextBoxPanel::clear()
+{
+    _sprites.clear();
+}
+
+void TextBoxPanel::set_z_order(int z)
+{
+    _z_order = z;
+
+    for(bn::sprite_ptr& sprite : _sprites)
+    {
+        sprite.set_z_order(z);
+    }
+}
+
+void TextBoxPanel::set_bg_priority(int priority)
+{
+    _bg_priority = priority;
+
+    for(bn::sprite_ptr& sprite : _sprites)
+    {
+        sprite.set_bg_priority(priority);
+    }
+}
+
+void TextBoxPanel::draw_around_lines(int center_x, int top_y, int bottom_y, int content_half_width,
+                                     int padding_x, int padding_y)
+{
+    clear();
+
+    TextBoxAssets& assets = text_box_assets();
+    assets.ensure();
+
+    if(!assets.palette.has_value() || !assets.fill_tiles.has_value() || !assets.border_tiles.has_value())
+    {
+        return;
+    }
+
+    constexpr int line_half_height = 8;
+    const int content_left = center_x - content_half_width;
+    const int content_right = center_x + content_half_width;
+    const int content_top = top_y - line_half_height;
+    const int content_bottom = bottom_y + line_half_height;
+
+    const int box_left = align_down_8(content_left - padding_x);
+    const int box_right = align_up_8(content_right + padding_x);
+    const int box_top = align_down_8(content_top - padding_y);
+    const int box_bottom = align_up_8(content_bottom + padding_y);
+
+    const int cols = (box_right - box_left) / 8;
+    const int rows = (box_bottom - box_top) / 8;
+
+    if(cols <= 0 || rows <= 0)
+    {
+        return;
+    }
+
+    const bn::sprite_palette_ptr& palette = *assets.palette;
+    const bn::sprite_tiles_ptr& fill_tiles = *assets.fill_tiles;
+    const bn::sprite_tiles_ptr& border_tiles = *assets.border_tiles;
+    const bn::sprite_shape_size shape(8, 8);
+
+    for(int row = 0; row < rows; ++row)
+    {
+        for(int col = 0; col < cols; ++col)
+        {
+            const bool edge = row == 0 || row == rows - 1 || col == 0 || col == cols - 1;
+            const int x = box_left + col * 8 + 4;
+            const int y = box_top + row * 8 + 4;
+            bn::sprite_ptr sprite =
+                bn::sprite_ptr::create(x, y, shape, edge ? border_tiles : fill_tiles, palette);
+            sprite.set_z_order(_z_order.has_value() ? _z_order.value() : game_layout::TEXT_BOX_Z);
+            sprite.set_bg_priority(_bg_priority.has_value() ? _bg_priority.value()
+                                                            : game_layout::TEXT_BOX_BG_PRIORITY);
+            _sprites.push_back(sprite);
+        }
+    }
 }
 
 SelectorGlyph::SelectorGlyph(bn::sprite_text_generator& generator, int anchor_x) :

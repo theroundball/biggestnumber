@@ -3,7 +3,7 @@
 **Last updated:** 2026-08-31  
 **Purpose:** Single document to onboard a new machine / Cursor session and continue development without prior chat history.
 
-> **Windows tree note (2026-08-12):** This workspace is **ahead** of the 2026-08-11 Mac handoff snapshot. Play resolution is wired at call sites; Lifeline uses `RECLAIM_GRAVEYARD`. **Primary product direction:** roguelike run mode (`docs/ROGUELIKE_RUN_HANDOFF.md`) — overworld vertical slice is **scrapped**.
+> **Windows tree note (2026-09-01):** **Primary product direction:** RPG overworld MVP — see [`docs/RPG_OVERWORLD_MVP_PLAN.md`](RPG_OVERWORLD_MVP_PLAN.md). Roguelike run mode (`docs/ROGUELIKE_RUN_HANDOFF.md`) remains optional side content.
 
 ---
 

@@ -134,6 +134,9 @@ namespace game_layout
     constexpr int SCORE_POP_BG_PRIORITY = 0;
     constexpr int OVERLAY_TEXT_Z = SCORE_POP_Z;
     constexpr int OVERLAY_TEXT_BG_PRIORITY = SCORE_POP_BG_PRIORITY;
+    // Message boxes share overlay z but sit behind overlay text via bg priority.
+    constexpr int TEXT_BOX_Z = OVERLAY_TEXT_Z;
+    constexpr int TEXT_BOX_BG_PRIORITY = OVERLAY_TEXT_BG_PRIORITY + 1;
     constexpr int MARKER_Z_ORDER = -10;
     constexpr int SCORE_CENTER_Y = -41;
     constexpr int SCORE_BAR_Y = -66;

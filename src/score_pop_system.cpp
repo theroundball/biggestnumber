@@ -113,7 +113,6 @@ namespace
             sprite.set_visible(visible);
             sprite.set_z_order(game_layout::SCORE_POP_Z);
             sprite.set_bg_priority(game_layout::SCORE_POP_BG_PRIORITY);
-            sprite.put_above();
 
             if(pop.affine_mat.has_value())
             {

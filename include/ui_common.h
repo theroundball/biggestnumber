@@ -63,6 +63,24 @@ private:
     bn::optional<int> _bg_priority;
 };
 
+// Orange-brown panel behind modal / menu text (procedural 8x8 tiles).
+class TextBoxPanel
+{
+public:
+    void clear();
+    void set_z_order(int z);
+    void set_bg_priority(int priority);
+    // Draw a bordered box around a vertical text block centered on center_x.
+    // top_y / bottom_y are the y positions of the first and last text lines.
+    void draw_around_lines(int center_x, int top_y, int bottom_y, int content_half_width,
+                           int padding_x = 8, int padding_y = 6);
+
+private:
+    bn::vector<bn::sprite_ptr, 64> _sprites;
+    bn::optional<int> _z_order;
+    bn::optional<int> _bg_priority;
+};
+
 class SelectorGlyph
 {
 public:

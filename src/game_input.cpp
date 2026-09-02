@@ -499,9 +499,7 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
     }
     else if(!game_over && !lock_for_scroll && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() && live_selected &&
-            !state.build_a_number_active && !state.poker_hand_active &&
-            bn::keypad::down_pressed() &&
-            card_has_cycle(state.hand[selected_card].type))
+            !swapping_card && bn::keypad::down_pressed())
     {
         if(removing_card && !play_can_overlap())
         {
@@ -509,7 +507,15 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
         }
 
         capture_removal_start();
-        begin_direct_removal(removal_start_x, removal_start_y, RemovalStyle::EXILE_DISSIPATE, false, true);
+
+        if(card_has_discard_effect(state.hand[selected_card].type))
+        {
+            begin_discard_presentation(selected_card);
+        }
+        else
+        {
+            begin_direct_removal(removal_start_x, removal_start_y, RemovalStyle::TO_GRAVEYARD, true);
+        }
     }
     else if(!game_over && !lock_for_scroll && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() && slot_count &&
@@ -702,7 +708,7 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
 void GameContext::handle_input_discard_target(int current_direction, bool direction_triggered,
                                               int direction_steps, bool scrolling)
 {
-    // --- DISCARD_TARGET: pick a hand card to discard (Up) ---
+    // --- DISCARD_TARGET: pick a hand card (L/R), confirm with A ---
     if(!scrolling && direction_triggered)
     {
         nudge_cursor(selected_card, current_direction, direction_steps, 0, state.hand.size() - 1);
@@ -715,8 +721,7 @@ void GameContext::handle_input_discard_target(int current_direction, bool direct
         purge_pending_overclock_discard_prompts(state);
         begin_next_pending_or_finish(true);
     }
-    else if(!scrolling && !inspecting && state.hand.size() &&
-            (confirm_pressed() || bn::keypad::down_pressed()))
+    else if(!scrolling && !inspecting && state.hand.size() && confirm_pressed())
     {
         if(state.selection.remaining_picks <= 0)
         {

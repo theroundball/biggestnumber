@@ -204,32 +204,47 @@ MenuSceneResult run_campaign_battle_results_scene(CampaignMode mode, const GameS
     out_to_prize = false;
 
     bn::sprite_text_generator label_generator(common::variable_8x16_sprite_font);
+    TextBoxPanel panel;
+    panel.set_z_order(game_layout::TEXT_BOX_Z);
+    panel.set_bg_priority(game_layout::TEXT_BOX_BG_PRIORITY);
     bn::vector<bn::sprite_ptr, 24> sprites;
 
     while(true)
     {
         sprites.clear();
 
+        int content_half_width = label_generator.width(won ? "Victory" : "Defeat") / 2;
+
         label_generator.set_center_alignment();
         label_generator.generate(0, -56, won ? "Victory" : "Defeat", sprites);
 
         if(granted_sticker_paper)
         {
+            const int half = label_generator.width("+1 sticker paper") / 2;
+            content_half_width = content_half_width > half ? content_half_width : half;
             label_generator.generate(0, -44, "+1 sticker paper", sprites);
         }
 
         bn::string<32> score_line = "Score ";
         score_line.append(bn::to_string<12>(result.final_score));
+        {
+            const int half = label_generator.width(score_line) / 2;
+            content_half_width = content_half_width > half ? content_half_width : half;
+        }
         label_generator.generate(0, -28, score_line, sprites);
 
         if(mode == CampaignMode::SAME_NUMBER)
         {
             bn::string<32> target_line = "Target ";
             target_line.append(bn::to_string<8>(same_number_target));
+            const int half = label_generator.width(target_line) / 2;
+            content_half_width = content_half_width > half ? content_half_width : half;
             label_generator.generate(0, -12, target_line, sprites);
         }
         else if(mode == CampaignMode::Y2K && result.y2k_busted)
         {
+            const int half = label_generator.width("Over 2000!") / 2;
+            content_half_width = content_half_width > half ? content_half_width : half;
             label_generator.generate(0, -12, "Over 2000!", sprites);
         }
         else if(mode == CampaignMode::POKER_HAND && result.poker_hand_rank >= 0)
@@ -240,12 +255,25 @@ MenuSceneResult run_campaign_battle_results_scene(CampaignMode mode, const GameS
             poker_line.append(" (");
             poker_line.append(bn::to_string<8>(result.poker_hand_score));
             poker_line.append(')');
+            const int half = label_generator.width(poker_line) / 2;
+            content_half_width = content_half_width > half ? content_half_width : half;
             label_generator.generate(0, -12, poker_line, sprites);
         }
 
         const char* action = won ? "Pick a prize" : "Menu";
+        {
+            const int half = label_generator.width(action) / 2;
+            content_half_width = content_half_width > half ? content_half_width : half;
+        }
+        panel.draw_around_lines(0, -56, 24, content_half_width);
         label_generator.generate(0, 24, action, sprites);
         label_generator.set_left_alignment();
+
+        for(bn::sprite_ptr& sprite : sprites)
+        {
+            sprite.set_z_order(game_layout::OVERLAY_TEXT_Z);
+            sprite.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
+        }
 
         if(bn::keypad::a_pressed() || bn::keypad::b_pressed() || bn::keypad::start_pressed() ||
            bn::keypad::select_pressed() || bn::keypad::up_pressed() || bn::keypad::down_pressed() ||
@@ -358,14 +386,21 @@ namespace
 
         bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
         SceneText scene_text(text_generator);
+        TextBoxPanel panel;
+        panel.set_z_order(game_layout::TEXT_BOX_Z);
+        panel.set_bg_priority(game_layout::TEXT_BOX_BG_PRIORITY);
 
         while(true)
         {
             scene_text.clear();
-            scene_text.draw_centered_line(-48, "Sell collection?");
+            constexpr int top_y = -48;
+            constexpr int bottom_y = 16;
+            const int content_half_width = text_generator.width("Lose all progress") / 2;
+            panel.draw_around_lines(0, top_y, bottom_y, content_half_width);
+            scene_text.draw_centered_line(top_y, "Sell collection?");
             scene_text.draw_centered_line(-28, "Lose all progress");
             scene_text.draw_centered_line(-12, "Keep 1 card + wheels");
-            scene_text.draw_centered_line(16, "A sell  B cancel");
+            scene_text.draw_centered_line(bottom_y, "A sell  B cancel");
 
             if(bn::keypad::a_pressed())
             {

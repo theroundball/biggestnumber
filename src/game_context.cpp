@@ -30,6 +30,7 @@
 #include "swivel_system.h"
 #include "poker_hand.h"
 #include "trinket_system.h"
+#include "ui_common.h"
 #include "ui_inspect.h"
 
 namespace
@@ -1072,6 +1073,12 @@ void GameContext::render_y2k_bust_overlay()
     const int old_bg = round_text_generator.bg_priority();
     round_text_generator.set_z_order(game_layout::OVERLAY_TEXT_Z);
     round_text_generator.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
+
+    static TextBoxPanel y2k_panel;
+    y2k_panel.set_z_order(game_layout::TEXT_BOX_Z);
+    y2k_panel.set_bg_priority(game_layout::TEXT_BOX_BG_PRIORITY);
+    y2k_panel.draw_around_lines(0, -32, 40, round_text_generator.width("what are you trying") / 2);
+
     round_text_generator.generate(0, -32, "Woah woah woah,", y2k_bust_sprites);
     round_text_generator.generate(0, -16, "what are you trying", y2k_bust_sprites);
     round_text_generator.generate(0, 0, "to do there,", y2k_bust_sprites);
@@ -4808,6 +4815,9 @@ void GameContext::shutdown_for_exit()
     release_card_display_tiles(inspect_card);
     release_card_display_tiles(echo_ghost_card);
     clear_inspect();
+    score_pops.clear();
+    y2k_bust_sprites.clear();
+    inspect_sprites.clear();
     text_sprites.clear();
     round_text_sprites.clear();
     combo_progress_bars.set_visible(false);

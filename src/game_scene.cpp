@@ -34,13 +34,17 @@ namespace
 
         bn::sprite_text_generator generator(common::variable_8x16_sprite_font);
         SceneText text(generator);
+        TextBoxPanel panel;
         text.set_z_order(game_layout::OVERLAY_TEXT_Z);
         text.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
+        panel.set_z_order(game_layout::TEXT_BOX_Z);
+        panel.set_bg_priority(game_layout::TEXT_BOX_BG_PRIORITY);
         int cursor = 0;
 
         while(true)
         {
             text.clear();
+            panel.draw_around_lines(0, -32, 8, generator.width("  Exit Game") / 2);
             text.draw_centered_line(-32, "Paused");
             text.draw_centered_line(-8, cursor == 0 ? "> Continue" : "  Continue");
             text.draw_centered_line(8, cursor == 1 ? "> Exit Game" : "  Exit Game");
