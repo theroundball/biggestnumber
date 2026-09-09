@@ -5,6 +5,9 @@
 
 #include "campaign_types.h"
 
+// First boot: wheels 1-4 + pick Toppings / Clover / Big Kurosawa as the fifth card.
+void campaign_run_boot_setup(bn::seed_random& rng);
+
 // Campaign play loop: starter setup, play submenu, battles, prizes.
 void campaign_run_play_flow(bn::seed_random& rng);
 

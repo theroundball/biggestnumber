@@ -27,7 +27,8 @@ MenuSceneResult run_mode_intro_scene(CampaignMode mode, const CampaignUiContext&
 // granted_sticker_paper is set when +1 sticker paper was awarded for this battle.
 MenuSceneResult run_campaign_battle_results_scene(CampaignMode mode, const GameSceneResult& result,
                                                   bool won, int same_number_target, bool& out_to_prize,
-                                                  bool granted_sticker_paper = false);
+                                                  bool granted_sticker_paper = false,
+                                                  bool overworld_session = false);
 
 MenuSceneResult run_campaign_prize_scene(CampaignMode mode, int peak_before, int band_score,
                                          bn::seed_random& rng);

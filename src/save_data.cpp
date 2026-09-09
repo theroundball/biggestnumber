@@ -2,6 +2,10 @@
 
 #include "bn_sram.h"
 
+#ifndef BN_DATA_EWRAM_BSS
+    #define BN_DATA_EWRAM_BSS __attribute__((section(".sbss")))
+#endif
+
 #include "campaign.h"
 #include "card_instance.h"
 #include "card_meta.h"
@@ -10,7 +14,24 @@
 
 namespace
 {
-    SaveData _save_data;
+    // Save blobs are a few KB. IWRAM + the 16KB main stack cannot hold several
+    // legacy layouts at once (GCC often keeps every local in a function live).
+    // .sbss only allows zero init, so store the blob as raw bytes (SRAM overwrites it).
+    alignas(SaveData) BN_DATA_EWRAM_BSS char _save_data_storage[sizeof(SaveData)];
+    alignas(8) BN_DATA_EWRAM_BSS char _legacy_sram_scratch[sizeof(SaveData)];
+    static_assert(sizeof(SaveData) <= bn::sram::size());
+
+    SaveData& save_blob()
+    {
+        return *reinterpret_cast<SaveData*>(_save_data_storage);
+    }
+
+    template<typename Legacy>
+    Legacy& legacy_sram_view()
+    {
+        static_assert(sizeof(Legacy) <= sizeof(_legacy_sram_scratch));
+        return *reinterpret_cast<Legacy*>(_legacy_sram_scratch);
+    }
 
     constexpr int SAVE_DATA_VERSION_V8 = 8;
     constexpr int SAVE_DATA_VERSION_V9 = 9;
@@ -1731,11 +1752,11 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
 
     void save_data_reset()
     {
-        _save_data = SaveData{};
-        _save_data.magic = SAVE_DATA_MAGIC;
-        _save_data.version = SAVE_DATA_VERSION;
-        _save_data.deck_count = 0;
-        campaign_init_npc_collections(_save_data);
+        save_blob() = SaveData{};
+        save_blob().magic = SAVE_DATA_MAGIC;
+        save_blob().version = SAVE_DATA_VERSION;
+        save_blob().deck_count = 0;
+        campaign_init_npc_collections(save_blob());
         prize_testing_cycle_reset();
     }
 
@@ -2572,112 +2593,96 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
 
     void sanitize_loaded_deck_names()
     {
-        for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
+        for(int deck_index = 0; deck_index < save_blob().deck_count; ++deck_index)
         {
-            saved_deck_sanitize_name(_save_data.decks[deck_index]);
+            saved_deck_sanitize_name(save_blob().decks[deck_index]);
         }
     }
 
-    // Each legacy layout is tried in its own block so only one ~3KB struct is on the
-    // stack at a time. Nested else-chains kept every failed format alive and could
-    // overflow the 16KB main stack on corrupt SRAM (manifests as FFFFFFFE jumps).
+    // Legacy SRAM is decoded in EWRAM, not on the 16KB stack. Putting several
+    // SaveDataV* locals in one function overflows and jumps to garbage
+    // (E3A0E3C2 / FFFFFFFE) on boot after a version bump.
     bool save_data_try_migrate_legacy()
     {
-        {
-            SaveDataV19 legacy_v19;
-            bn::sram::read(legacy_v19);
+        SaveDataV19& legacy_v19 = legacy_sram_view<SaveDataV19>();
+        bn::sram::read(legacy_v19);
 
-            if(save_data_valid_v19(legacy_v19))
-            {
-                save_data_migrate_v19_to_v20(_save_data, legacy_v19);
-                sanitize_loaded_deck_names();
-                return true;
-            }
+        if(save_data_valid_v19(legacy_v19))
+        {
+            save_data_migrate_v19_to_v20(save_blob(), legacy_v19);
+            sanitize_loaded_deck_names();
+            return true;
         }
 
-        {
-            SaveDataV18 legacy_v18;
-            bn::sram::read(legacy_v18);
+        SaveDataV18& legacy_v18 = legacy_sram_view<SaveDataV18>();
+        bn::sram::read(legacy_v18);
 
-            if(save_data_valid_v18(legacy_v18))
-            {
-                save_data_migrate_v18_to_v19(_save_data, legacy_v18);
-                campaign_init_npc_collections(_save_data);
-                sanitize_loaded_deck_names();
-                return true;
-            }
+        if(save_data_valid_v18(legacy_v18))
+        {
+            save_data_migrate_v18_to_v19(save_blob(), legacy_v18);
+            campaign_init_npc_collections(save_blob());
+            sanitize_loaded_deck_names();
+            return true;
         }
 
-        {
-            SaveDataV17 legacy_v17;
-            bn::sram::read(legacy_v17);
+        SaveDataV17& legacy_v17 = legacy_sram_view<SaveDataV17>();
+        bn::sram::read(legacy_v17);
 
-            if(save_data_valid_v17(legacy_v17))
-            {
-                save_data_migrate_v17_to_v18(_save_data, legacy_v17);
-                sanitize_loaded_deck_names();
-                return true;
-            }
+        if(save_data_valid_v17(legacy_v17))
+        {
+            save_data_migrate_v17_to_v18(save_blob(), legacy_v17);
+            sanitize_loaded_deck_names();
+            return true;
         }
 
-        {
-            SaveDataV16 legacy_v16;
-            bn::sram::read(legacy_v16);
+        SaveDataV16& legacy_v16 = legacy_sram_view<SaveDataV16>();
+        bn::sram::read(legacy_v16);
 
-            if(save_data_valid_v16(legacy_v16))
-            {
-                save_data_migrate_v16_to_v17(_save_data, legacy_v16);
-                sanitize_loaded_deck_names();
-                return true;
-            }
+        if(save_data_valid_v16(legacy_v16))
+        {
+            save_data_migrate_v16_to_v17(save_blob(), legacy_v16);
+            sanitize_loaded_deck_names();
+            return true;
         }
 
-        {
-            SaveDataV15 legacy_v15;
-            bn::sram::read(legacy_v15);
+        SaveDataV15& legacy_v15 = legacy_sram_view<SaveDataV15>();
+        bn::sram::read(legacy_v15);
 
-            if(save_data_valid_v15(legacy_v15))
-            {
-                save_data_migrate_v15_to_v16(_save_data, legacy_v15);
-                sanitize_loaded_deck_names();
-                return true;
-            }
+        if(save_data_valid_v15(legacy_v15))
+        {
+            save_data_migrate_v15_to_v16(save_blob(), legacy_v15);
+            sanitize_loaded_deck_names();
+            return true;
         }
 
-        {
-            SaveDataV14 legacy_v14;
-            bn::sram::read(legacy_v14);
+        SaveDataV14& legacy_v14 = legacy_sram_view<SaveDataV14>();
+        bn::sram::read(legacy_v14);
 
-            if(save_data_valid_v14(legacy_v14))
-            {
-                save_data_migrate_v14_to_v15(_save_data, legacy_v14);
-                sanitize_loaded_deck_names();
-                return true;
-            }
+        if(save_data_valid_v14(legacy_v14))
+        {
+            save_data_migrate_v14_to_v15(save_blob(), legacy_v14);
+            sanitize_loaded_deck_names();
+            return true;
         }
 
-        {
-            SaveDataV13 legacy_v13;
-            bn::sram::read(legacy_v13);
+        SaveDataV13& legacy_v13 = legacy_sram_view<SaveDataV13>();
+        bn::sram::read(legacy_v13);
 
-            if(save_data_valid_v13(legacy_v13))
-            {
-                save_data_migrate_v13_to_v14(_save_data, legacy_v13);
-                sanitize_loaded_deck_names();
-                return true;
-            }
+        if(save_data_valid_v13(legacy_v13))
+        {
+            save_data_migrate_v13_to_v14(save_blob(), legacy_v13);
+            sanitize_loaded_deck_names();
+            return true;
         }
 
-        {
-            SaveDataV12 legacy_v12;
-            bn::sram::read(legacy_v12);
+        SaveDataV12& legacy_v12 = legacy_sram_view<SaveDataV12>();
+        bn::sram::read(legacy_v12);
 
-            if(save_data_valid_v12(legacy_v12))
-            {
-                save_data_migrate_v12_to_v13(_save_data, legacy_v12);
-                sanitize_loaded_deck_names();
-                return true;
-            }
+        if(save_data_valid_v12(legacy_v12))
+        {
+            save_data_migrate_v12_to_v13(save_blob(), legacy_v12);
+            sanitize_loaded_deck_names();
+            return true;
         }
 
         return false;
@@ -2686,9 +2691,9 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
 
 void save_data_init()
 {
-    bn::sram::read(_save_data);
+    bn::sram::read(save_blob());
 
-    if(save_data_valid(_save_data))
+    if(save_data_valid(save_blob()))
     {
         sanitize_loaded_deck_names();
     }
@@ -2697,12 +2702,12 @@ void save_data_init()
         save_data_reset();
     }
 
-    save_data_validate(_save_data);
+    save_data_validate(save_blob());
 
-    if(!save_data_valid(_save_data))
+    if(!save_data_valid(save_blob()))
     {
         save_data_reset();
-        save_data_validate(_save_data);
+        save_data_validate(save_blob());
     }
 
     save_data_write();
@@ -2710,24 +2715,24 @@ void save_data_init()
 
 SaveData& save_data_mut()
 {
-    return _save_data;
+    return save_blob();
 }
 
 const SaveData& save_data_get()
 {
-    return _save_data;
+    return save_blob();
 }
 
 void save_data_write()
 {
-    save_data_validate(_save_data);
+    save_data_validate(save_blob());
 
-    for(int deck_index = 0; deck_index < _save_data.deck_count; ++deck_index)
+    for(int deck_index = 0; deck_index < save_blob().deck_count; ++deck_index)
     {
-        saved_deck_sanitize_name(_save_data.decks[deck_index]);
+        saved_deck_sanitize_name(save_blob().decks[deck_index]);
     }
 
-    bn::sram::write(_save_data);
+    bn::sram::write(save_blob());
 }
 
 SavedDeck saved_deck_make_new()

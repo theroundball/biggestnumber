@@ -35,7 +35,7 @@ MenuSceneResult run_campaign_starter_pick_scene(CardType& out_utility)
     };
 
     const PrizeRowResult pick =
-        run_prize_row_scene("Pick a card", offers, 3, "A pick  Select info");
+        run_prize_row_scene("Choose your card", offers, 3, "A pick  Select info");
 
     if(!pick.picked)
     {
@@ -197,7 +197,7 @@ CampaignPlayMenuResult run_campaign_play_menu_scene(bn::seed_random& rng)
 
 MenuSceneResult run_campaign_battle_results_scene(CampaignMode mode, const GameSceneResult& result,
                                                   bool won, int same_number_target, bool& out_to_prize,
-                                                  bool granted_sticker_paper)
+                                                  bool granted_sticker_paper, bool overworld_session)
 {
     wait_for_keypad_clear();
 
@@ -260,7 +260,8 @@ MenuSceneResult run_campaign_battle_results_scene(CampaignMode mode, const GameS
             label_generator.generate(0, -12, poker_line, sprites);
         }
 
-        const char* action = won ? "Pick a prize" : "Menu";
+        const char* action = overworld_session ? "Continue"
+                                               : (won ? "Pick a prize" : "Menu");
         {
             const int half = label_generator.width(action) / 2;
             content_half_width = content_half_width > half ? content_half_width : half;
@@ -673,6 +674,9 @@ MenuSceneResult run_mode_intro_scene(CampaignMode mode, const CampaignUiContext&
 
     bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
     SceneText scene_text(text_generator);
+    scene_text.set_z_order(game_layout::OVERLAY_TEXT_Z);
+    scene_text.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
+    battle_backdrop_set_visible(true);
 
     while(true)
     {

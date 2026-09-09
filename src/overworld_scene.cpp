@@ -719,15 +719,6 @@ namespace
 
 OverworldSceneResult run_overworld_scene()
 {
-    static bool boot_services_ready = false;
-
-    if(!boot_services_ready)
-    {
-        save_data_init();
-        battle_backdrop_init();
-        boot_services_ready = true;
-    }
-
     while(bn::keypad::any_held())
     {
         battle_backdrop_tick();
@@ -808,7 +799,11 @@ OverworldSceneResult run_overworld_scene()
                     campaign_run_overworld_battle(
                         battle_rng, def.mode, npc_index,
                         dialogue_result == NpcDialogueResult::BATTLE_LOANER);
+                    battle_backdrop_set_visible(true);
+                    bn::backdrop::set_color(bn::color(12, 18, 12));
                     restore_overworld_characters(player, npcs);
+                    camera = update_camera(player);
+                    draw_overworld_frame(player, npcs, camera);
                     wait_for_keypad_clear();
                     break;
                 }

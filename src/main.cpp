@@ -25,8 +25,11 @@ namespace
 int main()
 {
     bn::core::init();
+    save_data_init();
+    battle_backdrop_init();
 
     bn::seed_random rng(make_random_seed());
+    campaign_run_boot_setup(rng);
 
     while(true)
     {

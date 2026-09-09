@@ -1,13 +1,20 @@
 #include "campaign_flow.h"
 
+#include "bn_core.h"
+#include "bn_keypad.h"
+
+#include "battle_backdrop.h"
 #include "campaign.h"
 #include "campaign_scenes.h"
 #include "campaign_types.h"
 #include "card_instance.h"
+#include "common_variable_8x16_sprite_font.h"
 #include "game_scene.h"
+#include "game_types.h"
 #include "menu_scenes.h"
 #include "overworld_drops.h"
 #include "save_data.h"
+#include "ui_common.h"
 
 namespace
 {
@@ -34,6 +41,8 @@ namespace
 
     bool campaign_ensure_starter_setup(bn::seed_random& rng)
     {
+        (void)rng;
+
         if(!campaign_needs_starter_setup(save_data_get()))
         {
             return true;
@@ -47,6 +56,36 @@ namespace
         }
 
         return campaign_create_starter_deck(save_data_mut(), utility);
+    }
+
+    void campaign_show_message_scene(const bn::string_view& line0, const bn::string_view& line1 = "")
+    {
+        wait_for_keypad_clear();
+
+        bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
+        SceneText scene_text(text_generator);
+        scene_text.set_z_order(game_layout::OVERLAY_TEXT_Z);
+        scene_text.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
+        battle_backdrop_set_visible(true);
+
+        while(true)
+        {
+            scene_text.clear();
+            scene_text.draw_centered_line(-20, line0);
+
+            if(!line1.empty())
+            {
+                scene_text.draw_centered_line(-4, line1);
+            }
+
+            if(bn::keypad::a_pressed() || bn::keypad::b_pressed())
+            {
+                return;
+            }
+
+            battle_backdrop_tick();
+            bn::core::update();
+        }
     }
 
     void run_campaign_battle(CampaignMode mode, bn::seed_random& rng, bool overworld_drops, int npc_index,
@@ -111,6 +150,12 @@ namespace
             campaign_flatten_saved_deck(save, battle_deck_state, battle_deck);
         }
 
+        if(battle_deck.empty())
+        {
+            campaign_show_message_scene("Deck has no cards", "Build a deck first");
+            return;
+        }
+
         BattleLaunch launch;
         launch.deck_index = save.active_deck_index;
         launch.score_to_beat = setup.peak_before;
@@ -150,6 +195,10 @@ namespace
 
         if(overworld_drops)
         {
+            bool continue_to_overworld = false;
+            run_campaign_battle_results_scene(mode, game, won, setup.same_number_target, continue_to_overworld,
+                                              false, true);
+
             const bool counts_for_progress =
                 won && !(loaner_battle ? false : saved_deck_unrestricted_build(battle_deck_state));
 
@@ -161,6 +210,7 @@ namespace
             const int band_score =
                 mode == CampaignMode::NUMBER_NOW ? game.last_round_score : game.final_score;
             overworld_drops_queue_from_battle(mode, won, setup.peak_before, band_score, rng, npc_index);
+            battle_backdrop_set_visible(true);
             return;
         }
 
@@ -183,6 +233,26 @@ namespace
         if(save.total_wins > 0 && save.total_wins % 10 == 0)
         {
             run_campaign_trinket_prize_scene(rng);
+        }
+    }
+}
+
+void campaign_run_boot_setup(bn::seed_random& rng)
+{
+    (void)rng;
+
+    while(campaign_needs_starter_setup(save_data_get()))
+    {
+        CardType utility = CardType::TOPPINGS;
+
+        if(run_campaign_starter_pick_scene(utility) == MenuSceneResult::MAIN_MENU)
+        {
+            continue;
+        }
+
+        if(campaign_create_starter_deck(save_data_mut(), utility))
+        {
+            break;
         }
     }
 }
