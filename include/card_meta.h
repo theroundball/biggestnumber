@@ -9,6 +9,7 @@
 #include "card_type.h"
 
 struct SaveData;
+struct GameState;
 
 enum class CardRarity : uint8_t
 {
@@ -28,6 +29,8 @@ const CardMeta& card_meta(CardType type);
 
 // Combo pieces (RPS, PB&J, Straw/Sticks/Bricks) — never offered again once owned.
 bool card_is_combo_piece(CardType type);
+
+int count_combo_pieces_in_graveyard(const GameState& state);
 
 bool palindrome_prize_eligible(const SaveData& save);
 

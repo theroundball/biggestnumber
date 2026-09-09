@@ -335,14 +335,19 @@ void PersistentHud::HudModLine::append_segment_at(int x, const bn::string_view& 
         return;
     }
 
-    bn::vector<bn::sprite_ptr, 8> segment;
+    bn::vector<bn::sprite_ptr, 16> segment;
     _text_generator.set_left_alignment();
-    _text_generator.generate(x, _y, text, segment);
+    _text_generator.generate_optional(x, _y, text, segment);
 
     const bn::sprite_affine_mat_ptr& scale_mat = mod_text_affine_mat(scale);
 
     for(bn::sprite_ptr& sprite : segment)
     {
+        if(_sprites.full())
+        {
+            break;
+        }
+
         sprite.set_z_order(HUD_TEXT_Z_ORDER);
         sprite.set_visible(_visible);
         sprite.set_affine_mat(scale_mat);

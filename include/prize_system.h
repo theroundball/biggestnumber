@@ -12,6 +12,9 @@ void prize_slot_rarities(CampaignMode mode, int peak_before, int band_score,
 
 CardType prize_combo_next(const SaveData& save);
 
+// Testing prize pool: resets the "show each card once before repeating" cycle.
+void prize_testing_cycle_reset();
+
 bool prize_build_offers(const SaveData& save, CampaignMode mode, int peak_before, int band_score,
                          bn::seed_random& rng,
                          PrizeOffer out_offers[CAMPAIGN_PRIZE_SLOT_COUNT]);

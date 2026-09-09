@@ -5,27 +5,66 @@
 
 int effective_immediate_plus(const CardInstance& instance)
 {
-    const int base = card_data(instance.base).immediate_plus;
-
-    if(instance.plus_digit == 0)
-    {
-        return base;
-    }
-
-    // Concatenate digit to the right: +3 + digit 7 → +37.
-    return base * 10 + instance.plus_digit;
+    return card_data(instance.base).immediate_plus + instance.plus_digit * 10;
 }
 
 int effective_immediate_multiply(const CardInstance& instance)
 {
     const int base = card_data(instance.base).immediate_multiply;
 
-    if(base != 0)
+    if(base <= 1)
     {
-        return base;
+        return 0;
     }
 
-    return instance.increment_mult ? 2 : 0;
+    return base + instance.increment_mult;
+}
+
+bool card_is_multiplier(CardType type)
+{
+    if(card_base_play_multiplier(type) > 1)
+    {
+        return true;
+    }
+
+    return false;
+}
+
+int card_base_play_multiplier(CardType type)
+{
+    const int immediate = card_data(type).immediate_multiply;
+
+    if(immediate > 1)
+    {
+        return immediate;
+    }
+
+    switch(type)
+    {
+    case CardType::CLOVER:
+        return 3;
+
+    case CardType::BIG_KUROSAWA_BURGER:
+        return 4;
+
+    case CardType::OVERCLOCK:
+        return 2;
+
+    default:
+        return 0;
+    }
+}
+
+int instance_play_multiplier(const CardInstance& instance)
+{
+    const int base = card_base_play_multiplier(instance.base);
+
+    if(base <= 1)
+    {
+        return 0;
+    }
+
+    return base + instance.increment_mult;
 }
 
 void instance_pool_clamp(InstancePool& pool)
@@ -85,9 +124,10 @@ void format_instance_upgrade_suffix(const CardInstance& instance, bn::string<32>
         out.append(bn::to_string<8>(effective_immediate_plus(instance)));
     }
 
-    if(instance.increment_mult)
+    if(instance.increment_mult != 0)
     {
-        out.append(" x2");
+        out.append(" x");
+        out.append(bn::to_string<8>(instance_play_multiplier(instance)));
     }
 
     if(instance.gravity == Gravity::LEAD)
@@ -109,7 +149,7 @@ void format_instance_upgrade_pips(const CardInstance& instance, bn::string<8>& o
         out.append("+");
     }
 
-    if(instance.increment_mult)
+    if(instance.increment_mult != 0)
     {
         out.append("x");
     }
@@ -126,24 +166,18 @@ void format_instance_upgrade_pips(const CardInstance& instance, bn::string<8>& o
 
 bool instance_has_upgrades(const CardInstance& instance)
 {
-    return instance.plus_digit != 0 || instance.increment_mult ||
+    return instance.plus_digit != 0 || instance.increment_mult != 0 ||
            instance.gravity != Gravity::NONE;
 }
 
 bool instance_can_plus_digit(const CardInstance& instance)
 {
-    return !instance.has_plus_upgrade;
+    return card_data(instance.base).immediate_plus > 0;
 }
 
 bool instance_can_increment_mult(const CardInstance& instance)
 {
-    if(instance.has_mult_upgrade)
-    {
-        return false;
-    }
-
-    // Only if the base card has no multiply of its own.
-    return card_data(instance.base).immediate_multiply == 0;
+    return card_is_multiplier(instance.base);
 }
 
 bool instance_can_gravity(const CardInstance& instance)
@@ -151,14 +185,14 @@ bool instance_can_gravity(const CardInstance& instance)
     return !instance.has_gravity_upgrade;
 }
 
-bool instance_apply_plus_digit(CardInstance& instance, uint8_t digit_1_to_9)
+bool instance_apply_plus_digit(CardInstance& instance)
 {
-    if(!instance_can_plus_digit(instance) || digit_1_to_9 < 1 || digit_1_to_9 > 9)
+    if(!instance_can_plus_digit(instance))
     {
         return false;
     }
 
-    instance.plus_digit = digit_1_to_9;
+    ++instance.plus_digit;
     instance.has_plus_upgrade = true;
     return true;
 }
@@ -170,7 +204,7 @@ bool instance_apply_increment_mult(CardInstance& instance)
         return false;
     }
 
-    instance.increment_mult = true;
+    ++instance.increment_mult;
     instance.has_mult_upgrade = true;
     return true;
 }

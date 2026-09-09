@@ -8,6 +8,7 @@
 #include "card_data.h"
 #include "card.h"
 #include "card_instance.h"
+#include "card_meta.h"
 #include "combo_system.h"
 #include "game_events.h"
 #include "game_ui.h"
@@ -350,6 +351,9 @@ bool waterfall_would_make_bigger(const GameState& state, CardRef card)
     case CardType::LIFELINE:
         return count_lifeline_pickable_graveyard(state) > 0;
 
+    case CardType::MAKE_IT_A_COMBO:
+        return count_combo_pieces_in_graveyard(state) > 0;
+
     case CardType::MIRACLE:
         return true;
 
@@ -626,9 +630,25 @@ namespace
             return state.cards_played_this_round + 1;
 
         case CardType::CLOVER:
+            if(card.has_instance())
+            {
+                if(const CardInstance* instance = instance_at(state.instance_pool, card.instance_id))
+                {
+                    return instance_play_multiplier(*instance);
+                }
+            }
+
             return 3;
 
         case CardType::BIG_KUROSAWA_BURGER:
+            if(card.has_instance())
+            {
+                if(const CardInstance* instance = instance_at(state.instance_pool, card.instance_id))
+                {
+                    return instance_play_multiplier(*instance);
+                }
+            }
+
             return 4;
 
         case CardType::TIME_IS_MONEY:
@@ -1084,6 +1104,17 @@ void format_card_face_stat(const GameState* state, CardRef ref, const CardInstan
 
     case CardType::GET_ME_OUTA_HERE:
         push_plus_stat(out, 9);
+        break;
+
+    case CardType::MAKE_IT_A_COMBO:
+        {
+            const int draw_count = count_combo_pieces_in_graveyard(*state);
+
+            if(draw_count > 0)
+            {
+                push_stat_segment(out, bn::to_string<4>(draw_count), CardStatColor::DEFAULT);
+            }
+        }
         break;
 
     default:

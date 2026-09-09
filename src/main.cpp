@@ -3,8 +3,7 @@
 
 #include "battle_backdrop.h"
 #include "campaign_flow.h"
-#include "campaign_scenes.h"
-#include "menu_scenes.h"
+#include "overworld_scene.h"
 #include "save_data.h"
 
 namespace
@@ -26,32 +25,16 @@ namespace
 int main()
 {
     bn::core::init();
-    save_data_init();
-    battle_backdrop_init();
 
     bn::seed_random rng(make_random_seed());
 
     while(true)
     {
-        switch(run_main_menu_scene())
+        switch(run_overworld_scene())
         {
-        case MenuSceneResult::DECK_LIST_BUILD:
-        {
-            run_deck_list_build_scene();
+        case OverworldSceneResult::OPEN_PLAY_MENU:
+            campaign_run_overworld_play_flow(rng);
             break;
-        }
-
-        case MenuSceneResult::DECK_LIST_PLAY:
-        {
-            campaign_run_play_flow(rng);
-            break;
-        }
-
-        case MenuSceneResult::CAMPAIGN_SHOP:
-        {
-            run_campaign_shop_scene(rng);
-            break;
-        }
 
         default:
             break;

@@ -281,6 +281,57 @@ namespace
         return &ctx.text_sprites[slot.sprite_index];
     }
 
+    const bn::sprite_palette_ptr& score_marker_palette(bn::color color)
+    {
+        struct CachedPalette
+        {
+            bn::color color;
+            bn::optional<bn::sprite_palette_ptr> palette;
+        };
+
+        static bn::array<CachedPalette, 4> cache = {};
+
+        for(CachedPalette& entry : cache)
+        {
+            if(entry.palette.has_value() && entry.color == color)
+            {
+                return *entry.palette;
+            }
+        }
+
+        for(CachedPalette& entry : cache)
+        {
+            if(!entry.palette.has_value())
+            {
+                const bn::array<bn::color, 16> colors = {
+                    bn::color(), color, bn::color(), bn::color(),
+                    bn::color(), bn::color(), bn::color(), bn::color(),
+                    bn::color(), bn::color(), bn::color(), bn::color(),
+                    bn::color(), bn::color(), bn::color(), bn::color(),
+                };
+                const bn::sprite_palette_item palette_item(
+                    bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4);
+                entry.color = color;
+                entry.palette = bn::sprite_palette_ptr::create(palette_item);
+                return *entry.palette;
+            }
+        }
+
+        CachedPalette& entry = cache[0];
+        entry.color = color;
+        entry.palette.reset();
+        const bn::array<bn::color, 16> colors = {
+            bn::color(), color, bn::color(), bn::color(),
+            bn::color(), bn::color(), bn::color(), bn::color(),
+            bn::color(), bn::color(), bn::color(), bn::color(),
+            bn::color(), bn::color(), bn::color(), bn::color(),
+        };
+        const bn::sprite_palette_item palette_item(
+            bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4);
+        entry.palette = bn::sprite_palette_ptr::create(palette_item);
+        return *entry.palette;
+    }
+
     bn::sprite_ptr create_score_marker(int x, int y, bn::color color)
     {
         bn::sprite_tiles_ptr tiles = bn::sprite_tiles_ptr::allocate(1, bn::bpp_mode::BPP_4);
@@ -297,15 +348,7 @@ namespace
             }
         }
 
-        const bn::array<bn::color, 16> colors = {
-            bn::color(), color, bn::color(), bn::color(),
-            bn::color(), bn::color(), bn::color(), bn::color(),
-            bn::color(), bn::color(), bn::color(), bn::color(),
-            bn::color(), bn::color(), bn::color(), bn::color(),
-        };
-        const bn::sprite_palette_item palette_item(
-            bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4);
-        const bn::sprite_palette_ptr palette = bn::sprite_palette_ptr::create(palette_item);
+        const bn::sprite_palette_ptr& palette = score_marker_palette(color);
         bn::sprite_ptr marker =
             bn::sprite_ptr::create(x, y, bn::sprite_shape_size(8, 8), tiles, palette);
         marker.set_z_order(-32767);

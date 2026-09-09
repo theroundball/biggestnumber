@@ -63,7 +63,7 @@ private:
     bn::optional<int> _bg_priority;
 };
 
-// Orange-brown panel behind modal / menu text (procedural 8x8 tiles).
+// Orange-brown panel behind modal / menu text (packed GBA sprite sizes, not 8x8 fill).
 class TextBoxPanel
 {
 public:
@@ -76,7 +76,7 @@ public:
                            int padding_x = 8, int padding_y = 6);
 
 private:
-    bn::vector<bn::sprite_ptr, 64> _sprites;
+    bn::vector<bn::sprite_ptr, 96> _sprites;
     bn::optional<int> _z_order;
     bn::optional<int> _bg_priority;
 };
@@ -89,6 +89,8 @@ public:
     void set_position(int y);
     void set_position(int x, int y);
     void set_visible(bool visible);
+    void set_z_order(int z);
+    void set_bg_priority(int priority);
 
 private:
     int _anchor_x;

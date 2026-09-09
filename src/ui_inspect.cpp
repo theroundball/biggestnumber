@@ -13,7 +13,7 @@ namespace
         case PrizeOfferKind::UPGRADE_PLUS_DIGIT:
             return "+Digit upgrade";
         case PrizeOfferKind::UPGRADE_INCREMENT_MULT:
-            return "x2 upgrade";
+            return "+Mult upgrade";
         case PrizeOfferKind::UPGRADE_LEAD:
             return "Lead upgrade";
         case PrizeOfferKind::UPGRADE_YEAST:
@@ -28,9 +28,9 @@ namespace
         switch(kind)
         {
         case PrizeOfferKind::UPGRADE_PLUS_DIGIT:
-            return "Pick a card. A random digit 1-9 is concatenated onto its +N.";
+            return "Pick a card with +N. Its value increases by 10.";
         case PrizeOfferKind::UPGRADE_INCREMENT_MULT:
-            return "Pick a card with no built-in multiply. It gains x2 on play.";
+            return "Pick a multiplier card. Its multiplier increases by 1.";
         case PrizeOfferKind::UPGRADE_LEAD:
             return "Pick a card. It gains Lead gravity in your deck.";
         case PrizeOfferKind::UPGRADE_YEAST:

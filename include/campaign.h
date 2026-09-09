@@ -48,10 +48,6 @@ bool campaign_apply_prize_trinket(SaveData& save, TrinketType type);
 
 int campaign_number_now_round_count(int deck_size);
 
-void campaign_set_ephemeral_battle_deck(const SavedDeck& deck);
-bool campaign_take_ephemeral_battle_deck(const SaveData& save, SavedDeck& out_deck);
-void campaign_clear_ephemeral_battle_deck();
-
 bool campaign_apply_sell_collection(SaveData& save, CardType nostalgia_card, CardType utility_pick);
 
 int campaign_library_total_cards(const SaveData& save);

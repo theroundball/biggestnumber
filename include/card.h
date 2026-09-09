@@ -53,6 +53,7 @@ public:
     void set_inspect_visual(bn::fixed scale);
     void clear_visual();
     void set_draw_on_top(bool on_top);
+    void set_depth_z_order(int z_order);
 
     // Corner pips for run upgrades (+ / x / L / Y). Pass nullptr to clear.
     void set_upgrade_pips(bn::sprite_text_generator* generator, const CardInstance* instance);
@@ -111,5 +112,8 @@ private:
 // Shared placeholder graphics so idle display slots drop unique card tile refs.
 constexpr CardType CARD_DISPLAY_PLACEHOLDER = CardType::SIPS;
 void release_card_display_tiles(Card& card);
+// Drop cached rarity-border palettes that are not held by live sprites (call after
+// releasing idle card display pools each frame).
+void clear_card_border_palette_cache();
 
 #endif

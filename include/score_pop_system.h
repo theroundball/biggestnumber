@@ -29,9 +29,9 @@ enum class ScorePopMotion : uint8_t
 
 struct ScorePop
 {
-    bn::vector<bn::sprite_ptr, 8> sprites;
-    bn::vector<bn::fixed, 8> glyph_offset_x;
-    bn::vector<bn::fixed, 8> glyph_offset_y;
+    bn::vector<bn::sprite_ptr, 12> sprites;
+    bn::vector<bn::fixed, 12> glyph_offset_x;
+    bn::vector<bn::fixed, 12> glyph_offset_y;
     bn::optional<bn::sprite_affine_mat_ptr> affine_mat;
     int frame = 0;
     ScorePopMotion motion = ScorePopMotion::FLOAT_RISE;

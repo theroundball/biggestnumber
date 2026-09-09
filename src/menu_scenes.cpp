@@ -136,12 +136,17 @@ MenuSceneResult run_main_menu_scene()
             return MenuSceneResult::DECK_LIST_PLAY;
         }
 
+        if(bn::keypad::b_pressed())
+        {
+            return MenuSceneResult::RETURN_OVERWORLD;
+        }
+
         battle_backdrop_tick();
         bn::core::update();
     }
 }
 
-DeckListResult run_deck_list_build_scene()
+DeckListResult run_deck_list_build_scene(bool overworld_session)
 {
     wait_for_keypad_clear();
 
@@ -250,27 +255,27 @@ DeckListResult run_deck_list_build_scene()
                 }
 
                 dismiss_scene_ui(scene_text, selector);
-                run_deck_editor_scene(-1, false);
+                run_deck_editor_scene(-1, false, overworld_session);
                 return result;
             }
 
             if(show_debug_deck_row && cursor == 1)
             {
                 dismiss_scene_ui(scene_text, selector);
-                run_deck_editor_scene(-1, true);
+                run_deck_editor_scene(-1, true, overworld_session);
                 return result;
             }
 
             dismiss_scene_ui(scene_text, selector);
             campaign_set_active_deck(save_data_mut(), cursor - header_row_count);
             save_data_write();
-            run_deck_editor_scene(cursor - header_row_count, false);
+            run_deck_editor_scene(cursor - header_row_count, false, overworld_session);
             return result;
         }
 
         if(bn::keypad::b_pressed())
         {
-            result.next = MenuSceneResult::MAIN_MENU;
+            result.next = overworld_session ? MenuSceneResult::RETURN_OVERWORLD : MenuSceneResult::MAIN_MENU;
             return result;
         }
 

@@ -47,21 +47,21 @@ namespace
 
         for(uint8_t id = 0; id < save.instance_pool.count; ++id)
         {
-            const CardInstance& entry = save.instance_pool.entries[id];
+            const CardInstance* entry = instance_at(save.instance_pool, id);
 
-            if(entry.base != type)
+            if(!entry || entry->base != type)
             {
                 continue;
             }
 
-            if(instance_has_upgrades(entry))
+            if(instance_has_upgrades(*entry))
             {
-                return &entry;
+                return entry;
             }
 
             if(!fallback)
             {
-                fallback = &entry;
+                fallback = entry;
             }
         }
 
@@ -441,6 +441,11 @@ namespace
             if(saved_deck_unrestricted_build(working) ||
                library_total_owned(save, type) > 0 || working.counts[type_index] > 0)
             {
+                if(slot_count >= int(CardType::COUNT))
+                {
+                    break;
+                }
+
                 slot_types[slot_count] = type_index;
                 ++slot_count;
             }
@@ -508,7 +513,7 @@ namespace
     }
 }
 
-DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck, bool ephemeral_session)
+DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck, bool overworld_session)
 {
     wait_for_keypad_clear();
 
@@ -529,6 +534,11 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck, b
     {
         working = saved_deck_make_new();
     }
+
+    instance_pool_clamp(save.instance_pool);
+    saved_deck_scrub_counts(save, working);
+    saved_deck_trim_to_max(working, DECK_MAX_CARDS);
+    saved_deck_sanitize_name(working);
 
     bn::sprite_text_generator title_generator(common::variable_8x16_sprite_font);
     bn::sprite_text_generator body_generator(common::variable_8x8_sprite_font);
@@ -815,8 +825,7 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck, b
             {
                 if(panel_side < 0)
                 {
-                    scene_text.draw_centered_line(actions_offset_x, ACTIONS_ITEM_Y,
-                                                  ephemeral_session ? "Start" : "Save");
+                    scene_text.draw_centered_line(actions_offset_x, ACTIONS_ITEM_Y, "Save");
                     scene_text.draw_centered_line(actions_offset_x, ACTIONS_ITEM_Y + ACTIONS_LINE_HEIGHT,
                                                   trinket_slot_label(0, working));
                     scene_text.draw_centered_line(actions_offset_x,
@@ -878,7 +887,7 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck, b
                 {
                     saved_deck_try_add_card(save, deck_index, working, selected);
                 }
-                else if(bn::keypad::b_pressed())
+                else if(bn::keypad::b_pressed() && !overworld_session)
                 {
                     saved_deck_try_remove_card(working, selected);
                 }
@@ -911,19 +920,7 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck, b
             {
                 if(actions_cursor == 0)
                 {
-                    if(ephemeral_session)
-                    {
-                        if(saved_deck_total_cards(working) >= DECK_MIN_CARDS)
-                        {
-                            campaign_set_ephemeral_battle_deck(working);
-                            result.ephemeral_confirmed = true;
-                            result.next = MenuSceneResult::STAY;
-                            return result;
-                        }
-
-                        save_notice = "Need 1+ cards";
-                    }
-                    else if(try_save_working_deck(working, save, deck_index))
+                    if(try_save_working_deck(working, save, deck_index))
                     {
                         result.next = MenuSceneResult::MAIN_MENU;
                         return result;
@@ -984,10 +981,16 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck, b
             }
         }
 
+        if(overworld_session && bn::keypad::b_pressed() && !inspecting && !panel_open_or_opening)
+        {
+            result.next = MenuSceneResult::RETURN_OVERWORLD;
+            return result;
+        }
+
         // Start leaves without saving (B is used for removing copies).
         if(bn::keypad::start_pressed() && ! inspecting && ! panel_open_or_opening)
         {
-            result.next = MenuSceneResult::MAIN_MENU;
+            result.next = overworld_session ? MenuSceneResult::RETURN_OVERWORLD : MenuSceneResult::MAIN_MENU;
             return result;
         }
 

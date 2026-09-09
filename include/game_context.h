@@ -236,6 +236,7 @@ public:
     bn::string<48> _cached_round_score_text;
     int _cached_total_score = 0;
     int _cached_total_score_view_offset = 0;
+    bool _cached_total_victory_green = false;
     int total_score_view_offset = 0;
     int round_score_view_offset = 0;
 

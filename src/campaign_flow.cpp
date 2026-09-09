@@ -6,6 +6,7 @@
 #include "card_instance.h"
 #include "game_scene.h"
 #include "menu_scenes.h"
+#include "overworld_drops.h"
 #include "save_data.h"
 
 namespace
@@ -31,7 +32,24 @@ namespace
         launch.campaign_ui.y2k_record = save.y2k_record;
     }
 
-    void run_campaign_battle(CampaignMode mode, bn::seed_random& rng)
+    bool campaign_ensure_starter_setup(bn::seed_random& rng)
+    {
+        if(!campaign_needs_starter_setup(save_data_get()))
+        {
+            return true;
+        }
+
+        CardType utility = CardType::JACKS;
+
+        if(run_campaign_starter_pick_scene(utility) == MenuSceneResult::MAIN_MENU)
+        {
+            return false;
+        }
+
+        return campaign_create_starter_deck(save_data_mut(), utility);
+    }
+
+    void run_campaign_battle(CampaignMode mode, bn::seed_random& rng, bool overworld_drops)
     {
         SaveData& save = save_data_mut();
 
@@ -65,17 +83,6 @@ namespace
 
         SavedDeck battle_deck_state = save.decks[save.active_deck_index];
 
-        if(run_campaign_battle_deck_scene() != MenuSceneResult::STAY)
-        {
-            campaign_clear_ephemeral_battle_deck();
-            return;
-        }
-
-        if(!campaign_take_ephemeral_battle_deck(save, battle_deck_state))
-        {
-            return;
-        }
-
         bn::vector<CardRef, 50> battle_deck;
         campaign_flatten_saved_deck(save, battle_deck_state, battle_deck);
 
@@ -99,20 +106,34 @@ namespace
 
         if(game.exited_early)
         {
-            campaign_clear_ephemeral_battle_deck();
             return;
         }
 
-        campaign_grant_sticker_paper(save, 1);
+        if(!overworld_drops)
+        {
+            campaign_grant_sticker_paper(save, 1);
+        }
 
         const bool won =
             campaign_evaluate_win(save, mode, game, setup.peak_before, setup.same_number_target,
                                   setup.number_now_round_peak, setup.number_now_scoring_round);
 
         bool to_prize = false;
-        run_campaign_battle_results_scene(mode, game, won, setup.same_number_target, to_prize, true);
+        run_campaign_battle_results_scene(mode, game, won, setup.same_number_target, to_prize,
+                                          !overworld_drops);
 
-        campaign_clear_ephemeral_battle_deck();
+        if(overworld_drops)
+        {
+            if(won && !saved_deck_unrestricted_build(battle_deck_state))
+            {
+                campaign_apply_win(save, mode, game, setup.number_now_scoring_round, rng);
+            }
+
+            const int band_score =
+                mode == CampaignMode::NUMBER_NOW ? game.last_round_score : game.final_score;
+            overworld_drops_queue_from_battle(mode, won, setup.peak_before, band_score, rng);
+            return;
+        }
 
         if(!won || !to_prize)
         {
@@ -139,19 +160,9 @@ namespace
 
 void campaign_run_play_flow(bn::seed_random& rng)
 {
-    if(campaign_needs_starter_setup(save_data_get()))
+    if(!campaign_ensure_starter_setup(rng))
     {
-        CardType utility = CardType::JACKS;
-
-        if(run_campaign_starter_pick_scene(utility) == MenuSceneResult::MAIN_MENU)
-        {
-            return;
-        }
-
-        if(!campaign_create_starter_deck(save_data_mut(), utility))
-        {
-            return;
-        }
+        return;
     }
 
     while(true)
@@ -171,7 +182,43 @@ void campaign_run_play_flow(bn::seed_random& rng)
 
         if(menu.next == MenuSceneResult::RUN_GAME && menu.mode != CampaignMode::NONE)
         {
-            run_campaign_battle(menu.mode, rng);
+            run_campaign_battle(menu.mode, rng, false);
         }
     }
+}
+
+void campaign_run_overworld_play_flow(bn::seed_random& rng)
+{
+    if(!campaign_ensure_starter_setup(rng))
+    {
+        return;
+    }
+
+    const CampaignPlayMenuResult menu = run_campaign_play_menu_scene(rng);
+
+    if(menu.next == MenuSceneResult::MAIN_MENU)
+    {
+        return;
+    }
+
+    if(menu.next == MenuSceneResult::DECK_LIST_BUILD)
+    {
+        run_deck_list_build_scene();
+        return;
+    }
+
+    if(menu.next == MenuSceneResult::RUN_GAME && menu.mode != CampaignMode::NONE)
+    {
+        run_campaign_battle(menu.mode, rng, true);
+    }
+}
+
+void campaign_run_overworld_battle(bn::seed_random& rng, CampaignMode mode)
+{
+    if(!campaign_ensure_starter_setup(rng) || mode == CampaignMode::NONE)
+    {
+        return;
+    }
+
+    run_campaign_battle(mode, rng, true);
 }

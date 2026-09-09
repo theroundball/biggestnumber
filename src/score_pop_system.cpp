@@ -32,9 +32,9 @@ namespace
     constexpr int FLIGHT_TARGET_OFFSET_X = 18;
     constexpr int FLIGHT_TARGET_OFFSET_Y = -8;
 
-    bn::string<8> format_score_pop(const ScorePopRequest& request)
+    bn::string<12> format_score_pop(const ScorePopRequest& request)
     {
-        bn::string<8> text;
+        bn::string<12> text;
 
         if(request.is_multiply)
         {
@@ -45,7 +45,7 @@ namespace
             text = "+";
         }
 
-        text.append(bn::to_string<6>(request.amount));
+        text.append(bn::to_string<11>(request.amount));
         return text;
     }
 

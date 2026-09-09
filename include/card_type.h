@@ -80,6 +80,7 @@ enum class CardType
     FINALE,
     TIME_IS_MONEY,
     SEVEN_FEET_DEEP,
+    MAKE_IT_A_COMBO,
     COUNT
 };
 

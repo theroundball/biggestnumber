@@ -127,37 +127,6 @@ int campaign_number_now_round_count(int deck_size)
     return (deck_size - 1) / 5 + 1;
 }
 
-namespace
-{
-    SavedDeck ephemeral_battle_deck;
-    bool ephemeral_battle_deck_ready = false;
-}
-
-void campaign_set_ephemeral_battle_deck(const SavedDeck& deck)
-{
-    ephemeral_battle_deck = deck;
-    ephemeral_battle_deck_ready = true;
-}
-
-bool campaign_take_ephemeral_battle_deck(const SaveData& save, SavedDeck& out_deck)
-{
-    (void)save;
-
-    if(!ephemeral_battle_deck_ready)
-    {
-        return false;
-    }
-
-    out_deck = ephemeral_battle_deck;
-    ephemeral_battle_deck_ready = false;
-    return true;
-}
-
-void campaign_clear_ephemeral_battle_deck()
-{
-    ephemeral_battle_deck_ready = false;
-}
-
 CampaignBattleSetup campaign_battle_setup(const SaveData& save, CampaignMode mode, bn::seed_random& rng)
 {
     CampaignBattleSetup setup;
@@ -409,16 +378,20 @@ void campaign_flatten_saved_deck(const SaveData& save, const SavedDeck& deck, bn
 
             for(uint8_t id = 0; id < save.instance_pool.count; ++id)
             {
-                if(save.instance_pool.entries[id].base == type)
-                {
-                    if(seen == copy)
-                    {
-                        instance_id = id;
-                        break;
-                    }
+                const CardInstance* entry = instance_at(save.instance_pool, id);
 
-                    ++seen;
+                if(!entry || entry->base != type)
+                {
+                    continue;
                 }
+
+                if(seen == copy)
+                {
+                    instance_id = id;
+                    break;
+                }
+
+                ++seen;
             }
 
             if(out.full())
@@ -457,6 +430,8 @@ bool campaign_apply_prize_card(SaveData& save, CardType type)
 bool campaign_apply_prize_upgrade(SaveData& save, PrizeOfferKind kind, uint8_t instance_id,
                                   bn::seed_random& rng)
 {
+    (void)rng;
+
     CardInstance* instance = instance_at_mut(save.instance_pool, instance_id);
 
     if(!instance)
@@ -470,8 +445,7 @@ bool campaign_apply_prize_upgrade(SaveData& save, PrizeOfferKind kind, uint8_t i
     {
     case PrizeOfferKind::UPGRADE_PLUS_DIGIT:
     {
-        const uint8_t digit = static_cast<uint8_t>(1 + rng.get_int(9));
-        applied = instance_apply_plus_digit(*instance, digit);
+        applied = instance_apply_plus_digit(*instance);
         break;
     }
 

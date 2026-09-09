@@ -1007,6 +1007,22 @@ void GameContext::render_frame()
         }
 
         hide_hand_display();
+        clear_card_border_palette_cache();
+
+        if(card_selection_ui_active())
+        {
+            if(!text_sprites.empty())
+            {
+                text_sprites.clear();
+                last_main_sprite_offset = 0;
+            }
+
+            if(!round_text_sprites.empty())
+            {
+                round_text_sprites.clear();
+                last_round_sprite_offset = 0;
+            }
+        }
 
         if (mode == GameMode::COMBO)
         {

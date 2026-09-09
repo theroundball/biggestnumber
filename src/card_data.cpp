@@ -1,6 +1,8 @@
 #include "card_data.h"
 
 #include "card.h"
+#include "card_instance.h"
+#include "card_meta.h"
 #include "game_events.h"
 #include "game_helpers.h"
 #include "game_state.h"
@@ -142,6 +144,16 @@ namespace
         queue_effect_draw(state, 3, true);
     }
 
+    void effect_make_it_a_combo(GameState& state)
+    {
+        const int draw_count = count_combo_pieces_in_graveyard(state);
+
+        if(draw_count > 0)
+        {
+            queue_effect_draw(state, draw_count, true);
+        }
+    }
+
     void effect_scry_three(GameState& state)
     {
         const int count = state.deck.remaining() < 3 ? state.deck.remaining() : 3;
@@ -178,6 +190,25 @@ namespace
         state.pending_actions.push_back(action);
     }
 
+    int play_effect_mult_bonus(const GameState& state)
+    {
+        const CardRef& card = state.play_effect_card;
+
+        if(!card.has_instance())
+        {
+            return 0;
+        }
+
+        const CardInstance* instance = instance_at(state.instance_pool, card.instance_id);
+
+        if(!instance)
+        {
+            return 0;
+        }
+
+        return instance->increment_mult;
+    }
+
     void effect_clover(GameState& state)
     {
         if(state.graveyard.size() < 3)
@@ -188,6 +219,7 @@ namespace
         PendingAction action;
         action.type = PendingActionType::EXILE_FROM_GRAVEYARD_THEN_MULTIPLY;
         action.count = 3;
+        action.multiply_factor = 3 + play_effect_mult_bonus(state);
         state.pending_actions.push_back(action);
     }
 
@@ -201,7 +233,7 @@ namespace
 
         PendingAction action;
         action.type = PendingActionType::DISCARD_FROM_HAND_THEN_MULTIPLY;
-        action.count = 4;
+        action.count = 4 + play_effect_mult_bonus(state);
         state.pending_actions.push_back(action);
     }
 
@@ -600,7 +632,7 @@ namespace
 
     void effect_overclock_play(GameState& state)
     {
-        state.mul_from_card(2);
+        state.mul_from_card(2 + play_effect_mult_bonus(state));
 
         if(state.hand.size() <= 1)
         {
@@ -842,12 +874,22 @@ const CardData& card_data(CardType type)
                   RoundModifier{0, 0, 0, 2},
                   RoundModifier{0, 0, 0, 7},
                   nullptr, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
+        make_card("Make It a Combo",
+                  "Draw cards equal to the number of combo cards in your graveyard.",
+                  0, 0, {}, {}, {}, effect_make_it_a_combo, nullptr, false, false, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
     };
 
     static_assert(sizeof(table) / sizeof(table[0]) == int(CardType::COUNT),
                   "card_data table is out of sync with the CardType enum");
 
-    return table[int(type)];
+    const int index = int(type);
+
+    if(index < 0 || index >= int(CardType::COUNT))
+    {
+        return table[0];
+    }
+
+    return table[index];
 }
 
 int count_unique_graveyard_types(const GameState& state)

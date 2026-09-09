@@ -499,7 +499,9 @@ void GameContext::handle_input_normal(int current_direction, bool direction_trig
     }
     else if(!game_over && !lock_for_scroll && !inspecting &&
             side_panel == SidePanel::NONE && !panel_transition_active() && live_selected &&
-            !swapping_card && bn::keypad::down_pressed())
+            !swapping_card &&
+            (bn::keypad::down_pressed() ||
+             (bn::keypad::b_pressed() && !bn::keypad::left_held() && !bn::keypad::right_held())))
     {
         if(removing_card && !play_can_overlap())
         {

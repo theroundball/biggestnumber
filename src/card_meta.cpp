@@ -1,5 +1,6 @@
 #include "card_meta.h"
 
+#include "game_state.h"
 #include "save_data.h"
 
 namespace
@@ -127,6 +128,7 @@ namespace
         {CardRarity::RARE, 1},     // FINALE
         {CardRarity::COMMON, 5},   // TIME_IS_MONEY
         {CardRarity::UNCOMMON, 3}, // SEVEN_FEET_DEEP
+        {CardRarity::UNCOMMON, 3}, // MAKE_IT_A_COMBO
     };
 
     static_assert(sizeof(META_TABLE) / sizeof(META_TABLE[0]) == int(CardType::COUNT),
@@ -135,7 +137,14 @@ namespace
 
 const CardMeta& card_meta(CardType type)
 {
-    return META_TABLE[int(type)];
+    const int index = int(type);
+
+    if(index < 0 || index >= int(CardType::COUNT))
+    {
+        return META_TABLE[0];
+    }
+
+    return META_TABLE[index];
 }
 
 bool card_is_combo_piece(CardType type)
@@ -155,6 +164,21 @@ bool card_is_combo_piece(CardType type)
     default:
         return false;
     }
+}
+
+int count_combo_pieces_in_graveyard(const GameState& state)
+{
+    int count = 0;
+
+    for(const CardRef& card : state.graveyard)
+    {
+        if(card_is_combo_piece(card.type))
+        {
+            ++count;
+        }
+    }
+
+    return count;
 }
 
 bool palindrome_prize_eligible(const SaveData& save)
@@ -211,7 +235,7 @@ namespace
     }
 
     bool collect_eligible(const bn::vector<CardType, 50>& run_deck, CardRarity rarity,
-                          bn::vector<CardType, 64>& out)
+                          bn::vector<CardType, int(CardType::COUNT)>& out)
     {
         out.clear();
 
@@ -239,7 +263,7 @@ namespace
     CardType pick_for_slot(const bn::vector<CardType, 50>& run_deck, CardRarity slot_rarity,
                            bn::seed_random& rng, const CardType already[3], int already_count)
     {
-        bn::vector<CardType, 64> pool;
+        bn::vector<CardType, int(CardType::COUNT)> pool;
 
         for(int step = 0; step < 3; ++step)
         {
@@ -255,7 +279,7 @@ namespace
                 continue;
             }
 
-            bn::vector<CardType, 64> unique_pool;
+            bn::vector<CardType, int(CardType::COUNT)> unique_pool;
 
             for(int index = 0; index < pool.size(); ++index)
             {
@@ -276,7 +300,8 @@ namespace
                 }
             }
 
-            const bn::vector<CardType, 64>& pick_from = unique_pool.empty() ? pool : unique_pool;
+            const bn::vector<CardType, int(CardType::COUNT)>& pick_from =
+                unique_pool.empty() ? pool : unique_pool;
             return pick_from[rng.get_int(pick_from.size())];
         }
 

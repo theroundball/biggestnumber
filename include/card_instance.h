@@ -20,8 +20,8 @@ struct CardInstance
 {
     CardType base = CardType::COUNT;
     Gravity gravity = Gravity::NONE;
-    uint8_t plus_digit = 0;      // 0 = none; 1–9 concatenated onto base +N
-    bool increment_mult = false; // ×2 on play when base has no immediate_multiply
+    uint8_t plus_digit = 0;      // count of +10 upgrades applied to base +N
+    uint8_t increment_mult = 0;  // +1 play multiplier per upgrade on multiplier cards
     bool has_plus_upgrade = false;
     bool has_mult_upgrade = false;
     bool has_gravity_upgrade = false;
@@ -58,6 +58,15 @@ constexpr uint8_t NO_INSTANCE = 255;
 int effective_immediate_plus(const CardInstance& instance);
 int effective_immediate_multiply(const CardInstance& instance);
 
+// True when the card's play effect includes a round-score multiplier.
+bool card_is_multiplier(CardType type);
+
+// Base play multiplier before instance upgrades (0 if not a multiplier card).
+int card_base_play_multiplier(CardType type);
+
+// Base play multiplier plus instance upgrade bonus.
+int instance_play_multiplier(const CardInstance& instance);
+
 void instance_pool_clamp(InstancePool& pool);
 
 const CardInstance* instance_at(const InstancePool& pool, uint8_t id);
@@ -80,7 +89,7 @@ bool instance_can_plus_digit(const CardInstance& instance);
 bool instance_can_increment_mult(const CardInstance& instance);
 bool instance_can_gravity(const CardInstance& instance);
 
-bool instance_apply_plus_digit(CardInstance& instance, uint8_t digit_1_to_9);
+bool instance_apply_plus_digit(CardInstance& instance);
 bool instance_apply_increment_mult(CardInstance& instance);
 bool instance_apply_gravity(CardInstance& instance, Gravity gravity);
 

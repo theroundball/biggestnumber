@@ -79,7 +79,7 @@ namespace
 
     void queue_miracle_auto_play(GameState& state)
     {
-        if(state.hand.empty())
+        if(state.hand.empty() || state.pending_actions.full())
         {
             return;
         }

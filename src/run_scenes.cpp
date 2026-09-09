@@ -395,7 +395,7 @@ namespace
         return instance_apply_gravity(*instance, gravity);
     }
 
-    bool apply_plus_digit_at(RunState& run, int deck_index, bn::seed_random& rng)
+    bool apply_plus_digit_at(RunState& run, int deck_index)
     {
         const CardRef ref = run_deck_ref(run, deck_index);
         CardInstance* instance = instance_at_mut(run.pool, ref.instance_id);
@@ -405,8 +405,7 @@ namespace
             return false;
         }
 
-        const uint8_t digit = static_cast<uint8_t>(1 + rng.get_int(9));
-        return instance_apply_plus_digit(*instance, digit);
+        return instance_apply_plus_digit(*instance);
     }
 
     bool apply_increment_mult_at(RunState& run, int deck_index)
@@ -741,12 +740,14 @@ MenuSceneResult run_drop_pick_scene(RunState& run, int peak_before, int battle_s
 
 MenuSceneResult run_upgrade_node_scene(RunState& run, bn::seed_random& rng)
 {
+    (void)rng;
+
     wait_for_keypad_clear();
 
     constexpr const char* ITEMS[] = {
         "Remove a card",
         "+Digit",
-        "x2",
+        "+Mult",
         "Lead",
         "Yeast",
     };
@@ -836,7 +837,7 @@ MenuSceneResult run_upgrade_node_scene(RunState& run, bn::seed_random& rng)
 
                 if(picked >= 0)
                 {
-                    applied = apply_plus_digit_at(run, picked, rng);
+                    applied = apply_plus_digit_at(run, picked);
                 }
 
                 break;
@@ -844,7 +845,7 @@ MenuSceneResult run_upgrade_node_scene(RunState& run, bn::seed_random& rng)
 
             case 2:
             {
-                const int picked = pick_run_deck_card(run, "x2", "A upgrade  Select info",
+                const int picked = pick_run_deck_card(run, "+Mult", "A upgrade  Select info",
                                                       eligible_increment_mult);
 
                 if(picked >= 0)

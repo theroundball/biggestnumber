@@ -418,8 +418,8 @@ void trinket_render_fx(GameContext& ctx)
     fx.rendered_roll = fx.displayed_roll;
     ctx.trinket_fx_sprites.clear();
     ctx.round_text_generator.set_center_alignment();
-    ctx.round_text_generator.generate(anchor_x, anchor_y, bn::to_string<8>(fx.displayed_roll),
-                                      ctx.trinket_fx_sprites);
+    ctx.round_text_generator.generate_optional(anchor_x, anchor_y, bn::to_string<8>(fx.displayed_roll),
+                                               ctx.trinket_fx_sprites);
     ctx.round_text_generator.set_left_alignment();
 }
 

@@ -685,25 +685,6 @@ MenuSceneResult run_mode_intro_scene(CampaignMode mode, const CampaignUiContext&
     }
 }
 
-MenuSceneResult run_campaign_battle_deck_scene()
-{
-    const SaveData& save = save_data_get();
-
-    if(save.active_deck_index < 0 || save.active_deck_index >= save.deck_count)
-    {
-        return MenuSceneResult::MAIN_MENU;
-    }
-
-    const DeckEditorResult edit = run_deck_editor_scene(save.active_deck_index, false, true);
-
-    if(edit.next == MenuSceneResult::MAIN_MENU || !edit.ephemeral_confirmed)
-    {
-        return MenuSceneResult::MAIN_MENU;
-    }
-
-    return MenuSceneResult::STAY;
-}
-
 MenuSceneResult run_campaign_shop_scene(bn::seed_random& rng)
 {
     wait_for_keypad_clear();

@@ -222,7 +222,7 @@ namespace
         return PendingStartResult::ENTERED_MODE;
     }
 
-    // Clover — exile exactly N, then ×N. Mode: GRAVEYARD_TARGET.
+    // Clover — exile exactly N, then ×factor. Mode: GRAVEYARD_TARGET.
     PendingStartResult start_exile_from_graveyard_then_multiply(GameContext& ctx, const PendingAction& action)
     {
         if(ctx.state.graveyard.size() < action.count)
@@ -230,7 +230,8 @@ namespace
             return PendingStartResult::FIZZLE;
         }
 
-        begin_graveyard_target(ctx, action, action.count, action.count);
+        const int multiply = action.multiply_factor > 0 ? action.multiply_factor : action.count;
+        begin_graveyard_target(ctx, action, action.count, multiply);
         return PendingStartResult::ENTERED_MODE;
     }
 
@@ -839,6 +840,8 @@ namespace
                 }
 
                 ctx.sync_hand_selection();
+                ctx.draw_total_score();
+                ctx.draw_round_score();
                 return;
             }
         }
@@ -858,6 +861,8 @@ namespace
         }
 
         ctx.sync_hand_selection();
+        ctx.draw_total_score();
+        ctx.draw_round_score();
     }
 }
 

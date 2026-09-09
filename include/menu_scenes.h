@@ -7,6 +7,7 @@ enum class MenuSceneResult
 {
     STAY,
     MAIN_MENU,
+    RETURN_OVERWORLD,
     DECK_LIST_BUILD,
     DECK_LIST_PLAY,
     RUN_GAME,
@@ -23,12 +24,11 @@ struct DeckListResult
 struct DeckEditorResult
 {
     MenuSceneResult next = MenuSceneResult::STAY;
-    bool ephemeral_confirmed = false;
 };
 
 MenuSceneResult run_main_menu_scene();
-DeckListResult run_deck_list_build_scene();
+DeckListResult run_deck_list_build_scene(bool overworld_session = false);
 DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck = false,
-                                       bool ephemeral_session = false);
+                                       bool overworld_session = false);
 
 #endif

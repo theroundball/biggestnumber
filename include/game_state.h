@@ -129,6 +129,7 @@ struct PendingAction
 {
     PendingActionType type;
     int count = 1;
+    int multiply_factor = 0; // when > 0, graveyard exile uses this instead of count for multiply
     int hand_index = -1;
     CardType graveyard_exclude = CardType::COUNT;
 };
@@ -184,7 +185,7 @@ struct GameState
     bn::vector<CardRef, 50> graveyard;
     bn::vector<CardRef, 50> exile;
 
-    bn::vector<PendingAction, 8> pending_actions;
+    bn::vector<PendingAction, 24> pending_actions;
     SelectionSession selection;
     PendingCombo pending_combo;
     ComboCinematicState combo_cinematic;

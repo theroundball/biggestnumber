@@ -82,6 +82,36 @@ namespace
         return best_distance <= MAX_ORANGE_DISTANCE ? best_index : -1;
     }
 
+    bn::optional<bn::sprite_palette_ptr> g_card_border_palettes[int(CardType::COUNT)];
+
+    const bn::sprite_palette_ptr& card_border_palette_for(CardType type, int border_index,
+                                                          bn::span<const bn::color> source_colors)
+    {
+        const int type_index = int(type);
+
+        if(type_index >= 0 && type_index < int(CardType::COUNT) &&
+           g_card_border_palettes[type_index].has_value())
+        {
+            return g_card_border_palettes[type_index].value();
+        }
+
+        bn::array<bn::color, 16> colors;
+
+        for(int index = 0; index < 16; ++index)
+        {
+            colors[index] = index < source_colors.size() ? source_colors[index] : bn::color();
+        }
+
+        colors[border_index] = border_color_for(card_meta(type).rarity);
+
+        const bn::sprite_palette_item item(
+            bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4,
+            bn::compression_type::NONE);
+        g_card_border_palettes[type_index] = bn::sprite_palette_ptr::create(item);
+
+        return g_card_border_palettes[type_index].value();
+    }
+
     void apply_rarity_border_palette(bn::sprite_ptr& body,
                                      bn::sprite_ptr& accent_top,
                                      bn::sprite_ptr& accent_bottom,
@@ -98,15 +128,15 @@ namespace
         const int border_index = find_border_palette_index(
             bn::span<const bn::color>(colors.data(), colors.size()));
 
-        if(border_index > 0)
+        if(border_index <= 0)
         {
-            colors[border_index] = border_color_for(card_meta(type).rarity);
+            const bn::sprite_palette_ptr& palette = body.palette();
+            accent_top.set_palette(palette);
+            accent_bottom.set_palette(palette);
+            return;
         }
 
-        const bn::sprite_palette_item item(
-            bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4,
-            bn::compression_type::NONE);
-        const bn::sprite_palette_ptr palette = bn::sprite_palette_ptr::create(item);
+        const bn::sprite_palette_ptr& palette = card_border_palette_for(type, border_index, source);
 
         body.set_palette(palette);
         accent_top.set_palette(palette);
@@ -427,7 +457,7 @@ namespace
 
             const int before = output_sprites.size();
             generator.set_left_alignment();
-            generator.generate(cursor_x, center_y, segment.text, output_sprites);
+            generator.generate_optional(cursor_x, center_y, segment.text, output_sprites);
             generator.set_center_alignment();
 
             const int added = output_sprites.size() - before;
@@ -444,6 +474,14 @@ namespace
             {
                 cursor_x += generator.font().space_between_characters();
             }
+        }
+    }
+
+    void reset_card_border_palette_cache()
+    {
+        for(bn::optional<bn::sprite_palette_ptr>& palette : g_card_border_palettes)
+        {
+            palette.reset();
         }
     }
 }
@@ -1086,6 +1124,42 @@ void Card::set_draw_on_top(bool on_top)
     apply_draw_layering();
 }
 
+void Card::set_depth_z_order(int z_order)
+{
+    constexpr int bg_priority = 1;
+
+    _body.set_z_order(z_order);
+    _body.set_bg_priority(bg_priority);
+    _accent_top.set_z_order(z_order);
+    _accent_top.set_bg_priority(bg_priority);
+    _accent_bottom.set_z_order(z_order);
+    _accent_bottom.set_bg_priority(bg_priority);
+
+    for(bn::sprite_ptr& sprite : _upgrade_pips)
+    {
+        sprite.set_z_order(z_order - 1);
+        sprite.set_bg_priority(bg_priority);
+    }
+
+    for(bn::sprite_ptr& sprite : _amount_overlay)
+    {
+        sprite.set_z_order(z_order - 1);
+        sprite.set_bg_priority(bg_priority);
+    }
+
+    for(bn::sprite_ptr& sprite : _face_name_sprites)
+    {
+        sprite.set_z_order(z_order + 1);
+        sprite.set_bg_priority(bg_priority);
+    }
+
+    for(bn::sprite_ptr& sprite : _face_stat_sprites)
+    {
+        sprite.set_z_order(z_order + 1);
+        sprite.set_bg_priority(bg_priority);
+    }
+}
+
 void Card::set_visual(bn::fixed scale, bn::fixed rotation_degrees)
 {
     if(scale == 1 && rotation_degrees == 0)
@@ -1249,4 +1323,9 @@ void release_card_display_tiles(Card& card)
     card.set_blending_enabled(false);
     card.set_draw_on_top(false);
     card.set_type(CARD_DISPLAY_PLACEHOLDER);
+}
+
+void clear_card_border_palette_cache()
+{
+    reset_card_border_palette_cache();
 }

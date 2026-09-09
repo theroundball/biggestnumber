@@ -127,6 +127,39 @@ namespace
 
     constexpr bn::color SCORE_VICTORY_GREEN(6, 28, 10);
 
+    const bn::sprite_palette_ptr& victory_green_palette(const bn::sprite_ptr& sample)
+    {
+        static bn::optional<bn::sprite_palette_ptr> palette;
+
+        if(!palette.has_value())
+        {
+            bn::array<bn::color, 16> green_colors;
+            const bn::span<const bn::color> source = sample.palette().colors();
+
+            for(int index = 0; index < 16; ++index)
+            {
+                green_colors[index] = index < source.size() ? source[index] : bn::color();
+            }
+
+            for(int index = 1; index < 16; ++index)
+            {
+                const bn::color& color = green_colors[index];
+
+                if(color.red() + color.green() + color.blue() > 24)
+                {
+                    green_colors[index] = SCORE_VICTORY_GREEN;
+                }
+            }
+
+            const bn::sprite_palette_item item(
+                bn::span<const bn::color>(green_colors.data(), green_colors.size()), bn::bpp_mode::BPP_4,
+                bn::compression_type::NONE);
+            palette = bn::sprite_palette_ptr::create(item);
+        }
+
+        return *palette;
+    }
+
     void apply_victory_green_tint(bn::span<bn::sprite_ptr> sprites)
     {
         if(sprites.empty())
@@ -134,28 +167,7 @@ namespace
             return;
         }
 
-        bn::span<const bn::color> source = sprites[0].palette().colors();
-        bn::array<bn::color, 16> green_colors;
-
-        for(int index = 0; index < 16; ++index)
-        {
-            green_colors[index] = index < source.size() ? source[index] : bn::color();
-        }
-
-        for(int index = 1; index < 16; ++index)
-        {
-            const bn::color& color = green_colors[index];
-
-            if(color.red() + color.green() + color.blue() > 24)
-            {
-                green_colors[index] = SCORE_VICTORY_GREEN;
-            }
-        }
-
-        const bn::sprite_palette_item item(
-            bn::span<const bn::color>(green_colors.data(), green_colors.size()), bn::bpp_mode::BPP_4,
-            bn::compression_type::NONE);
-        const bn::sprite_palette_ptr green_palette = bn::sprite_palette_ptr::create(item);
+        const bn::sprite_palette_ptr& green_palette = victory_green_palette(sprites[0]);
 
         for(bn::sprite_ptr& sprite : sprites)
         {
@@ -175,6 +187,16 @@ namespace
         display_score.running = running;
         display_score.end_multiplier = end_multiplier;
         return ctx.state.total_score + display_score.committed() > ctx.score_to_beat;
+    }
+
+    bool total_score_shows_victory_green(const GameContext& ctx, int displayed_total)
+    {
+        if(displayed_total > ctx.score_to_beat)
+        {
+            return true;
+        }
+
+        return round_would_beat_goal(ctx, ctx.state.round.running, ctx.state.round.end_multiplier);
     }
 
     void apply_bones_gy_entry(GameState& state)
@@ -447,9 +469,11 @@ void GameContext::draw_total_score()
     }
 
     const int new_total = state.total_score;
+    const bool victory_green = total_score_shows_victory_green(*this, new_total);
     const bool changed = _total_score_initialized && new_total != _cached_total_score;
+    const bool green_changed = _total_score_initialized && victory_green != _cached_total_victory_green;
 
-    if(_total_score_initialized && !changed)
+    if(_total_score_initialized && !changed && !green_changed)
     {
         return;
     }
@@ -473,24 +497,28 @@ void GameContext::show_total_score_value(int value)
     const bn::string<12> full_text = bn::to_string<12>(value);
     const bn::string<16> display_text = format_score_window<16>(
         full_text, game_layout::TOTAL_SCORE_VISIBLE_CHARS, total_score_view_offset, digit_edit);
+    const bool victory_green = total_score_shows_victory_green(*this, value);
 
     if(_total_score_initialized && value == _cached_total_score && !text_sprites.empty() &&
-       (!digit_edit || total_score_view_offset == _cached_total_score_view_offset))
+       (!digit_edit || total_score_view_offset == _cached_total_score_view_offset) &&
+       victory_green == _cached_total_victory_green)
     {
         return;
     }
 
     _cached_total_score = value;
     _cached_total_score_view_offset = total_score_view_offset;
+    _cached_total_victory_green = victory_green;
     _total_score_initialized = true;
     text_sprites.clear();
     last_main_sprite_offset = 0;
     text_generator.set_center_alignment();
-    text_generator.generate(0, -48, display_text, text_sprites);
+    text_generator.generate_optional(0, -48, display_text, text_sprites);
     text_generator.set_left_alignment();
 
-    // Green when this run/fight has beaten the score-to-beat baseline.
-    if(value > score_to_beat && !text_sprites.empty())
+    // Green when this run/fight has beaten the score-to-beat baseline, or the
+    // current round would push the total past it (keep in sync with round score).
+    if(victory_green && !text_sprites.empty())
     {
         apply_victory_green_tint(bn::span<bn::sprite_ptr>(text_sprites.data(), text_sprites.size()));
     }
@@ -846,7 +874,7 @@ void GameContext::show_round_score_running(int running, int end_multiplier)
         round_text_sprites.clear();
         last_round_sprite_offset = 0;
         round_text_generator.set_center_alignment();
-        round_text_generator.generate(0, 0, builder_text, round_text_sprites);
+        round_text_generator.generate_optional(0, 0, builder_text, round_text_sprites);
         round_text_generator.set_left_alignment();
         sync_score_progress_bar();
         return;
@@ -877,7 +905,7 @@ void GameContext::show_round_score_running(int running, int end_multiplier)
     round_text_sprites.clear();
     last_round_sprite_offset = 0;
     round_text_generator.set_center_alignment();
-    round_text_generator.generate(0, 0, display_text, round_text_sprites);
+    round_text_generator.generate_optional(0, 0, display_text, round_text_sprites);
     round_text_generator.set_left_alignment();
 
     if(end_multiplier != 1)
@@ -897,6 +925,7 @@ void GameContext::show_round_score_running(int running, int end_multiplier)
             bn::span<bn::sprite_ptr>(round_text_sprites.data(), round_text_sprites.size()));
     }
 
+    draw_total_score();
     sync_score_progress_bar();
 }
 
@@ -3034,6 +3063,17 @@ void GameContext::finish_deferred_round_start()
     }
 
     if(campaign_ui.mode == CampaignMode::AINT_GOT_TIME && state.current_round >= 3)
+    {
+        deferred_round_start_pending = false;
+        keep_going_transfer_active = false;
+        keep_going_transfers_remaining = 0;
+        request_run_end();
+        return;
+    }
+
+    // Keep-going / Dead Rising already moved GY cards back. If the deck is still
+    // empty, do not start a phantom next round (Fibonacci / round-start pops).
+    if(should_end_run())
     {
         deferred_round_start_pending = false;
         keep_going_transfer_active = false;

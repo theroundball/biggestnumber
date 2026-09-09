@@ -13,7 +13,7 @@
 #include "trinket_type.h"
 
 constexpr int SAVE_DATA_MAGIC = 0x424E554D; // 'BNUM'
-constexpr int SAVE_DATA_VERSION = 18;
+constexpr int SAVE_DATA_VERSION = 19;
 constexpr int MAX_SAVED_DECKS = 6;
 constexpr int LIBRARY_COPY_LIMIT = 5;
 constexpr int DECK_MIN_CARDS = 1;
@@ -81,6 +81,7 @@ bool saved_deck_unrestricted_build(const SavedDeck& deck);
 bool save_data_has_unrestricted_deck(const SaveData& save);
 int save_data_unrestricted_deck_index(const SaveData& save);
 void saved_deck_sanitize_name(SavedDeck& deck);
+void saved_deck_scrub_counts(const SaveData& save, SavedDeck& deck);
 bool saved_deck_name_in_use(const SaveData& save, const bn::string_view& name, int ignore_deck_index = -1);
 void saved_deck_assign_unique_name(SavedDeck& deck, const SaveData& save, int ignore_deck_index = -1);
 bn::string<16> saved_deck_display_name(const SavedDeck& deck);

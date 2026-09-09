@@ -203,49 +203,48 @@ void GameState::evaluate_apply_future_modifiers(bool clear_after)
 
 void GameState::queue_evaluate_ghost_steps()
 {
+    auto queue_step = [this](int ui_slot, int component) -> bool
+    {
+        if(pending_actions.full())
+        {
+            return false;
+        }
+
+        PendingAction action;
+        action.type = PendingActionType::EVALUATE_GHOST_STEP;
+        action.count = ui_slot;
+        action.hand_index = component;
+        pending_actions.push_back(action);
+        return true;
+    };
+
     for(int ui_slot = 0; ui_slot < 3; ++ui_slot)
     {
         const int slot_index = (next_mod_index + ui_slot) % 3;
         const RoundModifier& mod = future_mods[slot_index];
 
-        if(mod.positive)
+        if(mod.positive && !queue_step(ui_slot, 0))
         {
-            PendingAction action;
-            action.type = PendingActionType::EVALUATE_GHOST_STEP;
-            action.count = ui_slot;
-            action.hand_index = 0;
-            pending_actions.push_back(action);
+            return;
         }
 
-        if(mod.multiply)
+        if(mod.multiply && !queue_step(ui_slot, 1))
         {
-            PendingAction action;
-            action.type = PendingActionType::EVALUATE_GHOST_STEP;
-            action.count = ui_slot;
-            action.hand_index = 1;
-            pending_actions.push_back(action);
+            return;
         }
 
-        if(mod.draw_at_start)
+        if(mod.draw_at_start && !queue_step(ui_slot, 2))
         {
-            PendingAction action;
-            action.type = PendingActionType::EVALUATE_GHOST_STEP;
-            action.count = ui_slot;
-            action.hand_index = 2;
-            pending_actions.push_back(action);
+            return;
         }
 
-        PendingAction clear_row;
-        clear_row.type = PendingActionType::EVALUATE_GHOST_STEP;
-        clear_row.count = ui_slot;
-        clear_row.hand_index = 3;
-        pending_actions.push_back(clear_row);
+        if(!queue_step(ui_slot, 3))
+        {
+            return;
+        }
     }
 
-    PendingAction finish;
-    finish.type = PendingActionType::EVALUATE_GHOST_STEP;
-    finish.hand_index = 4;
-    pending_actions.push_back(finish);
+    queue_step(0, 4);
 }
 
 void GameState::build_a_number_activate()

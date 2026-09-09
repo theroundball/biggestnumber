@@ -1,0 +1,735 @@
+{
+  "version": 1,
+  "card_w": 40,
+  "card_h": 64,
+  "scale": 1,
+  "columns": 10,
+  "rows": 8,
+  "gutter": 1,
+  "label_h": 0,
+  "chroma": "#ff00ff",
+  "cards": [
+    {
+      "index": 0,
+      "enum": "SIPS",
+      "name": "Sips",
+      "slug": "sips",
+      "sprite_slug": "sips",
+      "col": 0,
+      "row": 0,
+      "had_art": true
+    },
+    {
+      "index": 1,
+      "enum": "LONGBOARD",
+      "name": "Longboard",
+      "slug": "longboard",
+      "sprite_slug": "longboard",
+      "col": 1,
+      "row": 0,
+      "had_art": true
+    },
+    {
+      "index": 2,
+      "enum": "HEELYS",
+      "name": "Heelys",
+      "slug": "heelys",
+      "sprite_slug": "heelys",
+      "col": 2,
+      "row": 0,
+      "had_art": true
+    },
+    {
+      "index": 3,
+      "enum": "SCOOTER",
+      "name": "Scooter",
+      "slug": "scooter",
+      "sprite_slug": "scooter",
+      "col": 3,
+      "row": 0,
+      "had_art": true
+    },
+    {
+      "index": 4,
+      "enum": "SKATEBOARD",
+      "name": "Skateboard",
+      "slug": "skateboard",
+      "sprite_slug": "skateboard",
+      "col": 4,
+      "row": 0,
+      "had_art": true
+    },
+    {
+      "index": 5,
+      "enum": "ROLLER_BLADES",
+      "name": "Roller Blades",
+      "slug": "rollerblades",
+      "sprite_slug": "rollerblades",
+      "col": 5,
+      "row": 0,
+      "had_art": true
+    },
+    {
+      "index": 6,
+      "enum": "WAGON",
+      "name": "Wagon",
+      "slug": "wagon",
+      "sprite_slug": "wagon",
+      "col": 6,
+      "row": 0,
+      "had_art": true
+    },
+    {
+      "index": 7,
+      "enum": "STOLLER",
+      "name": "Stoller",
+      "slug": "stoller",
+      "sprite_slug": "stoller",
+      "col": 7,
+      "row": 0,
+      "had_art": true
+    },
+    {
+      "index": 8,
+      "enum": "RIP_STICK",
+      "name": "Rip Stick",
+      "slug": "ripstik",
+      "sprite_slug": "ripstik",
+      "col": 8,
+      "row": 0,
+      "had_art": true
+    },
+    {
+      "index": 9,
+      "enum": "BIKE",
+      "name": "Bike",
+      "slug": "bike",
+      "sprite_slug": "bike",
+      "col": 9,
+      "row": 0,
+      "had_art": true
+    },
+    {
+      "index": 10,
+      "enum": "CLOVER",
+      "name": "Clover",
+      "slug": "clover",
+      "sprite_slug": "clover",
+      "col": 0,
+      "row": 1,
+      "had_art": true
+    },
+    {
+      "index": 11,
+      "enum": "BIG_KUROSAWA_BURGER",
+      "name": "Big Kurosawa Burger",
+      "slug": "bigkurosawaburger",
+      "sprite_slug": "bigkurosawaburger",
+      "col": 1,
+      "row": 1,
+      "had_art": true
+    },
+    {
+      "index": 12,
+      "enum": "ROCK",
+      "name": "Rock",
+      "slug": "rock",
+      "sprite_slug": "rock",
+      "col": 2,
+      "row": 1,
+      "had_art": true
+    },
+    {
+      "index": 13,
+      "enum": "PAPER",
+      "name": "Paper",
+      "slug": "paper",
+      "sprite_slug": "paper",
+      "col": 3,
+      "row": 1,
+      "had_art": true
+    },
+    {
+      "index": 14,
+      "enum": "SCISSORS",
+      "name": "Scissors",
+      "slug": "scissors",
+      "sprite_slug": "scissors",
+      "col": 4,
+      "row": 1,
+      "had_art": true
+    },
+    {
+      "index": 15,
+      "enum": "SHOOT",
+      "name": "Shoot",
+      "slug": "shoot",
+      "sprite_slug": "shoot",
+      "col": 5,
+      "row": 1,
+      "had_art": true
+    },
+    {
+      "index": 16,
+      "enum": "PEANUT_BUTTER",
+      "name": "Peanut Butter",
+      "slug": "peanut_butter",
+      "sprite_slug": "peanut_butter",
+      "col": 6,
+      "row": 1,
+      "had_art": true
+    },
+    {
+      "index": 17,
+      "enum": "JELLY",
+      "name": "Jelly",
+      "slug": "jelly",
+      "sprite_slug": "jelly",
+      "col": 7,
+      "row": 1,
+      "had_art": true
+    },
+    {
+      "index": 18,
+      "enum": "STRAW",
+      "name": "Straw",
+      "slug": "straw",
+      "sprite_slug": "straw",
+      "col": 8,
+      "row": 1,
+      "had_art": true
+    },
+    {
+      "index": 19,
+      "enum": "STICKS",
+      "name": "Sticks",
+      "slug": "sticks",
+      "sprite_slug": "sticks",
+      "col": 9,
+      "row": 1,
+      "had_art": true
+    },
+    {
+      "index": 20,
+      "enum": "BRICKS",
+      "name": "Bricks",
+      "slug": "bricks",
+      "sprite_slug": "bricks",
+      "col": 0,
+      "row": 2,
+      "had_art": true
+    },
+    {
+      "index": 21,
+      "enum": "LIFELINE",
+      "name": "Lifeline",
+      "slug": "lifeline",
+      "sprite_slug": "lifeline",
+      "col": 1,
+      "row": 2,
+      "had_art": true
+    },
+    {
+      "index": 22,
+      "enum": "SNAIL_MAIL",
+      "name": "Snail Mail",
+      "slug": "snail_mail",
+      "sprite_slug": "snail_mail",
+      "col": 2,
+      "row": 2,
+      "had_art": true
+    },
+    {
+      "index": 23,
+      "enum": "WISHES",
+      "name": "Wishes",
+      "slug": "wishes",
+      "sprite_slug": "wishes",
+      "col": 3,
+      "row": 2,
+      "had_art": true
+    },
+    {
+      "index": 24,
+      "enum": "BUSTED",
+      "name": "Busted",
+      "slug": "busted",
+      "sprite_slug": "busted",
+      "col": 4,
+      "row": 2,
+      "had_art": true
+    },
+    {
+      "index": 25,
+      "enum": "SWIVEL",
+      "name": "Swivel",
+      "slug": "swivel",
+      "sprite_slug": "swivel",
+      "col": 5,
+      "row": 2,
+      "had_art": true
+    },
+    {
+      "index": 26,
+      "enum": "ROUNDUP",
+      "name": "Roundup",
+      "slug": "roundup",
+      "sprite_slug": "roundup",
+      "col": 6,
+      "row": 2,
+      "had_art": true
+    },
+    {
+      "index": 27,
+      "enum": "HACKER",
+      "name": "Hacker",
+      "slug": "hacker",
+      "sprite_slug": "hacker",
+      "col": 7,
+      "row": 2,
+      "had_art": true
+    },
+    {
+      "index": 28,
+      "enum": "LIBRARIAN",
+      "name": "Librarian",
+      "slug": "librarian",
+      "sprite_slug": "librarian",
+      "col": 8,
+      "row": 2,
+      "had_art": true
+    },
+    {
+      "index": 29,
+      "enum": "PILOT",
+      "name": "Pilot",
+      "slug": "pilot",
+      "sprite_slug": "pilot",
+      "col": 9,
+      "row": 2,
+      "had_art": true
+    },
+    {
+      "index": 30,
+      "enum": "TURTLE_MODE",
+      "name": "Turtle Mode",
+      "slug": "turtle_mode",
+      "sprite_slug": "turtle_mode",
+      "col": 0,
+      "row": 3,
+      "had_art": true
+    },
+    {
+      "index": 31,
+      "enum": "TIME_IS_TOO_EXPENSIVE",
+      "name": "Time is Too Expensive",
+      "slug": "time_is_too_expensive",
+      "sprite_slug": "time_is_too_expensive",
+      "col": 1,
+      "row": 3,
+      "had_art": true
+    },
+    {
+      "index": 32,
+      "enum": "BIRDS_OF_A_FEATHER",
+      "name": "Birds of a Feather",
+      "slug": "birds_of_a_feather",
+      "sprite_slug": "birds_of_a_feather",
+      "col": 2,
+      "row": 3,
+      "had_art": true
+    },
+    {
+      "index": 33,
+      "enum": "NECROMANCY",
+      "name": "Necromancy",
+      "slug": "necromancy",
+      "sprite_slug": null,
+      "col": 3,
+      "row": 3,
+      "had_art": false
+    },
+    {
+      "index": 34,
+      "enum": "MIRACLE",
+      "name": "Miracle",
+      "slug": "miracle",
+      "sprite_slug": null,
+      "col": 4,
+      "row": 3,
+      "had_art": false
+    },
+    {
+      "index": 35,
+      "enum": "RAGS_TO_RICHES",
+      "name": "Rags to Riches",
+      "slug": "rags_to_riches",
+      "sprite_slug": null,
+      "col": 5,
+      "row": 3,
+      "had_art": false
+    },
+    {
+      "index": 36,
+      "enum": "JACKS",
+      "name": "Jacks",
+      "slug": "jacks",
+      "sprite_slug": "jacks",
+      "col": 6,
+      "row": 3,
+      "had_art": true
+    },
+    {
+      "index": 37,
+      "enum": "FISHING_POLE",
+      "name": "Fishing Pole",
+      "slug": "fishing_pole",
+      "sprite_slug": "fishing_pole",
+      "col": 7,
+      "row": 3,
+      "had_art": true
+    },
+    {
+      "index": 38,
+      "enum": "SHELLS",
+      "name": "Shells",
+      "slug": "cups",
+      "sprite_slug": "cups",
+      "col": 8,
+      "row": 3,
+      "had_art": true
+    },
+    {
+      "index": 39,
+      "enum": "SWAP",
+      "name": "Swap",
+      "slug": "swap",
+      "sprite_slug": null,
+      "col": 9,
+      "row": 3,
+      "had_art": false
+    },
+    {
+      "index": 40,
+      "enum": "CATNIP",
+      "name": "Catnip",
+      "slug": "catnip",
+      "sprite_slug": null,
+      "col": 0,
+      "row": 4,
+      "had_art": false
+    },
+    {
+      "index": 41,
+      "enum": "JOURNAL",
+      "name": "Journal",
+      "slug": "journal",
+      "sprite_slug": null,
+      "col": 1,
+      "row": 4,
+      "had_art": false
+    },
+    {
+      "index": 42,
+      "enum": "TRIPTYCH",
+      "name": "Triptych",
+      "slug": "triptych",
+      "sprite_slug": null,
+      "col": 2,
+      "row": 4,
+      "had_art": false
+    },
+    {
+      "index": 43,
+      "enum": "DILLA",
+      "name": "Dilla",
+      "slug": "dilla",
+      "sprite_slug": null,
+      "col": 3,
+      "row": 4,
+      "had_art": false
+    },
+    {
+      "index": 44,
+      "enum": "SEMAPHORE",
+      "name": "Semaphore",
+      "slug": "semaphore",
+      "sprite_slug": null,
+      "col": 4,
+      "row": 4,
+      "had_art": false
+    },
+    {
+      "index": 45,
+      "enum": "BONES",
+      "name": "Bones",
+      "slug": "bones",
+      "sprite_slug": null,
+      "col": 5,
+      "row": 4,
+      "had_art": false
+    },
+    {
+      "index": 46,
+      "enum": "THRESHOLD",
+      "name": "Threshold",
+      "slug": "threshold",
+      "sprite_slug": null,
+      "col": 6,
+      "row": 4,
+      "had_art": false
+    },
+    {
+      "index": 47,
+      "enum": "TOMBSTONES",
+      "name": "Tombstones",
+      "slug": "tombstones",
+      "sprite_slug": null,
+      "col": 7,
+      "row": 4,
+      "had_art": false
+    },
+    {
+      "index": 48,
+      "enum": "ROLL_OVER",
+      "name": "Roll Over",
+      "slug": "roll_over",
+      "sprite_slug": "roll_over",
+      "col": 8,
+      "row": 4,
+      "had_art": true
+    },
+    {
+      "index": 49,
+      "enum": "TOPPINGS",
+      "name": "Toppings",
+      "slug": "toppings",
+      "sprite_slug": "toppings",
+      "col": 9,
+      "row": 4,
+      "had_art": true
+    },
+    {
+      "index": 50,
+      "enum": "CYCLE",
+      "name": "Cycle",
+      "slug": "cycle",
+      "sprite_slug": null,
+      "col": 0,
+      "row": 5,
+      "had_art": false
+    },
+    {
+      "index": 51,
+      "enum": "CYCLE_SEVEN",
+      "name": "Cycle Seven",
+      "slug": "cycle_seven",
+      "sprite_slug": null,
+      "col": 1,
+      "row": 5,
+      "had_art": false
+    },
+    {
+      "index": 52,
+      "enum": "GET_ME_OUTA_HERE",
+      "name": "Get Me Outa Here",
+      "slug": "get_me_outa_here",
+      "sprite_slug": null,
+      "col": 2,
+      "row": 5,
+      "had_art": false
+    },
+    {
+      "index": 53,
+      "enum": "COMEBACK",
+      "name": "Comeback",
+      "slug": "comeback",
+      "sprite_slug": null,
+      "col": 3,
+      "row": 5,
+      "had_art": false
+    },
+    {
+      "index": 54,
+      "enum": "ENCORE",
+      "name": "Encore",
+      "slug": "encore",
+      "sprite_slug": null,
+      "col": 4,
+      "row": 5,
+      "had_art": false
+    },
+    {
+      "index": 55,
+      "enum": "THE_FOURTH",
+      "name": "The Fourth",
+      "slug": "the_fourth",
+      "sprite_slug": null,
+      "col": 5,
+      "row": 5,
+      "had_art": false
+    },
+    {
+      "index": 56,
+      "enum": "PALINDROME",
+      "name": "Palindrome",
+      "slug": "palindrome",
+      "sprite_slug": null,
+      "col": 6,
+      "row": 5,
+      "had_art": false
+    },
+    {
+      "index": 57,
+      "enum": "THE_FIFTH",
+      "name": "The Fifth",
+      "slug": "the_fifth",
+      "sprite_slug": null,
+      "col": 7,
+      "row": 5,
+      "had_art": false
+    },
+    {
+      "index": 58,
+      "enum": "SOLO",
+      "name": "one more thing",
+      "slug": "solo",
+      "sprite_slug": null,
+      "col": 8,
+      "row": 5,
+      "had_art": false
+    },
+    {
+      "index": 59,
+      "enum": "SPECULATIVE",
+      "name": "waterfall",
+      "slug": "speculative",
+      "sprite_slug": null,
+      "col": 9,
+      "row": 5,
+      "had_art": false
+    },
+    {
+      "index": 60,
+      "enum": "FLEX",
+      "name": "Flex",
+      "slug": "flex",
+      "sprite_slug": null,
+      "col": 0,
+      "row": 6,
+      "had_art": false
+    },
+    {
+      "index": 61,
+      "enum": "DEAD_RISING",
+      "name": "Dead Rising",
+      "slug": "dead_rising",
+      "sprite_slug": null,
+      "col": 1,
+      "row": 6,
+      "had_art": false
+    },
+    {
+      "index": 62,
+      "enum": "BOUNTY",
+      "name": "Bounty",
+      "slug": "bounty",
+      "sprite_slug": "clover",
+      "col": 2,
+      "row": 6,
+      "had_art": true
+    },
+    {
+      "index": 63,
+      "enum": "OVERCLOCK",
+      "name": "Overclock",
+      "slug": "overclock",
+      "sprite_slug": "hacker",
+      "col": 3,
+      "row": 6,
+      "had_art": true
+    },
+    {
+      "index": 64,
+      "enum": "EVALUATE",
+      "name": "Evaluate",
+      "slug": "evaluate",
+      "sprite_slug": "librarian",
+      "col": 4,
+      "row": 6,
+      "had_art": true
+    },
+    {
+      "index": 65,
+      "enum": "BUILD_A_NUMBER",
+      "name": "Build a Number",
+      "slug": "build_a_number",
+      "sprite_slug": "cups",
+      "col": 5,
+      "row": 6,
+      "had_art": true
+    },
+    {
+      "index": 66,
+      "enum": "MINOR_FALL",
+      "name": "Minor Fall",
+      "slug": "minor_fall",
+      "sprite_slug": null,
+      "col": 6,
+      "row": 6,
+      "had_art": false
+    },
+    {
+      "index": 67,
+      "enum": "MAJOR_LIFT",
+      "name": "Major Lift",
+      "slug": "major_lift",
+      "sprite_slug": null,
+      "col": 7,
+      "row": 6,
+      "had_art": false
+    },
+    {
+      "index": 68,
+      "enum": "FINALE",
+      "name": "Finale",
+      "slug": "finale",
+      "sprite_slug": null,
+      "col": 8,
+      "row": 6,
+      "had_art": false
+    },
+    {
+      "index": 69,
+      "enum": "TIME_IS_MONEY",
+      "name": "Time is Money",
+      "slug": "time_is_money",
+      "sprite_slug": "time_is_too_expensive",
+      "col": 9,
+      "row": 6,
+      "had_art": true
+    },
+    {
+      "index": 70,
+      "enum": "SEVEN_FEET_DEEP",
+      "name": "7 Feet Deep",
+      "slug": "seven_feet_deep",
+      "sprite_slug": null,
+      "col": 0,
+      "row": 7,
+      "had_art": false
+    },
+    {
+      "index": 71,
+      "enum": "MAKE_IT_A_COMBO",
+      "name": "Make It a Combo",
+      "slug": "make_it_a_combo",
+      "sprite_slug": null,
+      "col": 1,
+      "row": 7,
+      "had_art": false
+    }
+  ],
+  "filled": 43,
+  "empty": 28
+}

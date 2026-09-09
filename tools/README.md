@@ -143,3 +143,37 @@ python tools/generate_card_pdf.py --per-page 6   # 2x3 grid
 
 Looks for `{slug}_body.bmp`, `_accent_top`, and `_accent_bottom` under `graphics/`
 (and `graphics/output/`). Re-run whenever card text or art changes.
+
+### `card_sprite_sheet.py`
+
+One sheet for drawing every card, including empty magenta slots for cards that
+do not have art yet. Each cell is the same **40×64** composite `convert_sprites.py`
+already splits (`32×64` body + two `8×32` accents). Names sit in a label strip
+**under** the cell, so they are not part of the art.
+
+```bash
+pip install pillow
+python tools/card_sprite_sheet.py pack
+python tools/card_sprite_sheet.py pack --scale 4 --columns 10
+```
+
+Writes `graphics/card_sheet/card_sprite_sheet.png` plus a matching `.json` layout.
+Paint in the magenta slots (chroma `#ff00ff`). Keep the JSON next to the PNG.
+
+After you paint, split the sheet back into files:
+
+```bash
+python tools/card_sprite_sheet.py split
+python tools/card_sprite_sheet.py split --convert
+```
+
+`split` writes:
+
+- `graphics/card_sheet/composites/{slug}.png` — 40×64 composites
+- `graphics/card_sheet/parts/{slug}_body.png`, `_accent_top.png`, `_accent_bottom.png`
+
+`--convert` runs `convert_sprites.py` on the composites into `graphics/output/`.
+Still-empty magenta slots are skipped unless you pass `--include-empty`.
+
+Cards that currently reuse another card's `CARD_SPRITES(...)` get their own
+named slot so you can draw unique art later.
