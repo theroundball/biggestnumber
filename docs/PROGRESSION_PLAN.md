@@ -51,15 +51,17 @@ As you strip NPCs, their loaners hollow out; your library grows. **Crossover is 
 
 ---
 
-## 5. NPC count & card split
+## 5. NPC count, modes & card split
 
 | Metric | Value |
 |--------|------:|
 | Total card types | 71 |
 | Target cards per NPC | ~10 |
-| **NPCs needed** | **8** (`ceil(71 ÷ 10)`) |
+| **POC NPCs** | **8** (`ceil(71 ÷ 10)`) |
 
-POC assignment: **10 + 6×9 + 7 = 71** across eight NPCs. See [`NPC_COLLECTION_POC.md`](NPC_COLLECTION_POC.md) for names, loaner lists, and master assignment table.
+Each POC NPC **hosts a different `CampaignMode`** (objective / battle rules) **and** owns a ~10-card collection (same list = loaner deck).
+
+POC assignment: **10 + 6×9 + 7 = 71** across eight NPCs. See [`NPC_COLLECTION_POC.md`](NPC_COLLECTION_POC.md) for names, loaner lists, and master assignment table. Mode ↔ NPC mapping TBD when overworld lands.
 
 ---
 
@@ -67,13 +69,22 @@ POC assignment: **10 + 6×9 + 7 = 71** across eight NPCs. See [`NPC_COLLECTION_P
 
 | | Route A (first collection) | Route B (after sell) |
 |--|---------------------------|----------------------|
-| **Goal** | One of each card (71/71) → sell unlocks | Re-earn collection + story exclusives |
-| **NPC collections** | Full at start; deplete as player wins | Refill rules TBD (partial or full + new cards) |
-| **Card access** | Win from any NPC with cards left | Story-gated re-unlocks; harder / more work |
-| **Trinkets** | Story milestones after sell-value threshold (planned) | Primary trinket source |
-| **Loaner** | Strong early; weak late | NPCs may refuse loaner or offer Route B decks |
+| **Goal** | One of each card (71/71) → sell unlocks | Re-earn collection + **trophy objectives** |
+| **NPC collections** | Full at start; deplete as player wins | Refill / restock rules TBD |
+| **Card access** | Win → take from NPC ground loot (their remaining collection) | Story + **objectives** unlock rarer / stronger cards |
+| **Sticker paper** | Drops after completed battles | Same |
+| **Trinkets** | Minimal or none | Primary trinket source (TBD) |
+| **Loaner** | Strong early; weak late as you strip them | NPCs may refuse loaner or offer Route B decks |
 
-Route A is **breadth** (easy spread across NPCs). Route B is **depth** (story, selective re-collection).
+Route A is **breadth** (spread across 8 NPCs). Route B is **depth** (harder re-collection + feat-gated power cards).
+
+### Trophy channel (= Route B objectives)
+
+Not a separate prize pool — **specific objectives** (e.g. score **1999** vs Y2K host, mode feats, story beats) unlock **rarer / more powerful** cards on the B run. Distinct from “beat NPC, pick any card still in their pile.”
+
+### Hades-style NPC story (note only — do not plan implementation yet)
+
+Post-sell Route B should eventually have **same NPC locations, evolving dialogue** across `collection_generation` (sell advances generation; library resets but relationships / flags persist). **Design note only** — not on the implementation checklist until Route B story pass.
 
 ---
 
@@ -93,21 +104,24 @@ Hold **Select** or **L** for larger view with NPC names.
 
 When their collection has nothing left for you: *“I'm tapped out — try ___.”* Points to lit minimap dot.
 
-### No shops
+### Ground loot (cards + sticker paper)
 
-Optional **themed ground pickups** (wheel shop stuff, graveyard shop stuff) reserved for **instance upgrades** or flavor only — not card purchases. Cards come only from NPC wins unless a story beat says otherwise.
+After a **win**, return to overworld with **Diablo-style ground loot** (toss arc, rarity chips, walk to highlight, **Select** inspect, **A** pickup, unpicked poof on rematch). See [`RPG_OVERWORLD_MVP_PLAN.md`](RPG_OVERWORLD_MVP_PLAN.md) for UX detail.
+
+**Cards:** not `prize_build_offers` random 3 — spawn **every card still in that NPC's collection** on the ground; player picks **one** (others poof). First library add → optional inspect screen.
+
+**Sticker paper:** still drops after **any completed battle** (win or loss, not early exit). Pickup adds to inventory.
+
+**Upgrades:** spend sticker paper at an **upgrade NPC / service** (existing `run_campaign_shop_scene` logic) — **not** buying cards.
 
 ---
 
 ## 8. Optional: digit-based loot piles
 
-If post-battle ground loot returns:
+Secondary spice (not primary card earn):
 
-- `pile_count = clamp(digit_count(final_score), 1, 5)`
-- Each pile = random labeled prop → **upgrade currency** or sticker paper, **not** cards
-- **Palindrome** remains a premium digit-NPC card (expensive in effort, not coins)
-
-Primary earn rate for cards = **NPC wins**, not score magnitude.
+- `pile_count = clamp(digit_count(final_score), 1, 5)` for **extra sticker paper** or upgrade flair
+- **Palindrome** remains a premium digit-NPC card (Route B trophy candidate)
 
 ---
 
@@ -146,20 +160,21 @@ Lightweight economy script (future): verify 71 takes across 8 NPCs fits target h
 ### Next (overworld)
 
 - [ ] `NpcDef`: `collection[]` = `loaner_deck[]`, `campaign_mode`, record
-- [ ] Win → remove card from NPC + `library_add_card`
+- [ ] Win → spawn **all remaining NPC collection** as ground loot; pick one → `library_add_card` + remove from NPC
+- [ ] Sticker paper drop after any completed battle
 - [ ] Loaner battle vs own-deck battle entry points
 - [ ] Minimap + depleted dialogue
-- [ ] Load [`NPC_COLLECTION_POC.md`](NPC_COLLECTION_POC.md) into `world_data`
-- [ ] Retire / bypass `run_campaign_prize_scene` for card prizes on overworld path
+- [ ] Load [`NPC_COLLECTION_POC.md`](NPC_COLLECTION_POC.md) into `world_data` (+ per-NPC `CampaignMode`)
+- [ ] Retire `prize_build_offers` card path; keep upgrade shop for sticker paper
 - [ ] Route B flags + collection refill rules
 
 ### Deferred
 
-- [ ] Trinkets from story after sell threshold
-- [ ] Digit pile ground loot (upgrades only)
+- [ ] Route B trophy objectives + rare card unlocks
+- [ ] Hades-style dialogue / `collection_generation` (design note only until story pass)
+- [ ] Digit pile bonus sticker drops
 - [ ] `tools/economy_balance.py` — hours-to-71 sanity check
 
----
 
 ## 12. Cursor bootstrap
 
