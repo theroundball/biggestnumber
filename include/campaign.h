@@ -52,4 +52,9 @@ bool campaign_apply_sell_collection(SaveData& save, CardType nostalgia_card, Car
 
 int campaign_library_total_cards(const SaveData& save);
 
+// Sell Collection requires at least one copy of every collectible card type.
+int campaign_collection_required_count();
+int campaign_collection_unique_owned(const SaveData& save);
+bool campaign_collection_complete(const SaveData& save);
+
 #endif

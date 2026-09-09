@@ -2,12 +2,12 @@
 
 namespace
 {
+    // +1 .. +4 transport; fifth card is the starter pick (Toppings, Clover, or Burger).
     constexpr CardType STARTER_WHEELS[] = {
         CardType::LONGBOARD,
         CardType::HEELYS,
         CardType::SCOOTER,
         CardType::SKATEBOARD,
-        CardType::TOPPINGS,
     };
 }
 
@@ -502,6 +502,56 @@ int campaign_library_total_cards(const SaveData& save)
     return total;
 }
 
+namespace
+{
+    bool card_counts_toward_collection(CardType type)
+    {
+        return card_meta(type).max_copies > 0;
+    }
+}
+
+int campaign_collection_required_count()
+{
+    int count = 0;
+
+    for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+    {
+        if(card_counts_toward_collection(CardType(type_index)))
+        {
+            ++count;
+        }
+    }
+
+    return count;
+}
+
+int campaign_collection_unique_owned(const SaveData& save)
+{
+    int count = 0;
+
+    for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+    {
+        const CardType type = CardType(type_index);
+
+        if(!card_counts_toward_collection(type))
+        {
+            continue;
+        }
+
+        if(library_total_owned(save, type) >= 1)
+        {
+            ++count;
+        }
+    }
+
+    return count;
+}
+
+bool campaign_collection_complete(const SaveData& save)
+{
+    return campaign_collection_unique_owned(save) >= campaign_collection_required_count();
+}
+
 bool campaign_is_starter_wheel(CardType type)
 {
     for(CardType wheel : STARTER_WHEELS)
@@ -517,6 +567,11 @@ bool campaign_is_starter_wheel(CardType type)
 
 bool campaign_apply_sell_collection(SaveData& save, CardType nostalgia_card, CardType utility_pick)
 {
+    if(!campaign_collection_complete(save))
+    {
+        return false;
+    }
+
     if(int(nostalgia_card) < 0 || nostalgia_card >= CardType::COUNT ||
        int(utility_pick) < 0 || utility_pick >= CardType::COUNT)
     {

@@ -4,6 +4,9 @@
 **Branch:** `rpg-overworld` (create when implementing).  
 **Supersedes:** overworld scrapped direction in older HANDOFF notes; roguelike run remains optional side content.
 
+> **Card progression (2026-09):** See **[`PROGRESSION_PLAN.md`](PROGRESSION_PLAN.md)** and **[`NPC_COLLECTION_POC.md`](NPC_COLLECTION_POC.md)**.  
+> No card shops — NPC collection wins only. Sections below about shops, `prize_build_offers` card loot, and three MVP NPCs are **stale** until this file is revised for 8 NPCs + collection take.
+
 ## Implementation checklist
 
 - [ ] Create `rpg-overworld` branch; keep WIP `TextBoxPanel` for dialogue

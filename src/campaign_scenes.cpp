@@ -29,13 +29,13 @@ namespace
 MenuSceneResult run_campaign_starter_pick_scene(CardType& out_utility)
 {
     PrizeOffer offers[3] = {
-        {PrizeOfferKind::CARD, CardType::FISHING_POLE, 0},
-        {PrizeOfferKind::CARD, CardType::JACKS, 0},
-        {PrizeOfferKind::CARD, CardType::SHELLS, 0},
+        {PrizeOfferKind::CARD, CardType::TOPPINGS, 0},
+        {PrizeOfferKind::CARD, CardType::CLOVER, 0},
+        {PrizeOfferKind::CARD, CardType::BIG_KUROSAWA_BURGER, 0},
     };
 
     const PrizeRowResult pick =
-        run_prize_row_scene("Pick a utility card", offers, 3, "A pick  Select info");
+        run_prize_row_scene("Pick a card", offers, 3, "A pick  Select info");
 
     if(!pick.picked)
     {
@@ -458,11 +458,15 @@ MenuSceneResult run_campaign_status_scene()
         same_line.append(bn::to_string<8>(save.same_number_target));
         scene_text.draw_centered_line(STATUS_START_Y + LIST_LINE_HEIGHT * 4, same_line);
 
-        bn::string<32> library_line = "Library ";
-        library_line.append(bn::to_string<8>(campaign_library_total_cards(save)));
-        scene_text.draw_centered_line(STATUS_START_Y + LIST_LINE_HEIGHT * 5, library_line);
+        bn::string<32> collection_line = "Collection ";
+        collection_line.append(bn::to_string<8>(campaign_collection_unique_owned(save)));
+        collection_line.append("/");
+        collection_line.append(bn::to_string<8>(campaign_collection_required_count()));
+        scene_text.draw_centered_line(STATUS_START_Y + LIST_LINE_HEIGHT * 5, collection_line);
 
-        scene_text.draw_centered_line(STATUS_START_Y + LIST_LINE_HEIGHT * 6, "Sell Collection");
+        const bool can_sell = campaign_collection_complete(save);
+        bn::string<32> sell_line = can_sell ? "Sell Collection" : "Sell locked";
+        scene_text.draw_centered_line(STATUS_START_Y + LIST_LINE_HEIGHT * 6, sell_line);
 
         selector.set_position(STATUS_START_Y + cursor * LIST_LINE_HEIGHT);
         selector.set_visible(true);
@@ -487,7 +491,7 @@ MenuSceneResult run_campaign_status_scene()
             }
         }
 
-        if(bn::keypad::a_pressed() && cursor == 6)
+        if(bn::keypad::a_pressed() && cursor == 6 && can_sell)
         {
             return MenuSceneResult::SELL_COLLECTION;
         }
@@ -507,13 +511,18 @@ MenuSceneResult run_campaign_sell_collection_flow(bn::seed_random& rng)
 {
     (void)rng;
 
+    if(!campaign_collection_complete(save_data_get()))
+    {
+        return MenuSceneResult::STAY;
+    }
+
     if(!run_campaign_sell_confirm_scene())
     {
         return MenuSceneResult::STAY;
     }
 
     CardType nostalgia = CardType::LONGBOARD;
-    CardType utility = CardType::JACKS;
+    CardType utility = CardType::TOPPINGS;
 
     if(run_campaign_nostalgia_pick_scene(nostalgia) == MenuSceneResult::MAIN_MENU)
     {

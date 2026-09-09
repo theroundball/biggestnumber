@@ -47,7 +47,7 @@ struct SaveData
     uint16_t version = 0;
     uint8_t deck_count = 0;
     uint8_t active_deck_index = 0;
-  // 1 after starter deck (wheels + utility pick) exists.
+  // 1 after starter deck (+1..+4 wheels + starter pick) exists.
     uint8_t campaign_ready = 0;
     uint8_t reserved_pad = 0;
     int32_t biggest_number_record = 0;

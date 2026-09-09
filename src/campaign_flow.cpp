@@ -39,7 +39,7 @@ namespace
             return true;
         }
 
-        CardType utility = CardType::JACKS;
+        CardType utility = CardType::TOPPINGS;
 
         if(run_campaign_starter_pick_scene(utility) == MenuSceneResult::MAIN_MENU)
         {
