@@ -8,6 +8,7 @@
 #include "card_instance.h"
 #include "game_scene.h"
 #include "save_data.h"
+#include "world_data.h"
 
 struct CampaignBattleSetup
 {
@@ -56,5 +57,17 @@ int campaign_library_total_cards(const SaveData& save);
 int campaign_collection_required_count();
 int campaign_collection_unique_owned(const SaveData& save);
 bool campaign_collection_complete(const SaveData& save);
+
+void campaign_init_npc_collections(SaveData& save);
+void campaign_sanitize_npc_collections(SaveData& save);
+int campaign_npc_card_count(const SaveData& save, int npc_index, CardType type);
+int campaign_npc_total_cards(const SaveData& save, int npc_index);
+bool campaign_npc_has_card(const SaveData& save, int npc_index, CardType type);
+bool campaign_npc_remove_card(SaveData& save, int npc_index, CardType type);
+void campaign_flatten_npc_loaner(const SaveData& save, int npc_index, bn::vector<CardRef, 50>& out);
+int campaign_npc_collectible_cards(const SaveData& save, int npc_index, bn::vector<CardType, NPC_MAX_COLLECTION_CARDS>& out);
+bool campaign_npc_has_takeable_card(const SaveData& save, int npc_index);
+int campaign_npc_first_takeable_index(const SaveData& save);
+bool campaign_apply_npc_card_take(SaveData& save, int npc_index, CardType type);
 
 #endif

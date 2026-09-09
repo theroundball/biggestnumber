@@ -11,9 +11,10 @@
 #include "card_type.h"
 #include "campaign_types.h"
 #include "trinket_type.h"
+#include "world_data.h"
 
 constexpr int SAVE_DATA_MAGIC = 0x424E554D; // 'BNUM'
-constexpr int SAVE_DATA_VERSION = 19;
+constexpr int SAVE_DATA_VERSION = 20;
 constexpr int MAX_SAVED_DECKS = 6;
 constexpr int LIBRARY_COPY_LIMIT = 5;
 constexpr int DECK_MIN_CARDS = 1;
@@ -67,6 +68,9 @@ struct SaveData
     int32_t sharing_is_caring_record = 0;
     int32_t poker_hand_record = 0;
     int32_t y2k_record = 0;
+    // Remaining cards per NPC collection (Route A depletion).
+    uint8_t npc_collections[WORLD_NPC_COUNT][int(CardType::COUNT)] = {};
+    uint8_t npc_collections_initialized = 0;
 };
 
 void save_data_init();

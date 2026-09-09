@@ -49,11 +49,27 @@ namespace
         return campaign_create_starter_deck(save_data_mut(), utility);
     }
 
-    void run_campaign_battle(CampaignMode mode, bn::seed_random& rng, bool overworld_drops)
+    void run_campaign_battle(CampaignMode mode, bn::seed_random& rng, bool overworld_drops, int npc_index,
+                               bool use_loaner_deck)
     {
         SaveData& save = save_data_mut();
 
         if(save.deck_count <= 0)
+        {
+            return;
+        }
+
+        if(save.active_deck_index >= save.deck_count)
+        {
+            save.active_deck_index = 0;
+        }
+
+        if(npc_index >= WORLD_NPC_COUNT)
+        {
+            npc_index = -1;
+        }
+
+        if(use_loaner_deck && (npc_index < 0 || campaign_npc_total_cards(save, npc_index) <= 0))
         {
             return;
         }
@@ -82,16 +98,26 @@ namespace
         }
 
         SavedDeck battle_deck_state = save.decks[save.active_deck_index];
+        const bool loaner_battle = use_loaner_deck && npc_index >= 0;
 
         bn::vector<CardRef, 50> battle_deck;
-        campaign_flatten_saved_deck(save, battle_deck_state, battle_deck);
+
+        if(loaner_battle)
+        {
+            campaign_flatten_npc_loaner(save, npc_index, battle_deck);
+        }
+        else
+        {
+            campaign_flatten_saved_deck(save, battle_deck_state, battle_deck);
+        }
 
         BattleLaunch launch;
         launch.deck_index = save.active_deck_index;
         launch.score_to_beat = setup.peak_before;
         populate_launch_ui(save, mode, setup, launch);
         launch.campaign_ui.number_now_round_count =
-            campaign_number_now_round_count(saved_deck_total_cards(battle_deck_state));
+            loaner_battle ? campaign_number_now_round_count(battle_deck.size())
+                          : campaign_number_now_round_count(saved_deck_total_cards(battle_deck_state));
 
         launch.campaign_mode = mode;
         launch.same_number_target = setup.same_number_target;
@@ -124,14 +150,17 @@ namespace
 
         if(overworld_drops)
         {
-            if(won && !saved_deck_unrestricted_build(battle_deck_state))
+            const bool counts_for_progress =
+                won && !(loaner_battle ? false : saved_deck_unrestricted_build(battle_deck_state));
+
+            if(counts_for_progress)
             {
                 campaign_apply_win(save, mode, game, setup.number_now_scoring_round, rng);
             }
 
             const int band_score =
                 mode == CampaignMode::NUMBER_NOW ? game.last_round_score : game.final_score;
-            overworld_drops_queue_from_battle(mode, won, setup.peak_before, band_score, rng);
+            overworld_drops_queue_from_battle(mode, won, setup.peak_before, band_score, rng, npc_index);
             return;
         }
 
@@ -182,7 +211,7 @@ void campaign_run_play_flow(bn::seed_random& rng)
 
         if(menu.next == MenuSceneResult::RUN_GAME && menu.mode != CampaignMode::NONE)
         {
-            run_campaign_battle(menu.mode, rng, false);
+            run_campaign_battle(menu.mode, rng, false, -1, false);
         }
     }
 }
@@ -209,16 +238,17 @@ void campaign_run_overworld_play_flow(bn::seed_random& rng)
 
     if(menu.next == MenuSceneResult::RUN_GAME && menu.mode != CampaignMode::NONE)
     {
-        run_campaign_battle(menu.mode, rng, true);
+        run_campaign_battle(menu.mode, rng, true, -1, false);
     }
 }
 
-void campaign_run_overworld_battle(bn::seed_random& rng, CampaignMode mode)
+void campaign_run_overworld_battle(bn::seed_random& rng, CampaignMode mode, int npc_index,
+                                   bool use_loaner_deck)
 {
     if(!campaign_ensure_starter_setup(rng) || mode == CampaignMode::NONE)
     {
         return;
     }
 
-    run_campaign_battle(mode, rng, true);
+    run_campaign_battle(mode, rng, true, npc_index, use_loaner_deck);
 }

@@ -23,6 +23,7 @@ namespace
     constexpr int SAVE_DATA_VERSION_V16 = 16;
     constexpr int SAVE_DATA_VERSION_V17 = 17;
     constexpr int SAVE_DATA_VERSION_V18 = 18;
+    constexpr int SAVE_DATA_VERSION_V19 = 19;
     constexpr int SAVE_DATA_CARD_COUNT_V10 = 63;
     constexpr int SAVE_DATA_CARD_COUNT_V11 = 74;
     constexpr int SAVE_DATA_CARD_COUNT_V12 = 66;
@@ -1454,6 +1455,100 @@ namespace
         save_data_migrate_counts_v18_to_v19(deck.counts, old_deck.counts);
     }
 
+    struct SaveDataV19
+    {
+        uint32_t magic = 0;
+        uint16_t version = 0;
+        uint8_t deck_count = 0;
+        uint8_t active_deck_index = 0;
+        uint8_t campaign_ready = 0;
+        uint8_t reserved_pad = 0;
+        int32_t biggest_number_record = 0;
+        int32_t total_wins = 0;
+        int32_t same_number_wins = 0;
+        int16_t same_number_target = 0;
+        uint8_t same_number_used_count = 0;
+        uint8_t reserved = 0;
+        int16_t same_number_used_targets[SAME_NUMBER_USED_CAPACITY] = {};
+        int32_t number_now_round_best[CAMPAIGN_NUMBER_NOW_ROUNDS] = {};
+        uint8_t library_counts[int(CardType::COUNT)] = {};
+        uint8_t trinket_owned[int(TrinketType::COUNT)] = {};
+        InstancePool instance_pool{};
+        SavedDeck decks[MAX_SAVED_DECKS] = {};
+        uint16_t sticker_paper = 0;
+        int32_t aint_got_time_record = 0;
+        int32_t sharing_is_caring_record = 0;
+        int32_t poker_hand_record = 0;
+        int32_t y2k_record = 0;
+    };
+
+    bool save_data_valid_v19(const SaveDataV19& data)
+    {
+        if(data.magic != SAVE_DATA_MAGIC || data.version != SAVE_DATA_VERSION_V19 ||
+           data.deck_count > MAX_SAVED_DECKS)
+        {
+            return false;
+        }
+
+        if(data.active_deck_index >= data.deck_count && data.deck_count > 0)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    void save_data_migrate_v19_to_v20(SaveData& data, const SaveDataV19& old_data)
+    {
+        data = SaveData{};
+        data.magic = old_data.magic;
+        data.version = SAVE_DATA_VERSION;
+        data.deck_count = old_data.deck_count;
+        data.active_deck_index = old_data.active_deck_index;
+        data.campaign_ready = old_data.campaign_ready;
+        data.reserved_pad = old_data.reserved_pad;
+        data.biggest_number_record = old_data.biggest_number_record;
+        data.total_wins = old_data.total_wins;
+        data.same_number_wins = old_data.same_number_wins;
+        data.same_number_target = old_data.same_number_target;
+        data.same_number_used_count = old_data.same_number_used_count;
+        data.reserved = old_data.reserved;
+
+        for(int index = 0; index < SAME_NUMBER_USED_CAPACITY; ++index)
+        {
+            data.same_number_used_targets[index] = old_data.same_number_used_targets[index];
+        }
+
+        for(int round_index = 0; round_index < CAMPAIGN_NUMBER_NOW_ROUNDS; ++round_index)
+        {
+            data.number_now_round_best[round_index] = old_data.number_now_round_best[round_index];
+        }
+
+        for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+        {
+            data.library_counts[type_index] = old_data.library_counts[type_index];
+        }
+
+        for(int trinket_index = 0; trinket_index < int(TrinketType::COUNT); ++trinket_index)
+        {
+            data.trinket_owned[trinket_index] = old_data.trinket_owned[trinket_index];
+        }
+
+        data.instance_pool = old_data.instance_pool;
+
+        for(int deck_index = 0; deck_index < data.deck_count; ++deck_index)
+        {
+            data.decks[deck_index] = old_data.decks[deck_index];
+        }
+
+        data.sticker_paper = old_data.sticker_paper;
+        data.aint_got_time_record = old_data.aint_got_time_record;
+        data.sharing_is_caring_record = old_data.sharing_is_caring_record;
+        data.poker_hand_record = old_data.poker_hand_record;
+        data.y2k_record = old_data.y2k_record;
+        campaign_init_npc_collections(data);
+    }
+
     void save_data_migrate_v18_to_v19(SaveData& data, const SaveDataV18& old_data)
     {
         data = SaveData{};
@@ -1640,6 +1735,7 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
         _save_data.magic = SAVE_DATA_MAGIC;
         _save_data.version = SAVE_DATA_VERSION;
         _save_data.deck_count = 0;
+        campaign_init_npc_collections(_save_data);
         prize_testing_cycle_reset();
     }
 
@@ -2488,12 +2584,25 @@ constexpr int SAVE_DATA_CARD_COUNT_V3 = 52; // CardType::COUNT before TOPPINGS
     bool save_data_try_migrate_legacy()
     {
         {
+            SaveDataV19 legacy_v19;
+            bn::sram::read(legacy_v19);
+
+            if(save_data_valid_v19(legacy_v19))
+            {
+                save_data_migrate_v19_to_v20(_save_data, legacy_v19);
+                sanitize_loaded_deck_names();
+                return true;
+            }
+        }
+
+        {
             SaveDataV18 legacy_v18;
             bn::sram::read(legacy_v18);
 
             if(save_data_valid_v18(legacy_v18))
             {
                 save_data_migrate_v18_to_v19(_save_data, legacy_v18);
+                campaign_init_npc_collections(_save_data);
                 sanitize_loaded_deck_names();
                 return true;
             }
@@ -3093,6 +3202,15 @@ void campaign_set_active_deck(SaveData& save, int deck_index)
 void save_data_validate(SaveData& save)
 {
     instance_pool_clamp(save.instance_pool);
+
+    if(!save.npc_collections_initialized)
+    {
+        campaign_init_npc_collections(save);
+    }
+    else
+    {
+        campaign_sanitize_npc_collections(save);
+    }
 
     if(save.deck_count > MAX_SAVED_DECKS)
     {

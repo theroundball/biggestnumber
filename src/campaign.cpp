@@ -1,5 +1,7 @@
 #include "campaign.h"
 
+#include "world_data.h"
+
 namespace
 {
     // +1 .. +4 transport; fifth card is the starter pick (Toppings, Clover, or Burger).
@@ -51,6 +53,7 @@ bool campaign_create_starter_deck(SaveData& save, CardType utility_pick)
         save.same_number_used_targets[index] = 0;
     }
 
+    campaign_init_npc_collections(save);
     save_data_write();
     return true;
 }
@@ -663,6 +666,224 @@ bool campaign_apply_sell_collection(SaveData& save, CardType nostalgia_card, Car
     }
 
     campaign_rebuild_instance_pool(save);
+    campaign_init_npc_collections(save);
     save_data_write();
     return true;
+}
+
+void campaign_init_npc_collections(SaveData& save)
+{
+    for(int npc_index = 0; npc_index < WORLD_NPC_COUNT; ++npc_index)
+    {
+        for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+        {
+            save.npc_collections[npc_index][type_index] = 0;
+        }
+
+        const NpcDef& npc = world_npc_def(npc_index);
+
+        for(int card_index = 0; card_index < npc.collection_count; ++card_index)
+        {
+            const CardType type = npc.collection[card_index];
+
+            if(type != CardType::COUNT)
+            {
+                ++save.npc_collections[npc_index][int(type)];
+            }
+        }
+    }
+
+    save.npc_collections_initialized = 1;
+}
+
+void campaign_sanitize_npc_collections(SaveData& save)
+{
+    if(!save.npc_collections_initialized)
+    {
+        campaign_init_npc_collections(save);
+        return;
+    }
+
+    for(int npc_index = 0; npc_index < WORLD_NPC_COUNT; ++npc_index)
+    {
+        const NpcDef& npc = world_npc_def(npc_index);
+        int total = campaign_npc_total_cards(save, npc_index);
+
+        while(total > npc.collection_count)
+        {
+            bool removed = false;
+
+            for(int type_index = int(CardType::COUNT) - 1; type_index >= 0; --type_index)
+            {
+                if(save.npc_collections[npc_index][type_index] > 0)
+                {
+                    --save.npc_collections[npc_index][type_index];
+                    --total;
+                    removed = true;
+                    break;
+                }
+            }
+
+            if(!removed)
+            {
+                break;
+            }
+        }
+
+        for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+        {
+            const CardType type = CardType(type_index);
+
+            if(world_npc_default_collection_count(npc_index, type) == 0)
+            {
+                save.npc_collections[npc_index][type_index] = 0;
+            }
+        }
+    }
+}
+
+int campaign_npc_card_count(const SaveData& save, int npc_index, CardType type)
+{
+    if(npc_index < 0 || npc_index >= WORLD_NPC_COUNT || type == CardType::COUNT)
+    {
+        return 0;
+    }
+
+    return save.npc_collections[npc_index][int(type)];
+}
+
+int campaign_npc_total_cards(const SaveData& save, int npc_index)
+{
+    if(npc_index < 0 || npc_index >= WORLD_NPC_COUNT)
+    {
+        return 0;
+    }
+
+    int total = 0;
+
+    for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+    {
+        total += save.npc_collections[npc_index][type_index];
+    }
+
+    return total;
+}
+
+bool campaign_npc_has_card(const SaveData& save, int npc_index, CardType type)
+{
+    return campaign_npc_card_count(save, npc_index, type) > 0;
+}
+
+bool campaign_npc_remove_card(SaveData& save, int npc_index, CardType type)
+{
+    if(npc_index < 0 || npc_index >= WORLD_NPC_COUNT || type == CardType::COUNT)
+    {
+        return false;
+    }
+
+    uint8_t& count = save.npc_collections[npc_index][int(type)];
+
+    if(count <= 0)
+    {
+        return false;
+    }
+
+    --count;
+    return true;
+}
+
+void campaign_flatten_npc_loaner(const SaveData& save, int npc_index, bn::vector<CardRef, 50>& out)
+{
+    out.clear();
+
+    if(npc_index < 0 || npc_index >= WORLD_NPC_COUNT)
+    {
+        return;
+    }
+
+    for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+    {
+        const CardType type = CardType(type_index);
+        const int copies = save.npc_collections[npc_index][type_index];
+
+        for(int copy = 0; copy < copies; ++copy)
+        {
+            if(!out.full())
+            {
+                out.push_back(CardRef{type, NO_INSTANCE});
+            }
+        }
+    }
+}
+
+int campaign_npc_collectible_cards(const SaveData& save, int npc_index,
+                                   bn::vector<CardType, NPC_MAX_COLLECTION_CARDS>& out)
+{
+    out.clear();
+
+    if(npc_index < 0 || npc_index >= WORLD_NPC_COUNT)
+    {
+        return 0;
+    }
+
+    for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+    {
+        const CardType type = CardType(type_index);
+        const int copies = save.npc_collections[npc_index][type_index];
+
+        for(int copy = 0; copy < copies; ++copy)
+        {
+            if(!out.full())
+            {
+                out.push_back(type);
+            }
+        }
+    }
+
+    return out.size();
+}
+
+bool campaign_npc_has_takeable_card(const SaveData& save, int npc_index)
+{
+    if(npc_index < 0 || npc_index >= WORLD_NPC_COUNT)
+    {
+        return false;
+    }
+
+    for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+    {
+        const CardType type = CardType(type_index);
+
+        if(save.npc_collections[npc_index][type_index] > 0 && library_can_add(save, type))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+int campaign_npc_first_takeable_index(const SaveData& save)
+{
+    for(int npc_index = 0; npc_index < WORLD_NPC_COUNT; ++npc_index)
+    {
+        if(campaign_npc_has_takeable_card(save, npc_index))
+        {
+            return npc_index;
+        }
+    }
+
+    return -1;
+}
+
+bool campaign_apply_npc_card_take(SaveData& save, int npc_index, CardType type)
+{
+    if(!campaign_npc_remove_card(save, npc_index, type))
+    {
+        return false;
+    }
+
+    const bool added = library_add_card(save, type);
+    save_data_write();
+    return added;
 }

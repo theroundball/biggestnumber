@@ -13,7 +13,7 @@ void overworld_drops_clear_entity_blocks();
 void overworld_drops_add_entity_block(bn::fixed world_x, bn::fixed world_y, bn::fixed half_w,
                                       bn::fixed half_h);
 void overworld_drops_queue_from_battle(CampaignMode mode, bool won, int peak_before, int band_score,
-                                       bn::seed_random& rng);
+                                       bn::seed_random& rng, int npc_index = -1);
 
 bool overworld_drops_active();
 bool overworld_drops_inspect_open();

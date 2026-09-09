@@ -14,6 +14,7 @@
 #include "bn_sprite_text_generator.h"
 #include "bn_sprite_tiles_ptr.h"
 #include "bn_string.h"
+#include "bn_string_view.h"
 #include "bn_tile.h"
 #include "bn_vector.h"
 
@@ -26,14 +27,14 @@
 #include "common_variable_8x16_sprite_font.h"
 #include "common_variable_8x8_sprite_font.h"
 #include "game_types.h"
-#include "prize_system.h"
 #include "overworld_scene.h"
 #include "save_data.h"
 #include "ui_inspect.h"
+#include "world_data.h"
 
 namespace
 {
-    constexpr int MAX_CARD_DROPS = CAMPAIGN_PRIZE_SLOT_COUNT;
+    constexpr int MAX_CARD_DROPS = NPC_MAX_COLLECTION_CARDS;
     constexpr int MAX_DROPS = MAX_CARD_DROPS + 1;
     constexpr int TOSS_FRAMES = 24;
     constexpr int TOSS_STAGGER_FRAMES = 6;
@@ -101,6 +102,7 @@ namespace
         bool active = false;
         bn::fixed spawn_x = 0;
         bn::fixed spawn_y = 0;
+        int npc_index = -1;
         bn::array<DropEntry, MAX_DROPS> drops;
         int drop_count = 0;
         int selected_index = -1;
@@ -119,14 +121,15 @@ namespace
     struct DropVisualSlot
     {
         bn::optional<bn::sprite_ptr> marker;
-        bn::vector<SpriteBinding, 16> label_sprites;
-        bn::vector<SpriteBinding, 16> chip_sprites;
+        bn::vector<SpriteBinding, 24> label_sprites;
+        bn::vector<SpriteBinding, 24> chip_sprites;
         bool marker_selected = false;
         bool marker_is_paper = false;
         bool label_selected = false;
         bool label_is_paper = false;
         CardRarity label_rarity = CardRarity::COMMON;
-        const char* label_text = nullptr;
+        CardType label_card = CardType::COUNT;
+        bool label_is_paper_kind = false;
     };
 
     DropSession g_session;
@@ -162,7 +165,7 @@ namespace
         bn::fixed half_h = 0;
     };
 
-    bn::vector<EntityBlock, 4> g_entity_blocks;
+    bn::vector<EntityBlock, 16> g_entity_blocks;
 
     bn::color dim_color(bn::color color)
     {
@@ -519,7 +522,26 @@ namespace
     {
         slot.label_sprites.clear();
         slot.chip_sprites.clear();
-        slot.label_text = nullptr;
+        slot.label_card = CardType::COUNT;
+        slot.label_is_paper_kind = false;
+    }
+
+    bn::string_view drop_label_for_card(CardType type, bn::string<18>& storage)
+    {
+        if(type == CardType::COUNT)
+        {
+            return "";
+        }
+
+        storage = card_data(type).name;
+
+        if(storage.size() > 14)
+        {
+            storage.resize(12);
+            storage.append("..");
+        }
+
+        return storage;
     }
 
     void release_visual_slot(DropVisualSlot& slot)
@@ -557,6 +579,7 @@ namespace
         g_session.active = false;
         g_session.spawn_x = 0;
         g_session.spawn_y = 0;
+        g_session.npc_index = -1;
         g_session.drop_count = 0;
         g_session.selected_index = -1;
         g_session.inspect_index = -1;
@@ -661,6 +684,11 @@ namespace
 
             while(x < width)
             {
+                if(slot.chip_sprites.full())
+                {
+                    break;
+                }
+
                 const int tile_width = largest_valid_sprite_width(width - x, row_height);
 
                 if(tile_width <= 0)
@@ -695,20 +723,25 @@ namespace
     }
 
     void build_drop_label(DropVisualSlot& slot, bn::fixed anchor_x, bn::fixed anchor_y,
-                          const char* text, bool selected, CardRarity rarity, bool is_paper)
+                          CardType card_type, bool selected, CardRarity rarity, bool is_paper)
     {
         release_label_visuals(slot);
         slot.label_selected = selected;
         slot.label_is_paper = is_paper;
         slot.label_rarity = rarity;
-        slot.label_text = text;
+        slot.label_card = card_type;
+        slot.label_is_paper_kind = is_paper;
+
+        bn::string<18> label_storage;
+        const bn::string_view text =
+            is_paper ? bn::string_view("Paper") : drop_label_for_card(card_type, label_storage);
 
         LabelTextPalettes& text_palettes = label_text_palettes();
         bn::sprite_text_generator& label_generator =
             selected ? text_palettes.bright_generator.value() : text_palettes.dim_generator.value();
         const bn::fixed text_y = anchor_y + bn::fixed(LABEL_OFFSET_Y);
 
-        bn::vector<bn::sprite_ptr, 16> generated_text;
+        bn::vector<bn::sprite_ptr, 24> generated_text;
         label_generator.set_center_alignment();
         label_generator.generate(anchor_x, text_y, text, generated_text);
         label_generator.set_left_alignment();
@@ -725,6 +758,11 @@ namespace
 
         for(const bn::sprite_ptr& sprite : generated_text)
         {
+            if(slot.label_sprites.full())
+            {
+                break;
+            }
+
             const bn::sprite_shape_size shape = sprite.shape_size();
             const bn::fixed half_w = bn::fixed(shape.width()) / 2;
             const bn::fixed half_h = bn::fixed(shape.height()) / 2;
@@ -733,11 +771,8 @@ namespace
             const bn::fixed glyph_top = sprite.y() - half_h;
             const bn::fixed glyph_bottom = sprite.y() + half_h;
 
-            if(!slot.label_sprites.full())
-            {
-                slot.label_sprites.push_back(
-                    SpriteBinding{sprite, sprite.x() - anchor_x, sprite.y() - anchor_y});
-            }
+            slot.label_sprites.push_back(
+                SpriteBinding{sprite, sprite.x() - anchor_x, sprite.y() - anchor_y});
 
             if(glyph_left < min_x)
             {
@@ -794,11 +829,11 @@ namespace
     }
 
     bool label_needs_rebuild(const DropVisualSlot& slot, bool selected, CardRarity rarity,
-                             bool is_paper, const char* text)
+                             CardType card_type, bool is_paper)
     {
-        return slot.label_text != text || slot.label_selected != selected ||
-               slot.label_rarity != rarity || slot.label_is_paper != is_paper ||
-               slot.label_sprites.empty();
+        return slot.label_card != card_type || slot.label_is_paper_kind != is_paper ||
+               slot.label_selected != selected || slot.label_rarity != rarity ||
+               slot.label_is_paper != is_paper || slot.label_sprites.empty();
     }
 
     void ensure_drop_marker(DropVisualSlot& slot, bool is_paper, bool selected,
@@ -911,28 +946,34 @@ namespace
             slot.marker->set_visible(true);
 
             CardRarity rarity = CardRarity::COMMON;
-            const char* label = "Paper";
+            CardType card_type = CardType::COUNT;
 
             if(!is_paper)
             {
-                const CardType type = offer_card_type(drop.offer);
+                card_type = offer_card_type(drop.offer);
 
-                if(type == CardType::COUNT)
+                if(card_type == CardType::COUNT)
                 {
                     continue;
                 }
 
-                rarity = card_meta(type).rarity;
-                label = card_data(type).name;
+                rarity = card_meta(card_type).rarity;
             }
 
-            if(label_needs_rebuild(slot, selected, rarity, is_paper, label))
+            if(selected)
             {
-                build_drop_label(slot, screen_x, screen_y, label, selected, rarity, is_paper);
+                if(label_needs_rebuild(slot, selected, rarity, card_type, is_paper))
+                {
+                    build_drop_label(slot, screen_x, screen_y, card_type, selected, rarity, is_paper);
+                }
+                else
+                {
+                    reposition_visual_slot(slot, screen_x, screen_y);
+                }
             }
-            else
+            else if(!slot.label_sprites.empty() || !slot.chip_sprites.empty())
             {
-                reposition_visual_slot(slot, screen_x, screen_y);
+                release_label_visuals(slot);
             }
         }
 
@@ -1064,10 +1105,27 @@ namespace
         {
             campaign_grant_sticker_paper(save, 1);
             drop.active = false;
+            release_visual_slot(g_visual_slots[index]);
             return true;
         }
 
-        if(!campaign_apply_prize_card(save, type))
+        bool added = false;
+
+        if(g_session.npc_index >= 0)
+        {
+            added = campaign_apply_npc_card_take(save, g_session.npc_index, type);
+        }
+        else if(!campaign_apply_prize_card(save, type))
+        {
+            campaign_grant_sticker_paper(save, 1);
+            added = true;
+        }
+        else
+        {
+            added = true;
+        }
+
+        if(g_session.npc_index >= 0 && !added)
         {
             campaign_grant_sticker_paper(save, 1);
         }
@@ -1272,30 +1330,43 @@ void overworld_drops_add_entity_block(bn::fixed world_x, bn::fixed world_y, bn::
 }
 
 void overworld_drops_queue_from_battle(CampaignMode mode, bool won, int peak_before, int band_score,
-                                       bn::seed_random& rng)
+                                       bn::seed_random& rng, int npc_index)
 {
+    (void)mode;
+    (void)peak_before;
+    (void)band_score;
+
     const bn::fixed spawn_x = g_session.spawn_x;
     const bn::fixed spawn_y = g_session.spawn_y;
-    const bn::vector<EntityBlock, 4> saved_blocks = g_entity_blocks;
+    const bn::vector<EntityBlock, 16> saved_blocks = g_entity_blocks;
     overworld_drops_clear();
     g_session.spawn_x = spawn_x;
     g_session.spawn_y = spawn_y;
+    g_session.npc_index = npc_index;
     g_entity_blocks = saved_blocks;
 
-    const SaveData& save = save_data_get();
-    int card_slots = 0;
-    PrizeOffer offers[CAMPAIGN_PRIZE_SLOT_COUNT];
-
-    if(won && !saved_deck_unrestricted_build(save.decks[save.active_deck_index]))
+    if(npc_index >= WORLD_NPC_COUNT)
     {
-        prize_build_offers(save, mode, peak_before, band_score, rng, offers);
+        npc_index = -1;
+    }
 
-        for(int slot = 0; slot < CAMPAIGN_PRIZE_SLOT_COUNT; ++slot)
+    const SaveData& save = save_data_get();
+    bn::vector<CardType, NPC_MAX_COLLECTION_CARDS> npc_cards;
+    int card_slots = 0;
+    bool unrestricted_deck = false;
+
+    if(save.deck_count > 0 && save.active_deck_index < save.deck_count)
+    {
+        unrestricted_deck = saved_deck_unrestricted_build(save.decks[save.active_deck_index]);
+    }
+
+    if(won && npc_index >= 0 && !unrestricted_deck)
+    {
+        card_slots = campaign_npc_collectible_cards(save, npc_index, npc_cards);
+
+        if(card_slots > MAX_CARD_DROPS)
         {
-            if(offer_card_type(offers[slot]) != CardType::COUNT)
-            {
-                ++card_slots;
-            }
+            card_slots = MAX_CARD_DROPS;
         }
     }
 
@@ -1305,25 +1376,26 @@ void overworld_drops_queue_from_battle(CampaignMode mode, bool won, int peak_bef
     const int total_drop_slots = card_slots + 1;
     int placed_cards = 0;
 
-    for(int slot = 0; slot < CAMPAIGN_PRIZE_SLOT_COUNT && placed_cards < card_slots; ++slot)
+    for(int card_index = 0; card_index < card_slots && g_session.drop_count < MAX_CARD_DROPS; ++card_index)
     {
-        const CardType type = offer_card_type(offers[slot]);
-
-        if(type == CardType::COUNT)
-        {
-            continue;
-        }
+        PrizeOffer offer;
+        offer.kind = PrizeOfferKind::CARD;
+        offer.card = npc_cards[card_index];
 
         const bn::fixed_point offset = pick_drop_offset(rng, placed_cards, total_drop_slots);
-        add_card_drop(offers[slot], g_session.spawn_x + offset.x(), g_session.spawn_y + offset.y(),
+        add_card_drop(offer, g_session.spawn_x + offset.x(), g_session.spawn_y + offset.y(),
                       placed_cards * TOSS_STAGGER_FRAMES);
         ++placed_cards;
     }
 
-    const bn::fixed_point paper_offset = pick_drop_offset(rng, placed_cards, total_drop_slots);
-    add_paper_drop(g_session.spawn_x + paper_offset.x(), g_session.spawn_y + paper_offset.y(),
-                   placed_cards * TOSS_STAGGER_FRAMES);
-    g_session.selected_index = g_session.drop_count > 0 ? 0 : -1;
+    if(g_session.drop_count < MAX_DROPS)
+    {
+        const bn::fixed_point paper_offset = pick_drop_offset(rng, placed_cards, total_drop_slots);
+        add_paper_drop(g_session.spawn_x + paper_offset.x(), g_session.spawn_y + paper_offset.y(),
+                       placed_cards * TOSS_STAGGER_FRAMES);
+    }
+
+    g_session.selected_index = -1;
 }
 
 bool overworld_drops_active()

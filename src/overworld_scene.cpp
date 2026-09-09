@@ -2,6 +2,7 @@
 
 #include "bn_array.h"
 #include "bn_backdrop.h"
+#include "bn_string.h"
 #include "bn_core.h"
 #include "bn_fixed.h"
 #include "bn_fixed_point.h"
@@ -13,13 +14,17 @@
 #include "bn_sprite_text_generator.h"
 
 #include "battle_backdrop.h"
+#include "campaign.h"
+#include "campaign_flow.h"
 #include "campaign_scenes.h"
 #include "common_variable_8x16_sprite_font.h"
+#include "common_variable_8x8_sprite_font.h"
 #include "menu_scenes.h"
 #include "overworld_drops.h"
 #include "save_data.h"
 #include "game_types.h"
 #include "ui_common.h"
+#include "world_data.h"
 
 #include "bn_sprite_items_biff_idle_diag_dl.h"
 #include "bn_sprite_items_biff_idle_diag_ul.h"
@@ -47,6 +52,10 @@ namespace
     constexpr int WALK_ANIM_DELAY = 10;
     constexpr bn::fixed NPC_INTERACT_RANGE_X = 20;
     constexpr bn::fixed NPC_INTERACT_RANGE_Y = 24;
+    constexpr int OVERWORLD_NPC_COUNT = WORLD_NPC_COUNT + 1;
+    constexpr int OVERWORLD_SHOP_NPC_INDEX = WORLD_NPC_COUNT;
+    constexpr bn::fixed SHOP_NPC_X = 128;
+    constexpr bn::fixed SHOP_NPC_Y = 152;
 
     enum class Facing8
     {
@@ -67,6 +76,7 @@ namespace
         bn::optional<bn::sprite_ptr> sprite;
         bn::fixed x = 128;
         bn::fixed y = 72;
+        int npc_index = -1;
     };
 
     struct PlayerState
@@ -105,14 +115,19 @@ namespace
             world_y - camera.y() - SCREEN_HALF_H);
     }
 
-    void draw_overworld_frame(PlayerState& player, NpcGuy& npc, const bn::fixed_point& camera)
+    void draw_overworld_frame(PlayerState& player, bn::array<NpcGuy, OVERWORLD_NPC_COUNT>& npcs,
+                              const bn::fixed_point& camera)
     {
         ensure_player_sprite(player);
-        ensure_npc_sprite(npc);
         player.sprite->set_position(world_to_screen(player.x, player.y, camera));
-        npc.sprite->set_position(world_to_screen(npc.x, npc.y, camera));
         player.sprite->set_z_order(overworld_depth_z_order(player.y));
-        npc.sprite->set_z_order(overworld_depth_z_order(npc.y));
+
+        for(NpcGuy& npc : npcs)
+        {
+            ensure_npc_sprite(npc);
+            npc.sprite->set_position(world_to_screen(npc.x, npc.y, camera));
+            npc.sprite->set_z_order(overworld_depth_z_order(npc.y));
+        }
     }
 
     bool player_near_npc(const PlayerState& player, const NpcGuy& npc)
@@ -128,10 +143,62 @@ namespace
         return dy >= -NPC_INTERACT_RANGE_Y && dy <= NPC_INTERACT_RANGE_Y;
     }
 
+    int find_interact_npc_index(const PlayerState& player, const bn::array<NpcGuy, OVERWORLD_NPC_COUNT>& npcs)
+    {
+        int best_index = -1;
+        bn::fixed best_distance = NPC_INTERACT_RANGE_X + NPC_INTERACT_RANGE_Y;
+
+        for(int index = 0; index < OVERWORLD_NPC_COUNT; ++index)
+        {
+            if(!player_near_npc(player, npcs[index]))
+            {
+                continue;
+            }
+
+            const bn::fixed dx = player.x - npcs[index].x;
+            const bn::fixed dy = player.y - npcs[index].y;
+            const bn::fixed distance = bn::sqrt(dx * dx + dy * dy);
+
+            if(best_index < 0 || distance < best_distance)
+            {
+                best_index = index;
+                best_distance = distance;
+            }
+        }
+
+        return best_index;
+    }
+
+    void init_overworld_npcs(bn::array<NpcGuy, OVERWORLD_NPC_COUNT>& npcs)
+    {
+        for(int index = 0; index < WORLD_NPC_COUNT; ++index)
+        {
+            const NpcDef& def = world_npc_def(index);
+            npcs[index].x = def.x;
+            npcs[index].y = def.y;
+            npcs[index].npc_index = index;
+        }
+
+        npcs[OVERWORLD_SHOP_NPC_INDEX].x = SHOP_NPC_X;
+        npcs[OVERWORLD_SHOP_NPC_INDEX].y = SHOP_NPC_Y;
+        npcs[OVERWORLD_SHOP_NPC_INDEX].npc_index = -1;
+    }
+
+    void refresh_npc_entity_blocks(const bn::array<NpcGuy, OVERWORLD_NPC_COUNT>& npcs)
+    {
+        overworld_drops_clear_entity_blocks();
+
+        for(const NpcGuy& npc : npcs)
+        {
+            overworld_drops_add_entity_block(npc.x, npc.y, 16, 22);
+        }
+    }
+
     enum class NpcDialogueResult
     {
         CLOSED,
-        OPEN_PLAY_MENU,
+        BATTLE_LOANER,
+        BATTLE_OWN,
         OPEN_SHOP,
     };
 
@@ -142,18 +209,18 @@ namespace
         CANCELLED,
     };
 
-    int dialogue_half_width(bn::sprite_text_generator& text_generator, const char* line_a,
-                            const char* line_b, const char* option_label)
+    int dialogue_half_width(bn::sprite_text_generator& text_generator, const bn::string_view& line_a,
+                            const bn::string_view& line_b, const bn::string_view& option_label)
     {
         int half_width = text_generator.width(line_a) / 2;
 
-        if(line_b)
+        if(!line_b.empty())
         {
             const int half = text_generator.width(line_b) / 2;
             half_width = half_width > half ? half_width : half;
         }
 
-        if(option_label)
+        if(!option_label.empty())
         {
             const int half = text_generator.width(option_label) / 2;
             half_width = half_width > half ? half_width : half;
@@ -184,31 +251,74 @@ namespace
         battle_backdrop_tick();
     }
 
-    void release_overworld_characters(PlayerState& player, NpcGuy& npc)
+    void release_overworld_characters(PlayerState& player, bn::array<NpcGuy, OVERWORLD_NPC_COUNT>& npcs)
     {
         player.sprite.reset();
-        npc.sprite.reset();
+
+        for(NpcGuy& npc : npcs)
+        {
+            npc.sprite.reset();
+        }
     }
 
-    void restore_overworld_characters(PlayerState& player, NpcGuy& npc)
+    void restore_overworld_characters(PlayerState& player, bn::array<NpcGuy, OVERWORLD_NPC_COUNT>& npcs)
     {
         ensure_player_sprite(player);
-        ensure_npc_sprite(npc);
+
+        for(NpcGuy& npc : npcs)
+        {
+            ensure_npc_sprite(npc);
+        }
+
         apply_player_visual(player);
     }
 
-    void set_overworld_characters_visible(PlayerState& player, NpcGuy& npc, bool visible)
+    void set_overworld_characters_visible(PlayerState& player, bn::array<NpcGuy, OVERWORLD_NPC_COUNT>& npcs,
+                                          bool visible)
     {
         ensure_player_sprite(player);
-        ensure_npc_sprite(npc);
         player.sprite->set_visible(visible);
-        npc.sprite->set_visible(visible);
+
+        for(NpcGuy& npc : npcs)
+        {
+            ensure_npc_sprite(npc);
+            npc.sprite->set_visible(visible);
+        }
+    }
+
+    void draw_minimap(SceneText& minimap_text, bool expanded)
+    {
+        const SaveData& save = save_data_get();
+        minimap_text.clear();
+
+        if(expanded)
+        {
+            minimap_text.draw_left_line(-108, -72, "NPC map");
+
+            for(int npc_index = 0; npc_index < WORLD_NPC_COUNT; ++npc_index)
+            {
+                bn::string<24> line = campaign_npc_has_takeable_card(save, npc_index) ? "+ " : "- ";
+                line.append(world_npc_def(npc_index).name);
+                minimap_text.draw_left_line(-108, -58 + npc_index * 10, line);
+            }
+
+            return;
+        }
+
+        bn::string<12> row;
+
+        for(int npc_index = 0; npc_index < WORLD_NPC_COUNT; ++npc_index)
+        {
+            row.append(campaign_npc_has_takeable_card(save, npc_index) ? "+" : "-");
+        }
+
+        minimap_text.draw_left_line(72, -72, row);
     }
 
     YesNoResult run_npc_yes_no(PlayerState& player, NpcGuy& npc, bn::fixed_point camera,
                                bn::sprite_text_generator& text_generator, SceneText& scene_text,
-                               TextBoxPanel& panel, SelectorGlyph& selector, const char* line0,
-                               const char* line1)
+                               TextBoxPanel& panel, SelectorGlyph& selector,
+                               const bn::string_view& line0, const bn::string_view& line1)
     {
         (void)player;
         (void)npc;
@@ -228,7 +338,7 @@ namespace
         panel.draw_around_lines(0, top_y, bottom_y, content_half_width);
         scene_text.draw_centered_line(top_y, line0);
 
-        if(line1)
+        if(!line1.empty())
         {
             scene_text.draw_centered_line(top_y + 16, line1);
         }
@@ -270,8 +380,8 @@ namespace
 
     void run_npc_ack(PlayerState& player, NpcGuy& npc, bn::fixed_point camera,
                      bn::sprite_text_generator& text_generator, SceneText& scene_text,
-                     TextBoxPanel& panel, SelectorGlyph& selector, const char* line0,
-                     const char* line1)
+                     TextBoxPanel& panel, SelectorGlyph& selector, const bn::string_view& line0,
+                     const bn::string_view& line1)
     {
         (void)player;
         (void)npc;
@@ -280,14 +390,14 @@ namespace
         wait_for_keypad_clear();
 
         const int top_y = -52;
-        const int bottom_y = line1 ? -20 : -36;
+        const int bottom_y = !line1.empty() ? -20 : -36;
         setup_npc_dialogue_depth(panel, scene_text, selector);
 
-        const int content_half_width = dialogue_half_width(text_generator, line0, line1, nullptr) + 4;
+        const int content_half_width = dialogue_half_width(text_generator, line0, line1, "") + 4;
         panel.draw_around_lines(0, top_y, bottom_y, content_half_width);
         scene_text.draw_centered_line(top_y, line0);
 
-        if(line1)
+        if(!line1.empty())
         {
             scene_text.draw_centered_line(top_y + 16, line1);
         }
@@ -308,48 +418,110 @@ namespace
         }
     }
 
-    NpcDialogueResult run_npc_dialogue(PlayerState& player, NpcGuy& npc, bn::fixed_point camera)
+    NpcDialogueResult run_shop_npc_dialogue(PlayerState& player, NpcGuy& npc, bn::fixed_point camera)
     {
-        release_overworld_characters(player, npc);
-
         bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
         SceneText scene_text(text_generator);
         TextBoxPanel panel;
         SelectorGlyph selector(text_generator, -56);
 
         switch(run_npc_yes_no(player, npc, camera, text_generator, scene_text, panel, selector,
-                              "So you think you know", "the biggest number, eh?"))
-        {
-        case YesNoResult::YES:
-            return NpcDialogueResult::OPEN_PLAY_MENU;
-
-        case YesNoResult::CANCELLED:
-            return NpcDialogueResult::CLOSED;
-
-        case YesNoResult::NO:
-        default:
-            break;
-        }
-
-        switch(run_npc_yes_no(player, npc, camera, text_generator, scene_text, panel, selector,
-                              "You here to make", "stickers then?"))
+                              "Need sticker paper", "upgrades?"))
         {
         case YesNoResult::YES:
             return NpcDialogueResult::OPEN_SHOP;
 
         case YesNoResult::CANCELLED:
+        case YesNoResult::NO:
+        default:
+            return NpcDialogueResult::CLOSED;
+        }
+    }
+
+    void show_tapped_out_hint(PlayerState& player, NpcGuy& npc, bn::fixed_point camera,
+                              bn::sprite_text_generator& text_generator, SceneText& scene_text,
+                              TextBoxPanel& panel, SelectorGlyph& selector, int npc_index)
+    {
+        const int alt_index = campaign_npc_first_takeable_index(save_data_get());
+        bn::string<32> line1 = "I'm tapped out -";
+        bn::string<32> line2 = "try someone else.";
+
+        if(alt_index >= 0 && alt_index != npc_index)
+        {
+            line2 = "try ";
+            line2.append(world_npc_def(alt_index).name);
+            line2.append(".");
+        }
+
+        run_npc_ack(player, npc, camera, text_generator, scene_text, panel, selector, line1, line2);
+    }
+
+    NpcDialogueResult run_battle_npc_dialogue(PlayerState& player, NpcGuy& npc, bn::fixed_point camera,
+                                              int npc_index)
+    {
+        bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
+        SceneText scene_text(text_generator);
+        TextBoxPanel panel;
+        SelectorGlyph selector(text_generator, -56);
+        const SaveData& save = save_data_get();
+        const NpcDef& def = world_npc_def(npc_index);
+        const bool has_takeable = campaign_npc_has_takeable_card(save, npc_index);
+        const bool has_loaner = campaign_npc_total_cards(save, npc_index) > 0;
+
+        if(!has_takeable)
+        {
+            show_tapped_out_hint(player, npc, camera, text_generator, scene_text, panel, selector,
+                                 npc_index);
+        }
+
+        if(has_loaner)
+        {
+            bn::string<32> borrow_line = "Borrow ";
+            borrow_line.append(def.name);
+            borrow_line.append("'s deck?");
+
+            switch(run_npc_yes_no(player, npc, camera, text_generator, scene_text, panel, selector,
+                                  borrow_line, ""))
+            {
+            case YesNoResult::YES:
+                return NpcDialogueResult::BATTLE_LOANER;
+
+            case YesNoResult::CANCELLED:
+                return NpcDialogueResult::CLOSED;
+
+            case YesNoResult::NO:
+            default:
+                break;
+            }
+        }
+
+        switch(run_npc_yes_no(player, npc, camera, text_generator, scene_text, panel, selector,
+                              "Battle with your", "own deck?"))
+        {
+        case YesNoResult::YES:
+            return NpcDialogueResult::BATTLE_OWN;
+
+        case YesNoResult::CANCELLED:
             return NpcDialogueResult::CLOSED;
 
         case YesNoResult::NO:
         default:
-            break;
+            return NpcDialogueResult::CLOSED;
+        }
+    }
+
+    NpcDialogueResult run_npc_dialogue(PlayerState& player, bn::array<NpcGuy, OVERWORLD_NPC_COUNT>& npcs,
+                                       int interact_index, bn::fixed_point camera)
+    {
+        release_overworld_characters(player, npcs);
+        NpcGuy& npc = npcs[interact_index];
+
+        if(interact_index == OVERWORLD_SHOP_NPC_INDEX)
+        {
+            return run_shop_npc_dialogue(player, npc, camera);
         }
 
-        run_npc_ack(player, npc, camera, text_generator, scene_text, panel, selector,
-                    "A joke then. What's the", "tastiest number?");
-        run_npc_ack(player, npc, camera, text_generator, scene_text, panel, selector, "...", nullptr);
-        run_npc_ack(player, npc, camera, text_generator, scene_text, panel, selector, "PI!", nullptr);
-        return NpcDialogueResult::CLOSED;
+        return run_battle_npc_dialogue(player, npc, camera, npcs[interact_index].npc_index);
     }
 
     bool facing_flipped(Facing8 facing)
@@ -566,13 +738,16 @@ OverworldSceneResult run_overworld_scene()
     bn::backdrop::set_color(bn::color(12, 18, 12));
 
     PlayerState player;
-    NpcGuy npc;
+    bn::array<NpcGuy, OVERWORLD_NPC_COUNT> npcs;
+    init_overworld_npcs(npcs);
     ensure_player_sprite(player);
-    ensure_npc_sprite(npc);
-    overworld_drops_clear_entity_blocks();
-    overworld_drops_add_entity_block(npc.x, npc.y, 16, 22);
-    player.sprite->set_z_order(overworld_depth_z_order(player.y));
-    npc.sprite->set_z_order(overworld_depth_z_order(npc.y));
+
+    for(NpcGuy& npc : npcs)
+    {
+        ensure_npc_sprite(npc);
+    }
+
+    refresh_npc_entity_blocks(npcs);
 
     if(g_resume_position.has_value())
     {
@@ -583,45 +758,76 @@ OverworldSceneResult run_overworld_scene()
 
     apply_player_visual(player);
 
+    bn::sprite_text_generator minimap_generator(common::variable_8x8_sprite_font);
+    SceneText minimap_text(minimap_generator);
     bn::fixed_point camera = update_camera(player);
-    draw_overworld_frame(player, npc, camera);
+    draw_overworld_frame(player, npcs, camera);
 
     while(true)
     {
+        const bool minimap_expanded =
+            bn::keypad::l_held() || bn::keypad::select_held() || overworld_drops_inspect_open();
+
         if(!overworld_drops_active() && !overworld_drops_inspect_open() && bn::keypad::start_pressed())
         {
-            set_overworld_characters_visible(player, npc, false);
+            set_overworld_characters_visible(player, npcs, false);
             run_deck_list_build_scene(true);
             wait_for_keypad_clear();
+            restore_overworld_characters(player, npcs);
         }
-        else if(player_near_npc(player, npc) && !overworld_drops_active() && bn::keypad::a_pressed())
+        else if(!overworld_drops_active() && bn::keypad::a_pressed())
         {
-            camera = update_camera(player);
+            const int interact_index = find_interact_npc_index(player, npcs);
 
-            const NpcDialogueResult dialogue_result = run_npc_dialogue(player, npc, camera);
-            restore_overworld_characters(player, npc);
-
-            switch(dialogue_result)
+            if(interact_index >= 0)
             {
-            case NpcDialogueResult::OPEN_PLAY_MENU:
-                g_resume_position = bn::fixed_point(player.x, player.y);
-                overworld_drops_set_spawn(player.x, player.y);
-                set_overworld_characters_visible(player, npc, false);
-                return OverworldSceneResult::OPEN_PLAY_MENU;
+                camera = update_camera(player);
 
-            case NpcDialogueResult::OPEN_SHOP:
-            {
-                set_overworld_characters_visible(player, npc, false);
-                bn::seed_random shop_rng(bn::core::current_cpu_ticks() | 1u);
-                run_campaign_shop_scene(shop_rng);
-                wait_for_keypad_clear();
-                break;
-            }
+                const NpcDialogueResult dialogue_result =
+                    run_npc_dialogue(player, npcs, interact_index, camera);
+                restore_overworld_characters(player, npcs);
 
-            case NpcDialogueResult::CLOSED:
-            default:
-                wait_for_keypad_clear();
-                break;
+                switch(dialogue_result)
+                {
+                case NpcDialogueResult::BATTLE_LOANER:
+                case NpcDialogueResult::BATTLE_OWN:
+                {
+                    const int npc_index = npcs[interact_index].npc_index;
+
+                    if(npc_index < 0 || npc_index >= WORLD_NPC_COUNT)
+                    {
+                        wait_for_keypad_clear();
+                        break;
+                    }
+
+                    const NpcDef& def = world_npc_def(npc_index);
+                    g_resume_position = bn::fixed_point(player.x, player.y);
+                    overworld_drops_set_spawn(player.x, player.y);
+                    set_overworld_characters_visible(player, npcs, false);
+                    bn::seed_random battle_rng(bn::core::current_cpu_ticks() | 1u);
+                    campaign_run_overworld_battle(
+                        battle_rng, def.mode, npc_index,
+                        dialogue_result == NpcDialogueResult::BATTLE_LOANER);
+                    restore_overworld_characters(player, npcs);
+                    wait_for_keypad_clear();
+                    break;
+                }
+
+                case NpcDialogueResult::OPEN_SHOP:
+                {
+                    set_overworld_characters_visible(player, npcs, false);
+                    bn::seed_random shop_rng(bn::core::current_cpu_ticks() | 1u);
+                    run_campaign_shop_scene(shop_rng);
+                    restore_overworld_characters(player, npcs);
+                    wait_for_keypad_clear();
+                    break;
+                }
+
+                case NpcDialogueResult::CLOSED:
+                default:
+                    wait_for_keypad_clear();
+                    break;
+                }
             }
         }
 
@@ -689,14 +895,28 @@ OverworldSceneResult run_overworld_scene()
 
         if(overworld_drops_inspect_open())
         {
-            set_overworld_characters_visible(player, npc, false);
+            set_overworld_characters_visible(player, npcs, false);
         }
         else
         {
-            set_overworld_characters_visible(player, npc, true);
+            set_overworld_characters_visible(player, npcs, true);
+
+            if(overworld_drops_active())
+            {
+                for(NpcGuy& npc : npcs)
+                {
+                    ensure_npc_sprite(npc);
+                    npc.sprite->set_visible(false);
+                }
+            }
         }
 
-        draw_overworld_frame(player, npc, camera);
+        draw_overworld_frame(player, npcs, camera);
+
+        if(!overworld_drops_inspect_open() && !overworld_drops_active())
+        {
+            draw_minimap(minimap_text, minimap_expanded);
+        }
 
         battle_backdrop_tick();
         bn::core::update();
