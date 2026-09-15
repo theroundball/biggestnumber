@@ -151,7 +151,7 @@ namespace
             campaign_repair_active_deck_from_library(save);
         }
 
-        if(mode == CampaignMode::SAME_NUMBER)
+        if(mode == CampaignMode::SAME_NUMBER && npc_index < 0)
         {
             campaign_prepare_same_number_target(save, rng);
         }
@@ -177,6 +177,16 @@ namespace
         const CampaignBattleSetup setup =
             campaign_battle_setup(save, mode, rng, battle_deck.size(), npc_index);
 
+        if(overworld_drops && npc_index >= 0)
+        {
+            const int benchmark_rung = campaign_npc_benchmark_rung(save, npc_index);
+
+            if(run_benchmark_pre_battle_scene(mode, benchmark_rung) == MenuSceneResult::MAIN_MENU)
+            {
+                return;
+            }
+        }
+
         if(!overworld_drops)
         {
             CampaignUiContext intro_ctx;
@@ -196,6 +206,8 @@ namespace
             }
         }
 
+        battle_backdrop_set_visible(true);
+
         reset_battle_launch();
         BattleLaunch& launch = battle_launch();
         launch.deck_index = loaner_battle ? -1 : save.active_deck_index;
@@ -206,6 +218,7 @@ namespace
                           : campaign_number_now_round_count(saved_deck_total_cards(battle_deck_state));
 
         launch.campaign_mode = mode;
+        launch.npc_index = npc_index;
         launch.same_number_target = setup.same_number_target;
         launch.number_now_scoring_round = setup.number_now_scoring_round;
         launch.number_now_round_peak = setup.number_now_round_peak;
@@ -245,9 +258,13 @@ namespace
 
         if(overworld_drops)
         {
+            const int benchmark_rung =
+                npc_index >= 0 ? campaign_npc_benchmark_rung(save, npc_index) : -1;
+            const int next_benchmark_rung =
+                npc_index >= 0 ? campaign_npc_next_benchmark_rung(save, npc_index) : -1;
             bool continue_to_overworld = false;
             run_campaign_battle_results_scene(mode, game, won, setup.same_number_target, continue_to_overworld,
-                                              false, true);
+                                              false, true, benchmark_rung, next_benchmark_rung);
 
             const bool counts_for_progress =
                 won && !(loaner_battle ? false : saved_deck_unrestricted_build(battle_deck_state));
@@ -260,7 +277,6 @@ namespace
             const int band_score =
                 mode == CampaignMode::NUMBER_NOW ? game.last_round_score : game.final_score;
             overworld_drops_queue_from_battle(mode, won, setup.peak_before, band_score, rng, npc_index);
-            battle_backdrop_set_visible(true);
             return;
         }
 

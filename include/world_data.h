@@ -7,7 +7,7 @@
 #include "card_type.h"
 
 constexpr int WORLD_NPC_COUNT = 8;
-constexpr int NPC_MAX_COLLECTION_CARDS = 10;
+constexpr int NPC_MAX_COLLECTION_CARDS = 13;
 
 struct NpcDef
 {

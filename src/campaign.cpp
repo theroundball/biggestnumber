@@ -232,6 +232,49 @@ void campaign_clear_npc_best_scores(SaveData& save)
     }
 }
 
+int campaign_npc_benchmark_taken(const SaveData& save, int npc_index)
+{
+    if(npc_index < 0 || npc_index >= WORLD_NPC_COUNT)
+    {
+        return 0;
+    }
+
+    const NpcDef& def = world_npc_def(npc_index);
+    const int taken = def.collection_count - campaign_npc_total_cards(save, npc_index);
+    return taken < 0 ? 0 : taken;
+}
+
+int campaign_npc_benchmark_rung(const SaveData& save, int npc_index)
+{
+    const int taken = campaign_npc_benchmark_taken(save, npc_index);
+    const int index = taken < NPC_BENCHMARK_COUNT ? taken : NPC_BENCHMARK_COUNT - 1;
+    return NPC_BENCHMARKS[index];
+}
+
+int campaign_npc_next_benchmark_rung(const SaveData& save, int npc_index)
+{
+    if(npc_index < 0 || npc_index >= WORLD_NPC_COUNT)
+    {
+        return -1;
+    }
+
+    if(campaign_npc_total_cards(save, npc_index) <= 1)
+    {
+        return -1;
+    }
+
+    const int taken = campaign_npc_benchmark_taken(save, npc_index);
+    const int next_index = taken + 1;
+    const NpcDef& def = world_npc_def(npc_index);
+
+    if(next_index >= def.collection_count || next_index >= NPC_BENCHMARK_COUNT)
+    {
+        return -1;
+    }
+
+    return NPC_BENCHMARKS[next_index];
+}
+
 int campaign_run_score(CampaignMode mode, const GameSceneResult& result)
 {
     if(mode == CampaignMode::NUMBER_NOW)
@@ -256,19 +299,28 @@ CampaignBattleSetup campaign_battle_setup(const SaveData& save, CampaignMode mod
 
     const SavedDeck& deck = save.decks[save.active_deck_index];
     const int deck_size = battle_deck_size >= 0 ? battle_deck_size : saved_deck_total_cards(deck);
-    const bool use_npc_peak = npc_index >= 0 && npc_index < WORLD_NPC_COUNT;
-    const int npc_peak = use_npc_peak ? save.npc_best_score[npc_index] : 0;
+    const bool use_npc_benchmark = npc_index >= 0 && npc_index < WORLD_NPC_COUNT;
+    const int benchmark_rung = use_npc_benchmark ? campaign_npc_benchmark_rung(save, npc_index) : 0;
 
     switch(mode)
     {
     case CampaignMode::BIGGEST_NUMBER:
-        setup.peak_before = use_npc_peak ? npc_peak : save.biggest_number_record;
+        setup.peak_before = use_npc_benchmark ? benchmark_rung : save.biggest_number_record;
         setup.band_score = setup.peak_before;
         break;
 
     case CampaignMode::SAME_NUMBER:
-        setup.same_number_target = save.same_number_target;
-        setup.peak_before = use_npc_peak ? npc_peak : 0;
+        if(use_npc_benchmark)
+        {
+            setup.same_number_target = benchmark_rung;
+            setup.peak_before = benchmark_rung;
+        }
+        else
+        {
+            setup.same_number_target = save.same_number_target;
+            setup.peak_before = 0;
+        }
+
         setup.band_score = setup.peak_before;
         break;
 
@@ -287,9 +339,9 @@ CampaignBattleSetup campaign_battle_setup(const SaveData& save, CampaignMode mod
 
         const int round_index = setup.number_now_scoring_round - 1;
 
-        if(use_npc_peak)
+        if(use_npc_benchmark)
         {
-            setup.number_now_round_peak = npc_peak;
+            setup.number_now_round_peak = benchmark_rung;
         }
         else if(round_index >= 0 && round_index < CAMPAIGN_NUMBER_NOW_ROUNDS)
         {
@@ -302,22 +354,22 @@ CampaignBattleSetup campaign_battle_setup(const SaveData& save, CampaignMode mod
     }
 
     case CampaignMode::AINT_GOT_TIME:
-        setup.peak_before = use_npc_peak ? npc_peak : save.aint_got_time_record;
+        setup.peak_before = use_npc_benchmark ? benchmark_rung : save.aint_got_time_record;
         setup.band_score = setup.peak_before;
         break;
 
     case CampaignMode::SHARING_IS_CARING:
-        setup.peak_before = use_npc_peak ? npc_peak : save.sharing_is_caring_record;
+        setup.peak_before = use_npc_benchmark ? benchmark_rung : save.sharing_is_caring_record;
         setup.band_score = setup.peak_before;
         break;
 
     case CampaignMode::POKER_HAND:
-        setup.peak_before = use_npc_peak ? npc_peak : save.poker_hand_record;
+        setup.peak_before = use_npc_benchmark ? benchmark_rung : save.poker_hand_record;
         setup.band_score = setup.peak_before;
         break;
 
     case CampaignMode::Y2K:
-        setup.peak_before = use_npc_peak ? npc_peak : save.y2k_record;
+        setup.peak_before = use_npc_benchmark ? benchmark_rung : save.y2k_record;
         setup.band_score = setup.peak_before;
         break;
     }
@@ -385,10 +437,13 @@ void campaign_apply_win(SaveData& save, CampaignMode mode, const GameSceneResult
         break;
 
     case CampaignMode::SAME_NUMBER:
-        ++save.same_number_wins;
-        // Roll the next challenge immediately so the target never sits at 0 between runs.
-        save.same_number_target = 0;
-        campaign_prepare_same_number_target(save, rng);
+        if(npc_index < 0 || npc_index >= WORLD_NPC_COUNT)
+        {
+            ++save.same_number_wins;
+            // Roll the next challenge immediately so the target never sits at 0 between runs.
+            save.same_number_target = 0;
+            campaign_prepare_same_number_target(save, rng);
+        }
         break;
 
     case CampaignMode::NUMBER_NOW:

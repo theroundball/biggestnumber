@@ -388,6 +388,7 @@ GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const Battle
     state.instance_pool = launch.instance_pool;
     deck.ensure_unique_bounty_instances(state.instance_pool, state.bounty_next_id);
     campaign_ui = launch.campaign_ui;
+    battle_npc_index = launch.npc_index;
 
     if(campaign_ui.mode == CampaignMode::POKER_HAND)
     {
@@ -4371,15 +4372,17 @@ void GameContext::sync_details_panel(bool force)
 
         bn::string<32> goal_line;
 
+        const bool npc_benchmark = battle_npc_index >= 0;
+
         switch(campaign_ui.mode)
         {
         case CampaignMode::BIGGEST_NUMBER:
-            goal_line = "Record: ";
+            goal_line = npc_benchmark ? "Beat: " : "Record: ";
             goal_line.append(bn::to_string<12>(campaign_ui.biggest_number_record));
             break;
 
         case CampaignMode::SAME_NUMBER:
-            goal_line = "Target: ";
+            goal_line = npc_benchmark ? "Hit: " : "Target: ";
             goal_line.append(bn::to_string<8>(campaign_ui.same_number_target));
             break;
 

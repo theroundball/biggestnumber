@@ -512,6 +512,14 @@ void TextBoxPanel::draw_around_lines(int center_x, int top_y, int bottom_y, int 
     }
 }
 
+void TextBoxPanel::draw_full_width_top(int bottom_y)
+{
+    constexpr int top_y = -80;
+    constexpr int center_x = 0;
+    constexpr int content_half_width = 120;
+    draw_around_lines(center_x, top_y, bottom_y, content_half_width);
+}
+
 SelectorGlyph::SelectorGlyph(bn::sprite_text_generator& generator, int anchor_x) :
     _anchor_x(anchor_x)
 {

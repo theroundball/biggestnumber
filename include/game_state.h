@@ -44,6 +44,7 @@ struct BattleLaunch
     bn::array<CardRef, 2> longsleeve_cards = {};
     CampaignUiContext campaign_ui{};
     CampaignMode campaign_mode = CampaignMode::NONE;
+    int npc_index = -1;
     int same_number_target = 0;
     int number_now_scoring_round = 1;
     int number_now_round_peak = 0;

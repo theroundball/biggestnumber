@@ -25,6 +25,7 @@ namespace
         CardType::STRAW,
         CardType::STICKS,
         CardType::BRICKS,
+        CardType::MAKE_IT_A_COMBO,
     };
 
     constexpr CardType CLOCK_SHOP_CARDS[] = {
@@ -33,7 +34,7 @@ namespace
         CardType::TIME_IS_TOO_EXPENSIVE,
         CardType::TIME_IS_MONEY,
         CardType::SEVEN_FEET_DEEP,
-        CardType::OVERCLOCK,
+        CardType::TURTLE_MODE,
         CardType::FINALE,
         CardType::EVALUATE,
         CardType::SEMAPHORE,
@@ -41,9 +42,11 @@ namespace
 
     constexpr CardType GRAVEYARD_GATE_CARDS[] = {
         CardType::BONES,
+        CardType::BONES,
+        CardType::BONES,
         CardType::BUSTED,
         CardType::THRESHOLD,
-        CardType::TOMBSTONES,
+        CardType::GET_ME_OUTA_HERE,
         CardType::JACKS,
         CardType::FISHING_POLE,
         CardType::SHELLS,
@@ -56,10 +59,14 @@ namespace
         CardType::NECROMANCY,
         CardType::RAGS_TO_RICHES,
         CardType::BIRDS_OF_A_FEATHER,
+        CardType::BIRDS_OF_A_FEATHER,
+        CardType::BIRDS_OF_A_FEATHER,
+        CardType::BIRDS_OF_A_FEATHER,
+        CardType::BIRDS_OF_A_FEATHER,
         CardType::DEAD_RISING,
         CardType::COMEBACK,
         CardType::ENCORE,
-        CardType::GET_ME_OUTA_HERE,
+        CardType::TOMBSTONES,
         CardType::CLOVER,
     };
 
@@ -72,6 +79,10 @@ namespace
         CardType::FLEX,
         CardType::SWIVEL,
         CardType::WISHES,
+        CardType::CATNIP,
+        CardType::CATNIP,
+        CardType::CATNIP,
+        CardType::CATNIP,
         CardType::CATNIP,
     };
 
@@ -91,9 +102,13 @@ namespace
         CardType::STOLLER,
         CardType::RIP_STICK,
         CardType::BIG_KUROSAWA_BURGER,
-        CardType::TURTLE_MODE,
+        CardType::OVERCLOCK,
         CardType::TRIPTYCH,
         CardType::SOLO,
+        CardType::BOUNTY,
+        CardType::BOUNTY,
+        CardType::BOUNTY,
+        CardType::BOUNTY,
         CardType::BOUNTY,
     };
 
@@ -102,15 +117,15 @@ namespace
          int(sizeof(WHEELIE_CARDS) / sizeof(WHEELIE_CARDS[0]))},
         {"Combo Kid", CampaignMode::SAME_NUMBER, 208, 56, COMBO_KID_CARDS,
          int(sizeof(COMBO_KID_CARDS) / sizeof(COMBO_KID_CARDS[0]))},
-        {"Clock Shop", CampaignMode::NUMBER_NOW, 48, 128, CLOCK_SHOP_CARDS,
+        {"Clock Shop", CampaignMode::BIGGEST_NUMBER, 48, 128, CLOCK_SHOP_CARDS,
          int(sizeof(CLOCK_SHOP_CARDS) / sizeof(CLOCK_SHOP_CARDS[0]))},
-        {"Graveyard", CampaignMode::AINT_GOT_TIME, 208, 128, GRAVEYARD_GATE_CARDS,
+        {"Graveyard", CampaignMode::BIGGEST_NUMBER, 208, 128, GRAVEYARD_GATE_CARDS,
          int(sizeof(GRAVEYARD_GATE_CARDS) / sizeof(GRAVEYARD_GATE_CARDS[0]))},
-        {"Undertaker", CampaignMode::SHARING_IS_CARING, 48, 200, UNDERTAKER_CARDS,
+        {"Undertaker", CampaignMode::BIGGEST_NUMBER, 48, 200, UNDERTAKER_CARDS,
          int(sizeof(UNDERTAKER_CARDS) / sizeof(UNDERTAKER_CARDS[0]))},
-        {"Librarian", CampaignMode::POKER_HAND, 208, 200, LIBRARIAN_CARDS,
+        {"Librarian", CampaignMode::BIGGEST_NUMBER, 208, 200, LIBRARIAN_CARDS,
          int(sizeof(LIBRARIAN_CARDS) / sizeof(LIBRARIAN_CARDS[0]))},
-        {"Digit Hermit", CampaignMode::Y2K, 128, 88, DIGIT_HERMIT_CARDS,
+        {"Digit Hermit", CampaignMode::BIGGEST_NUMBER, 128, 88, DIGIT_HERMIT_CARDS,
          int(sizeof(DIGIT_HERMIT_CARDS) / sizeof(DIGIT_HERMIT_CARDS[0]))},
         {"Odd Jobs", CampaignMode::BIGGEST_NUMBER, 128, 216, ODD_JOBS_CARDS,
          int(sizeof(ODD_JOBS_CARDS) / sizeof(ODD_JOBS_CARDS[0]))},

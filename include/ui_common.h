@@ -78,6 +78,8 @@ public:
     // top_y / bottom_y are the y positions of the first and last text lines.
     void draw_around_lines(int center_x, int top_y, int bottom_y, int content_half_width,
                            int padding_x = 8, int padding_y = 6);
+    // Full-width top banner (x -120..120, top at y -80).
+    void draw_full_width_top(int bottom_y);
 
 private:
     bn::vector<bn::sprite_ptr, 96> _sprites;

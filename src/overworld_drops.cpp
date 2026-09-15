@@ -1230,13 +1230,8 @@ namespace
         const bn::fixed walk_min_y = DROP_LABEL_MIN_Y;
         const bn::fixed walk_max_y = bn::fixed(MAP_PIXEL_H) - MAP_MARGIN;
 
-        bn::fixed camera_x = g_session.spawn_x - bn::fixed(SCREEN_W / 2);
-        bn::fixed camera_y = g_session.spawn_y - bn::fixed(SCREEN_H / 2);
-        const bn::fixed max_camera_x = bn::fixed(MAP_PIXEL_W - SCREEN_W);
-        const bn::fixed max_camera_y = bn::fixed(MAP_PIXEL_H - SCREEN_H);
-
-        camera_x = clamp_fixed(camera_x, 0, max_camera_x);
-        camera_y = clamp_fixed(camera_y, 0, max_camera_y);
+        const bn::fixed camera_x = g_session.spawn_x - bn::fixed(SCREEN_W / 2);
+        const bn::fixed camera_y = g_session.spawn_y - bn::fixed(SCREEN_H / 2);
 
         constexpr bn::fixed screen_inset_x = 20;
         constexpr bn::fixed screen_inset_bottom = 20;

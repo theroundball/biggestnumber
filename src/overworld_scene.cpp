@@ -22,6 +22,7 @@
 
 #include "battle_backdrop.h"
 #include "campaign.h"
+#include "overworld_field.h"
 #include "campaign_flow.h"
 #include "campaign_scenes.h"
 #include "common_variable_8x16_sprite_font.h"
@@ -158,6 +159,7 @@ namespace
     void draw_overworld_frame(PlayerState& player, bn::array<NpcGuy, OVERWORLD_NPC_COUNT>& npcs,
                               const bn::fixed_point& camera)
     {
+        overworld_field_set_camera(camera.x(), camera.y());
         ensure_player_sprite(player);
         player.sprite->set_position(world_to_screen(player.x, player.y, camera));
         player.sprite->set_z_order(overworld_depth_z_order(player.y));
@@ -252,26 +254,6 @@ namespace
         CANCELLED,
     };
 
-    int dialogue_half_width(bn::sprite_text_generator& text_generator, const bn::string_view& line_a,
-                            const bn::string_view& line_b, const bn::string_view& option_label)
-    {
-        int half_width = text_generator.width(line_a) / 2;
-
-        if(!line_b.empty())
-        {
-            const int half = text_generator.width(line_b) / 2;
-            half_width = half_width > half ? half_width : half;
-        }
-
-        if(!option_label.empty())
-        {
-            const int half = text_generator.width(option_label) / 2;
-            half_width = half_width > half ? half_width : half;
-        }
-
-        return half_width;
-    }
-
     void clear_npc_dialogue(TextBoxPanel& panel, SceneText& scene_text, SelectorGlyph& selector)
     {
         panel.clear();
@@ -287,11 +269,6 @@ namespace
         scene_text.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
         selector.set_z_order(game_layout::OVERLAY_TEXT_Z);
         selector.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
-    }
-
-    void tick_dialogue_backdrop()
-    {
-        battle_backdrop_tick();
     }
 
     void release_overworld_characters(PlayerState& player, bn::array<NpcGuy, OVERWORLD_NPC_COUNT>& npcs)
@@ -332,12 +309,12 @@ namespace
         restore_overworld_characters(player, npcs);
         refresh_npc_entity_blocks(npcs);
         bn::blending::set_transparency_alpha(bn::fixed(1));
-        battle_backdrop_set_visible(true);
-        bn::backdrop::set_color(bn::color(12, 18, 12));
+        battle_backdrop_set_visible(false);
+        overworld_field_set_visible(true);
+        bn::backdrop::set_color(bn::color(0, 0, 0));
         for(int frame = 0; frame < 2; ++frame)
         {
             draw_overworld_frame(player, npcs, camera);
-            battle_backdrop_tick();
             bn::core::update();
         }
     }
@@ -367,20 +344,23 @@ namespace
         wait_for_keypad_clear();
 
         int cursor = 0;
-        constexpr int top_y = -52;
-        constexpr int bottom_y = 28;
-        constexpr int option_y_0 = 4;
-        constexpr int option_y_1 = 20;
+        constexpr int prompt_y_0 = -64;
+        constexpr int prompt_y_1 = -48;
+        constexpr int option_y_0 = -16;
+        constexpr int option_y_1 = 0;
+        constexpr int bottom_y = 12;
         setup_npc_dialogue_depth(panel, scene_text, selector);
 
-        const int content_half_width =
-            dialogue_half_width(text_generator, line0, line1, "Yes") + 4;
-        panel.draw_around_lines(0, top_y, bottom_y, content_half_width);
-        scene_text.draw_centered_line(top_y, line0);
+        panel.draw_full_width_top(bottom_y);
 
         if(!line1.empty())
         {
-            scene_text.draw_centered_line(top_y + 16, line1);
+            scene_text.draw_centered_line(prompt_y_0, line0);
+            scene_text.draw_centered_line(prompt_y_1, line1);
+        }
+        else
+        {
+            scene_text.draw_centered_line(-56, line0);
         }
 
         scene_text.draw_left_line(-40, option_y_0, "Yes");
@@ -388,7 +368,6 @@ namespace
 
         while(true)
         {
-            tick_dialogue_backdrop();
             selector.set_position(-56, cursor == 0 ? option_y_0 : option_y_1);
             selector.set_visible(true);
 
@@ -429,25 +408,23 @@ namespace
 
         wait_for_keypad_clear();
 
-        const int top_y = -52;
+        constexpr int prompt_y_0 = -64;
+        constexpr int prompt_y_1 = -48;
         const int bottom_y = !line1.empty() ? -20 : -36;
         setup_npc_dialogue_depth(panel, scene_text, selector);
 
-        const int content_half_width = dialogue_half_width(text_generator, line0, line1, "") + 4;
-        panel.draw_around_lines(0, top_y, bottom_y, content_half_width);
-        scene_text.draw_centered_line(top_y, line0);
+        panel.draw_full_width_top(bottom_y);
+        scene_text.draw_centered_line(prompt_y_0, line0);
 
         if(!line1.empty())
         {
-            scene_text.draw_centered_line(top_y + 16, line1);
+            scene_text.draw_centered_line(prompt_y_1, line1);
         }
 
         selector.set_visible(false);
 
         while(true)
         {
-            tick_dialogue_backdrop();
-
             if(bn::keypad::a_pressed() || bn::keypad::b_pressed())
             {
                 clear_npc_dialogue(panel, scene_text, selector);
@@ -727,31 +704,7 @@ namespace
 
     bn::fixed_point update_camera(const PlayerState& player)
     {
-        bn::fixed camera_x = player.x - SCREEN_HALF_W;
-        bn::fixed camera_y = player.y - SCREEN_HALF_H;
-
-        const bn::fixed max_camera_x = MAP_PIXEL_W - 240;
-        const bn::fixed max_camera_y = MAP_PIXEL_H - 160;
-
-        if(camera_x < 0)
-        {
-            camera_x = 0;
-        }
-        else if(camera_x > max_camera_x)
-        {
-            camera_x = max_camera_x;
-        }
-
-        if(camera_y < 0)
-        {
-            camera_y = 0;
-        }
-        else if(camera_y > max_camera_y)
-        {
-            camera_y = max_camera_y;
-        }
-
-        return bn::fixed_point(camera_x, camera_y);
+        return bn::fixed_point(player.x - SCREEN_HALF_W, player.y - SCREEN_HALF_H);
     }
 }
 
@@ -759,12 +712,13 @@ OverworldSceneResult run_overworld_scene()
 {
     while(bn::keypad::any_held())
     {
-        battle_backdrop_tick();
         bn::core::update();
     }
 
-    battle_backdrop_set_visible(true);
-    bn::backdrop::set_color(bn::color(12, 18, 12));
+    battle_backdrop_set_visible(false);
+    overworld_field_init();
+    overworld_field_set_visible(true);
+    bn::backdrop::set_color(bn::color(0, 0, 0));
 
     PlayerState player;
     bn::array<NpcGuy, OVERWORLD_NPC_COUNT> npcs;
@@ -972,8 +926,6 @@ OverworldSceneResult run_overworld_scene()
         }
 
         draw_overworld_frame(player, npcs, camera);
-
-        battle_backdrop_tick();
         bn::core::update();
     }
 }

@@ -1,5 +1,6 @@
 #include "campaign_scenes.h"
 
+#include "bn_backdrop.h"
 #include "bn_core.h"
 #include "bn_keypad.h"
 #include "bn_span.h"
@@ -195,13 +196,137 @@ CampaignPlayMenuResult run_campaign_play_menu_scene(bn::seed_random& rng)
     }
 }
 
+MenuSceneResult run_benchmark_pre_battle_scene(CampaignMode mode, int current_rung)
+{
+    (void)mode;
+
+    wait_for_keypad_clear();
+    battle_backdrop_set_visible(false);
+    bn::backdrop::set_color(bn::color(0, 0, 0));
+
+    bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
+    SceneText scene_text(text_generator);
+    TextBoxPanel panel;
+    SelectorGlyph selector(text_generator, -100);
+    panel.set_z_order(game_layout::TEXT_BOX_Z);
+    panel.set_bg_priority(game_layout::TEXT_BOX_BG_PRIORITY);
+    scene_text.set_z_order(game_layout::OVERLAY_TEXT_Z);
+    scene_text.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
+    selector.set_z_order(game_layout::OVERLAY_TEXT_Z);
+    selector.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
+
+    bn::string<32> line0;
+    line0.append(bn::to_string<8>(current_rung));
+    line0.append(" - is it real?");
+
+    constexpr int prompt_y_0 = -64;
+    constexpr int prompt_y_1 = -48;
+    constexpr int bottom_y = -20;
+
+    panel.draw_full_width_top(bottom_y);
+    scene_text.draw_centered_line(prompt_y_0, line0);
+    scene_text.draw_centered_line(prompt_y_1, "Can you prove it?");
+    selector.set_visible(false);
+
+    while(true)
+    {
+        if(bn::keypad::a_pressed())
+        {
+            panel.clear();
+            scene_text.clear();
+            return MenuSceneResult::STAY;
+        }
+
+        if(bn::keypad::b_pressed())
+        {
+            panel.clear();
+            scene_text.clear();
+            return MenuSceneResult::MAIN_MENU;
+        }
+
+        bn::core::update();
+    }
+}
+
 MenuSceneResult run_campaign_battle_results_scene(CampaignMode mode, const GameSceneResult& result,
                                                   bool won, int same_number_target, bool& out_to_prize,
-                                                  bool granted_sticker_paper, bool overworld_session)
+                                                  bool granted_sticker_paper, bool overworld_session,
+                                                  int overworld_benchmark_rung, int overworld_next_benchmark_rung)
 {
     wait_for_keypad_clear();
 
     out_to_prize = false;
+
+    const bool overworld_benchmark_win =
+        overworld_session && won && overworld_benchmark_rung >= 0;
+
+    if(overworld_benchmark_win)
+    {
+        battle_backdrop_set_visible(false);
+        bn::backdrop::set_color(bn::color(0, 0, 0));
+
+        bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
+        SceneText scene_text(text_generator);
+        TextBoxPanel panel;
+        panel.set_z_order(game_layout::TEXT_BOX_Z);
+        panel.set_bg_priority(game_layout::TEXT_BOX_BG_PRIORITY);
+        scene_text.set_z_order(game_layout::OVERLAY_TEXT_Z);
+        scene_text.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
+
+        bn::string<32> line0;
+        bn::string<32> line1;
+
+        if(mode == CampaignMode::SAME_NUMBER)
+        {
+            line0 = "You got it ";
+            line0.append(bn::to_string<8>(overworld_benchmark_rung));
+            line0.append("!");
+
+            if(overworld_next_benchmark_rung >= 0)
+            {
+                line1 = "but can you get ";
+                line1.append(bn::to_string<8>(overworld_next_benchmark_rung));
+                line1.append("?");
+            }
+        }
+        else
+        {
+            line0.append(bn::to_string<8>(overworld_benchmark_rung));
+            line0.append(overworld_next_benchmark_rung >= 0 ? "! It's real," : "! It's real.");
+
+            if(overworld_next_benchmark_rung >= 0)
+            {
+                line1 = "but is ";
+                line1.append(bn::to_string<8>(overworld_next_benchmark_rung));
+                line1.append("?");
+            }
+        }
+
+        constexpr int prompt_y_0 = -64;
+        constexpr int prompt_y_1 = -48;
+        constexpr int bottom_y = overworld_next_benchmark_rung >= 0 ? -20 : -36;
+
+        panel.draw_full_width_top(bottom_y);
+        scene_text.draw_centered_line(prompt_y_0, line0);
+
+        if(!line1.empty())
+        {
+            scene_text.draw_centered_line(prompt_y_1, line1);
+        }
+
+        while(true)
+        {
+            if(bn::keypad::a_pressed() || bn::keypad::b_pressed())
+            {
+                panel.clear();
+                scene_text.clear();
+                out_to_prize = true;
+                return MenuSceneResult::STAY;
+            }
+
+            bn::core::update();
+        }
+    }
 
     bn::sprite_text_generator label_generator(common::variable_8x16_sprite_font);
     TextBoxPanel panel;

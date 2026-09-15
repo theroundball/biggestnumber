@@ -22,13 +22,18 @@ CampaignPlayMenuResult run_campaign_play_menu_scene(bn::seed_random& rng);
 
 MenuSceneResult run_mode_intro_scene(CampaignMode mode, const CampaignUiContext& ctx);
 
+// Overworld NPC benchmark splash before battle. Returns MAIN_MENU if cancelled.
+MenuSceneResult run_benchmark_pre_battle_scene(CampaignMode mode, int current_rung);
+
 // Post-battle results — returns next scene hint via out_to_prize.
 // same_number_target is the challenge used for that battle (may differ from save after a win).
 // granted_sticker_paper is set when +1 sticker paper was awarded for this battle.
 MenuSceneResult run_campaign_battle_results_scene(CampaignMode mode, const GameSceneResult& result,
                                                   bool won, int same_number_target, bool& out_to_prize,
                                                   bool granted_sticker_paper = false,
-                                                  bool overworld_session = false);
+                                                  bool overworld_session = false,
+                                                  int overworld_benchmark_rung = -1,
+                                                  int overworld_next_benchmark_rung = -1);
 
 MenuSceneResult run_campaign_prize_scene(CampaignMode mode, int peak_before, int band_score,
                                          bn::seed_random& rng);

@@ -40,6 +40,15 @@ int campaign_npc_best_score(const SaveData& save, int npc_index);
 void campaign_seed_npc_best_scores(SaveData& save);
 void campaign_clear_npc_best_scores(SaveData& save);
 
+constexpr int NPC_BENCHMARK_COUNT = 12;
+constexpr int NPC_BENCHMARKS[NPC_BENCHMARK_COUNT] = {
+    10, 20, 35, 55, 90, 140, 220, 340, 500, 700, 850, 1000,
+};
+
+int campaign_npc_benchmark_taken(const SaveData& save, int npc_index);
+int campaign_npc_benchmark_rung(const SaveData& save, int npc_index);
+int campaign_npc_next_benchmark_rung(const SaveData& save, int npc_index);
+
 int campaign_wins_until_trinket(const SaveData& save);
 
 void campaign_grant_sticker_paper(SaveData& save, int amount = 1);

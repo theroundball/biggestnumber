@@ -90,6 +90,7 @@ public:
     int deck_high_score = 0;
     // Total score turns green after exceeding this (run peak or deck high score).
     int score_to_beat = 0;
+    int battle_npc_index = -1;
     CampaignUiContext campaign_ui{};
     GameSceneResult scene_result;
 
