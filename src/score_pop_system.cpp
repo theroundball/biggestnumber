@@ -6,6 +6,7 @@
 #include "bn_bpp_mode.h"
 #include "bn_color.h"
 #include "bn_math.h"
+#include "bn_optional.h"
 #include "bn_span.h"
 #include "bn_sprite_palette_item.h"
 #include "bn_sprite_palette_ptr.h"
@@ -238,11 +239,11 @@ namespace
         }
     }
 
+    bn::optional<bn::sprite_palette_ptr> g_pop_gold_palette;
+
     const bn::sprite_palette_ptr& pop_gold_palette(const bn::sprite_ptr& sample)
     {
-        static bn::optional<bn::sprite_palette_ptr> palette;
-
-        if(!palette.has_value())
+        if(!g_pop_gold_palette.has_value())
         {
             bn::array<bn::color, 16> colors;
             const bn::span<const bn::color> source = sample.palette().colors();
@@ -262,10 +263,29 @@ namespace
 
             const bn::sprite_palette_item item(
                 bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4);
-            palette = bn::sprite_palette_ptr::create(item);
+            g_pop_gold_palette = bn::sprite_palette_ptr::create_optional(item);
         }
 
-        return *palette;
+        if(!g_pop_gold_palette.has_value())
+        {
+            return sample.palette();
+        }
+
+        return *g_pop_gold_palette;
+    }
+
+    void destroy_score_pop(ScorePop& pop)
+    {
+        for(bn::sprite_ptr& sprite : pop.sprites)
+        {
+            sprite.remove_affine_mat();
+            sprite.set_blending_enabled(false);
+        }
+
+        pop.sprites.clear();
+        pop.glyph_offset_x.clear();
+        pop.glyph_offset_y.clear();
+        pop.affine_mat.reset();
     }
 
     void tint_pop_sprites(ScorePop& pop)
@@ -396,6 +416,7 @@ void score_pop_process_pending(GameContext& ctx)
     {
         while(ctx.score_pops.full())
         {
+            destroy_score_pop(ctx.score_pops.front());
             ctx.score_pops.erase(ctx.score_pops.begin());
         }
 
@@ -490,12 +511,29 @@ void score_pop_tick(GameContext& ctx)
                 handle_trinket_flight_arrival(ctx, pop);
             }
 
+            destroy_score_pop(pop);
             ctx.score_pops.erase(ctx.score_pops.begin() + index);
             continue;
         }
 
         ++index;
     }
+}
+
+void score_pop_shutdown_all(GameContext& ctx)
+{
+    for(ScorePop& pop : ctx.score_pops)
+    {
+        destroy_score_pop(pop);
+    }
+
+    ctx.score_pops.clear();
+    ctx.state.pending_score_pops.clear();
+}
+
+void reset_score_pop_palette_cache()
+{
+    g_pop_gold_palette.reset();
 }
 
 void score_pop_sync_positions(GameContext& ctx)

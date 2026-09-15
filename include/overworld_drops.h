@@ -24,4 +24,10 @@ bool overworld_drops_tick(bn::fixed player_x, bn::fixed player_y, const bn::fixe
 
 void overworld_drops_clear();
 
+// Drop inspect-card sprites so shared text-card tile caches can be reset safely.
+void overworld_drops_hide_inspect_card();
+
+// Grant any loot still on the ground and end the drop session (e.g. before NPC dialogue).
+void overworld_drops_finalize_for_dialogue();
+
 #endif

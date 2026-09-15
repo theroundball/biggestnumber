@@ -18,20 +18,27 @@ struct CampaignBattleSetup
     int same_number_target = 0;
     int number_now_scoring_round = 1;
     int number_now_round_peak = 0;
+    int npc_index = -1;
 };
 
 bool campaign_needs_starter_setup(const SaveData& save);
 bool campaign_create_starter_deck(SaveData& save, CardType utility_pick);
+void campaign_repair_active_deck_from_library(SaveData& save);
 
 void campaign_prepare_same_number_target(SaveData& save, bn::seed_random& rng);
-CampaignBattleSetup campaign_battle_setup(const SaveData& save, CampaignMode mode, bn::seed_random& rng);
+CampaignBattleSetup campaign_battle_setup(const SaveData& save, CampaignMode mode, bn::seed_random& rng,
+                                          int battle_deck_size = -1, int npc_index = -1);
 
 bool campaign_evaluate_win(const SaveData& save, CampaignMode mode, const GameSceneResult& result,
                            int peak_before, int same_number_target, int number_now_round_peak,
                            int number_now_scoring_round);
 
 void campaign_apply_win(SaveData& save, CampaignMode mode, const GameSceneResult& result,
-                        int number_now_scoring_round, bn::seed_random& rng);
+                        int number_now_scoring_round, bn::seed_random& rng, int npc_index = -1);
+
+int campaign_npc_best_score(const SaveData& save, int npc_index);
+void campaign_seed_npc_best_scores(SaveData& save);
+void campaign_clear_npc_best_scores(SaveData& save);
 
 int campaign_wins_until_trinket(const SaveData& save);
 

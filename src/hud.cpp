@@ -1,5 +1,6 @@
 #include "hud.h"
 
+#include "ui_common.h"
 #include "bn_affine_mat_attributes.h"
 #include "bn_math.h"
 #include "bn_optional.h"
@@ -207,7 +208,7 @@ void PersistentHud::HudIcon::apply_kind(IconKind kind)
 
     if(const bn::sprite_item* item = sprite_item_for(kind))
     {
-        _sprite.set_item(*item);
+        apply_sprite_item_optional(_sprite, *item);
         return;
     }
 

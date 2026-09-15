@@ -63,5 +63,7 @@ void score_pop_tick(GameContext& ctx);
 void score_pop_sync_positions(GameContext& ctx);
 void score_pop_render(GameContext& ctx, bool visible);
 bool score_pop_blocks_score_finalize(const GameContext& ctx, TrinketScoreField field);
+void score_pop_shutdown_all(GameContext& ctx);
+void reset_score_pop_palette_cache();
 
 #endif

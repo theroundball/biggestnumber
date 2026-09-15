@@ -1,5 +1,6 @@
 #include "card.h"
 
+#include "ui_common.h"
 #include "bn_affine_mat_attributes.h"
 #include "bn_array.h"
 #include "bn_bpp_mode.h"
@@ -82,18 +83,14 @@ namespace
         return best_distance <= MAX_ORANGE_DISTANCE ? best_index : -1;
     }
 
-    bn::optional<bn::sprite_palette_ptr> g_card_border_palettes[int(CardType::COUNT)];
-
-    const bn::sprite_palette_ptr& card_border_palette_for(CardType type, int border_index,
-                                                          bn::span<const bn::color> source_colors)
+    bn::optional<bn::sprite_palette_ptr> create_palette_optional(const bn::sprite_palette_item& item)
     {
-        const int type_index = int(type);
+        return bn::sprite_palette_ptr::create_optional(item);
+    }
 
-        if(type_index >= 0 && type_index < int(CardType::COUNT) &&
-           g_card_border_palettes[type_index].has_value())
-        {
-            return g_card_border_palettes[type_index].value();
-        }
+    bn::optional<bn::sprite_palette_ptr> card_border_palette_for(CardType type, int border_index,
+                                                                   bn::span<const bn::color> source_colors)
+    {
 
         bn::array<bn::color, 16> colors;
 
@@ -107,9 +104,7 @@ namespace
         const bn::sprite_palette_item item(
             bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4,
             bn::compression_type::NONE);
-        g_card_border_palettes[type_index] = bn::sprite_palette_ptr::create(item);
-
-        return g_card_border_palettes[type_index].value();
+        return create_palette_optional(item);
     }
 
     void apply_rarity_border_palette(bn::sprite_ptr& body,
@@ -136,9 +131,16 @@ namespace
             return;
         }
 
-        const bn::sprite_palette_ptr& palette = card_border_palette_for(type, border_index, source);
+        if(bn::optional<bn::sprite_palette_ptr> palette =
+               card_border_palette_for(type, border_index, source))
+        {
+            body.set_palette(*palette);
+            accent_top.set_palette(*palette);
+            accent_bottom.set_palette(*palette);
+            return;
+        }
 
-        body.set_palette(palette);
+        const bn::sprite_palette_ptr& palette = body.palette();
         accent_top.set_palette(palette);
         accent_bottom.set_palette(palette);
     }
@@ -179,7 +181,7 @@ namespace
         g_text_card_palette_colors_ready = true;
     }
 
-    const bn::sprite_palette_ptr& text_card_palette_for(CardRarity rarity)
+    bn::optional<bn::sprite_palette_ptr> text_card_palette_for(CardRarity rarity)
     {
         init_text_card_palette_colors();
 
@@ -195,10 +197,28 @@ namespace
             const bn::sprite_palette_item palette_item(
                 bn::span<const bn::color>(g_text_card_palette_colors_by_rarity[rarity_index].data(), 16),
                 bn::bpp_mode::BPP_4, bn::compression_type::NONE);
-            g_text_card_palettes_by_rarity[rarity_index] = bn::sprite_palette_ptr::create(palette_item);
+
+            if(bn::optional<bn::sprite_palette_ptr> created =
+                   bn::sprite_palette_ptr::create_optional(palette_item))
+            {
+                g_text_card_palettes_by_rarity[rarity_index] = created;
+            }
         }
 
-        return g_text_card_palettes_by_rarity[rarity_index].value();
+        if(g_text_card_palettes_by_rarity[rarity_index])
+        {
+            return g_text_card_palettes_by_rarity[rarity_index];
+        }
+
+        for(int fallback = 0; fallback < TEXT_CARD_RARITY_COUNT; ++fallback)
+        {
+            if(g_text_card_palettes_by_rarity[fallback])
+            {
+                return g_text_card_palettes_by_rarity[fallback];
+            }
+        }
+
+        return bn::nullopt;
     }
 
     bool text_card_border_pixel(int global_x, int global_y)
@@ -248,8 +268,17 @@ namespace
     void apply_text_card_body_tiles(bn::sprite_ptr& body, CardType type)
     {
         ensure_text_card_tiles();
-        body.set_tiles_and_palette(bn::sprite_shape_size(32, 64), g_text_card_tiles_ptr.value(),
-                                   text_card_palette_for(card_meta(type).rarity));
+        body.remove_affine_mat();
+
+        if(bn::optional<bn::sprite_palette_ptr> palette = text_card_palette_for(card_meta(type).rarity))
+        {
+            body.set_tiles_and_palette(bn::sprite_shape_size(32, 64), g_text_card_tiles_ptr.value(),
+                                       *palette);
+        }
+        else
+        {
+            body.set_tiles(bn::sprite_shape_size(32, 64), g_text_card_tiles_ptr.value());
+        }
     }
 
     int face_line_char_limit()
@@ -344,9 +373,18 @@ namespace
         return key;
     }
 
+    bn::optional<bn::sprite_palette_ptr> g_card_stat_green_palette;
+    bn::optional<bn::sprite_palette_ptr> g_card_stat_gold_palette;
+
+    void reset_card_stat_palette_caches()
+    {
+        g_card_stat_green_palette.reset();
+        g_card_stat_gold_palette.reset();
+    }
+
     const bn::sprite_palette_ptr& card_stat_green_palette(const bn::sprite_ptr& sample)
     {
-        static bn::optional<bn::sprite_palette_ptr> palette;
+        bn::optional<bn::sprite_palette_ptr>& palette = g_card_stat_green_palette;
         constexpr bn::color CARD_STAT_GREEN(6, 28, 10);
 
         if(!palette.has_value())
@@ -369,7 +407,12 @@ namespace
 
             const bn::sprite_palette_item item(
                 bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4);
-            palette = bn::sprite_palette_ptr::create(item);
+            palette = bn::sprite_palette_ptr::create_optional(item);
+        }
+
+        if(!palette.has_value())
+        {
+            return sample.palette();
         }
 
         return *palette;
@@ -377,7 +420,7 @@ namespace
 
     const bn::sprite_palette_ptr& card_stat_gold_palette(const bn::sprite_ptr& sample)
     {
-        static bn::optional<bn::sprite_palette_ptr> palette;
+        bn::optional<bn::sprite_palette_ptr>& palette = g_card_stat_gold_palette;
         constexpr bn::color CARD_STAT_GOLD(31, 25, 5);
 
         if(!palette.has_value())
@@ -400,7 +443,12 @@ namespace
 
             const bn::sprite_palette_item item(
                 bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4);
-            palette = bn::sprite_palette_ptr::create(item);
+            palette = bn::sprite_palette_ptr::create_optional(item);
+        }
+
+        if(!palette.has_value())
+        {
+            return sample.palette();
         }
 
         return *palette;
@@ -477,12 +525,36 @@ namespace
         }
     }
 
+    bn::optional<bn::sprite_palette_ptr> g_placeholder_palette;
+
+    void remember_placeholder_palette(const bn::sprite_palette_ptr& palette)
+    {
+        if(!g_placeholder_palette)
+        {
+            g_placeholder_palette = palette;
+        }
+    }
+
+    void apply_placeholder_palette(bn::sprite_ptr& body, bn::sprite_ptr& accent_top,
+                                   bn::sprite_ptr& accent_bottom)
+    {
+        if(!g_placeholder_palette)
+        {
+            remember_placeholder_palette(body.palette());
+        }
+
+        if(!g_placeholder_palette)
+        {
+            return;
+        }
+
+        body.set_palette(*g_placeholder_palette);
+        accent_top.set_palette(*g_placeholder_palette);
+        accent_bottom.set_palette(*g_placeholder_palette);
+    }
+
     void reset_card_border_palette_cache()
     {
-        for(bn::optional<bn::sprite_palette_ptr>& palette : g_card_border_palettes)
-        {
-            palette.reset();
-        }
     }
 }
 
@@ -495,6 +567,7 @@ Card::Card() :
     _accent_bottom(card_data(CardType::SIPS).accent_bottom_item->create_sprite(0, 0))
 {
     apply_rarity_border_palette(_body, _accent_top, _accent_bottom, _type);
+    remember_placeholder_palette(_body.palette());
     apply_draw_layering();
     set_visible(false);
 }
@@ -697,8 +770,21 @@ void Card::discard(GameState& state) const
 
 void Card::set_type(CardType type)
 {
-    if(_type == type)
+    const CardData& data = card_data(type);
+    const bool render_mode_changes =
+        card_data(_type).text_only != data.text_only || _type != type;
+
+    if(!render_mode_changes)
     {
+        if(data.text_only)
+        {
+            apply_text_card_body_tiles(_body, _type);
+        }
+        else if(type == CARD_DISPLAY_PLACEHOLDER)
+        {
+            apply_placeholder_palette(_body, _accent_top, _accent_bottom);
+        }
+
         apply_draw_layering();
         return;
     }
@@ -706,18 +792,21 @@ void Card::set_type(CardType type)
     _type = type;
     clear_face_labels();
 
-    const CardData& data = card_data(type);
-
     if(data.text_only)
     {
         apply_text_card_body_tiles(_body, _type);
     }
     else
     {
-        _body.set_item(*data.body_item);
-        _accent_top.set_item(*data.accent_top_item);
-        _accent_bottom.set_item(*data.accent_bottom_item);
+        apply_sprite_item_optional(_body, *data.body_item);
+        apply_sprite_item_optional(_accent_top, *data.accent_top_item);
+        apply_sprite_item_optional(_accent_bottom, *data.accent_bottom_item);
         apply_rarity_border_palette(_body, _accent_top, _accent_bottom, _type);
+
+        if(type == CARD_DISPLAY_PLACEHOLDER)
+        {
+            apply_placeholder_palette(_body, _accent_top, _accent_bottom);
+        }
     }
 
     reposition_parts();
@@ -1328,4 +1417,22 @@ void release_card_display_tiles(Card& card)
 void clear_card_border_palette_cache()
 {
     reset_card_border_palette_cache();
+}
+
+void reset_card_shared_tile_caches()
+{
+    g_text_card_tiles_ready = false;
+    g_text_card_tiles_ptr.reset();
+
+    for(bn::optional<bn::sprite_palette_ptr>& palette : g_text_card_palettes_by_rarity)
+    {
+        palette.reset();
+    }
+}
+
+void reclaim_scene_graphics_state()
+{
+    reset_card_shared_tile_caches();
+    clear_card_border_palette_cache();
+    reset_card_stat_palette_caches();
 }

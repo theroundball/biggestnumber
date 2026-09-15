@@ -18,6 +18,40 @@ bool campaign_needs_starter_setup(const SaveData& save)
     return !campaign_is_ready(save);
 }
 
+void campaign_repair_active_deck_from_library(SaveData& save)
+{
+    if(save.deck_count <= 0 || save.active_deck_index >= save.deck_count)
+    {
+        return;
+    }
+
+    SavedDeck& deck = save.decks[save.active_deck_index];
+
+    if(saved_deck_total_cards(deck) > 0 || saved_deck_unrestricted_build(deck))
+    {
+        return;
+    }
+
+    for(int type_index = 0; type_index < int(CardType::COUNT); ++type_index)
+    {
+        const CardType type = CardType(type_index);
+        const int owned = save.library_counts[type_index];
+
+        for(int copy = 0; copy < owned; ++copy)
+        {
+            if(!saved_deck_add_card(deck, type))
+            {
+                break;
+            }
+        }
+    }
+
+    if(saved_deck_total_cards(deck) > 0)
+    {
+        save_data_write();
+    }
+}
+
 bool campaign_create_starter_deck(SaveData& save, CardType utility_pick)
 {
     if(save.deck_count >= MAX_SAVED_DECKS)
@@ -54,6 +88,7 @@ bool campaign_create_starter_deck(SaveData& save, CardType utility_pick)
     }
 
     campaign_init_npc_collections(save);
+    campaign_clear_npc_best_scores(save);
     save_data_write();
     return true;
 }
@@ -130,10 +165,89 @@ int campaign_number_now_round_count(int deck_size)
     return (deck_size - 1) / 5 + 1;
 }
 
-CampaignBattleSetup campaign_battle_setup(const SaveData& save, CampaignMode mode, bn::seed_random& rng)
+int campaign_npc_best_score(const SaveData& save, int npc_index)
+{
+    if(npc_index < 0 || npc_index >= WORLD_NPC_COUNT)
+    {
+        return 0;
+    }
+
+    return save.npc_best_score[npc_index];
+}
+
+int campaign_legacy_mode_record(const SaveData& save, CampaignMode mode)
+{
+    switch(mode)
+    {
+    case CampaignMode::BIGGEST_NUMBER:
+        return save.biggest_number_record;
+
+    case CampaignMode::NUMBER_NOW:
+    {
+        int best = 0;
+
+        for(int round_index = 0; round_index < CAMPAIGN_NUMBER_NOW_ROUNDS; ++round_index)
+        {
+            if(save.number_now_round_best[round_index] > best)
+            {
+                best = save.number_now_round_best[round_index];
+            }
+        }
+
+        return best;
+    }
+
+    case CampaignMode::AINT_GOT_TIME:
+        return save.aint_got_time_record;
+
+    case CampaignMode::SHARING_IS_CARING:
+        return save.sharing_is_caring_record;
+
+    case CampaignMode::POKER_HAND:
+        return save.poker_hand_record;
+
+    case CampaignMode::Y2K:
+        return save.y2k_record;
+
+    case CampaignMode::SAME_NUMBER:
+    case CampaignMode::NONE:
+    default:
+        return 0;
+    }
+}
+
+void campaign_seed_npc_best_scores(SaveData& save)
+{
+    for(int npc_index = 0; npc_index < WORLD_NPC_COUNT; ++npc_index)
+    {
+        save.npc_best_score[npc_index] = campaign_legacy_mode_record(save, world_npc_def(npc_index).mode);
+    }
+}
+
+void campaign_clear_npc_best_scores(SaveData& save)
+{
+    for(int npc_index = 0; npc_index < WORLD_NPC_COUNT; ++npc_index)
+    {
+        save.npc_best_score[npc_index] = 0;
+    }
+}
+
+int campaign_run_score(CampaignMode mode, const GameSceneResult& result)
+{
+    if(mode == CampaignMode::NUMBER_NOW)
+    {
+        return result.last_round_score;
+    }
+
+    return result.final_score;
+}
+
+CampaignBattleSetup campaign_battle_setup(const SaveData& save, CampaignMode mode, bn::seed_random& rng,
+                                          int battle_deck_size, int npc_index)
 {
     CampaignBattleSetup setup;
     setup.mode = mode;
+    setup.npc_index = npc_index;
 
     if(save.deck_count <= 0)
     {
@@ -141,19 +255,21 @@ CampaignBattleSetup campaign_battle_setup(const SaveData& save, CampaignMode mod
     }
 
     const SavedDeck& deck = save.decks[save.active_deck_index];
-    const int deck_size = saved_deck_total_cards(deck);
+    const int deck_size = battle_deck_size >= 0 ? battle_deck_size : saved_deck_total_cards(deck);
+    const bool use_npc_peak = npc_index >= 0 && npc_index < WORLD_NPC_COUNT;
+    const int npc_peak = use_npc_peak ? save.npc_best_score[npc_index] : 0;
 
     switch(mode)
     {
     case CampaignMode::BIGGEST_NUMBER:
-        setup.peak_before = save.biggest_number_record;
+        setup.peak_before = use_npc_peak ? npc_peak : save.biggest_number_record;
         setup.band_score = setup.peak_before;
         break;
 
     case CampaignMode::SAME_NUMBER:
         setup.same_number_target = save.same_number_target;
-        setup.peak_before = 0;
-        setup.band_score = 0;
+        setup.peak_before = use_npc_peak ? npc_peak : 0;
+        setup.band_score = setup.peak_before;
         break;
 
     case CampaignMode::NUMBER_NOW:
@@ -171,7 +287,11 @@ CampaignBattleSetup campaign_battle_setup(const SaveData& save, CampaignMode mod
 
         const int round_index = setup.number_now_scoring_round - 1;
 
-        if(round_index >= 0 && round_index < CAMPAIGN_NUMBER_NOW_ROUNDS)
+        if(use_npc_peak)
+        {
+            setup.number_now_round_peak = npc_peak;
+        }
+        else if(round_index >= 0 && round_index < CAMPAIGN_NUMBER_NOW_ROUNDS)
         {
             setup.number_now_round_peak = save.number_now_round_best[round_index];
         }
@@ -182,22 +302,22 @@ CampaignBattleSetup campaign_battle_setup(const SaveData& save, CampaignMode mod
     }
 
     case CampaignMode::AINT_GOT_TIME:
-        setup.peak_before = save.aint_got_time_record;
+        setup.peak_before = use_npc_peak ? npc_peak : save.aint_got_time_record;
         setup.band_score = setup.peak_before;
         break;
 
     case CampaignMode::SHARING_IS_CARING:
-        setup.peak_before = save.sharing_is_caring_record;
+        setup.peak_before = use_npc_peak ? npc_peak : save.sharing_is_caring_record;
         setup.band_score = setup.peak_before;
         break;
 
     case CampaignMode::POKER_HAND:
-        setup.peak_before = save.poker_hand_record;
+        setup.peak_before = use_npc_peak ? npc_peak : save.poker_hand_record;
         setup.band_score = setup.peak_before;
         break;
 
     case CampaignMode::Y2K:
-        setup.peak_before = save.y2k_record;
+        setup.peak_before = use_npc_peak ? npc_peak : save.y2k_record;
         setup.band_score = setup.peak_before;
         break;
     }
@@ -221,7 +341,8 @@ bool campaign_evaluate_win(const SaveData& save, CampaignMode mode, const GameSc
         return same_number_target > 0 && result.final_score == same_number_target;
 
     case CampaignMode::NUMBER_NOW:
-        return result.last_round_number == number_now_scoring_round &&
+        return number_now_scoring_round > 0 &&
+               result.last_round_number == number_now_scoring_round &&
                result.last_round_score > number_now_round_peak;
 
     case CampaignMode::AINT_GOT_TIME:
@@ -243,9 +364,16 @@ bool campaign_evaluate_win(const SaveData& save, CampaignMode mode, const GameSc
 }
 
 void campaign_apply_win(SaveData& save, CampaignMode mode, const GameSceneResult& result,
-                        int number_now_scoring_round, bn::seed_random& rng)
+                        int number_now_scoring_round, bn::seed_random& rng, int npc_index)
 {
     ++save.total_wins;
+
+    const int run_score = campaign_run_score(mode, result);
+
+    if(npc_index >= 0 && npc_index < WORLD_NPC_COUNT && run_score > save.npc_best_score[npc_index])
+    {
+        save.npc_best_score[npc_index] = run_score;
+    }
 
     switch(mode)
     {
@@ -667,6 +795,7 @@ bool campaign_apply_sell_collection(SaveData& save, CardType nostalgia_card, Car
 
     campaign_rebuild_instance_pool(save);
     campaign_init_npc_collections(save);
+    campaign_clear_npc_best_scores(save);
     save_data_write();
     return true;
 }

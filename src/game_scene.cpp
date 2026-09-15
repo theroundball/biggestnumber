@@ -11,7 +11,9 @@
 #endif
 
 #include "battle_backdrop.h"
+#include "card.h"
 #include "card_instance.h"
+#include "overworld_drops.h"
 #include "common_variable_8x16_sprite_font.h"
 #include "game_context.h"
 #include "game_events.h"
@@ -86,8 +88,13 @@ GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const 
         active_game_context = nullptr;
     }
 
+    overworld_drops_hide_inspect_card();
+    reclaim_scene_graphics_state();
+    reset_score_pop_palette_cache();
+    reset_victory_green_palette_cache();
     active_game_context = new(game_context_storage) GameContext(collection, launch);
     GameContext& ctx = *active_game_context;
+    bool shutdown_done = false;
 
     while(! ctx.run_finished)
     {
@@ -98,6 +105,7 @@ GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const 
                 ctx.scene_result.exited_early = true;
                 ctx.run_finished = true;
                 ctx.shutdown_for_exit();
+                shutdown_done = true;
                 break;
             }
         }
@@ -150,7 +158,12 @@ GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const 
     }
 
     GameSceneResult result = ctx.scene_result;
-    ctx.shutdown_for_exit();
+
+    if(!shutdown_done)
+    {
+        ctx.shutdown_for_exit();
+    }
+
     ctx.~GameContext();
     active_game_context = nullptr;
     return result;

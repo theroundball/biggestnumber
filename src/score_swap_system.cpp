@@ -2,6 +2,7 @@
 
 #include "bn_color.h"
 #include "bn_keypad.h"
+#include "bn_optional.h"
 #include "bn_sprite_palette_item.h"
 #include "bn_sprite_palette_ptr.h"
 #include "bn_sprite_shape_size.h"
@@ -312,8 +313,12 @@ namespace
                 const bn::sprite_palette_item palette_item(
                     bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4);
                 entry.color = color;
-                entry.palette = bn::sprite_palette_ptr::create(palette_item);
-                return *entry.palette;
+                entry.palette = bn::sprite_palette_ptr::create_optional(palette_item);
+
+                if(entry.palette.has_value())
+                {
+                    return *entry.palette;
+                }
             }
         }
 
@@ -328,8 +333,22 @@ namespace
         };
         const bn::sprite_palette_item palette_item(
             bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4);
-        entry.palette = bn::sprite_palette_ptr::create(palette_item);
-        return *entry.palette;
+        entry.palette = bn::sprite_palette_ptr::create_optional(palette_item);
+
+        if(entry.palette.has_value())
+        {
+            return *entry.palette;
+        }
+
+        for(CachedPalette& existing : cache)
+        {
+            if(existing.palette.has_value())
+            {
+                return *existing.palette;
+            }
+        }
+
+        return ui_palette::shared();
     }
 
     bn::sprite_ptr create_score_marker(int x, int y, bn::color color)

@@ -127,11 +127,11 @@ namespace
 
     constexpr bn::color SCORE_VICTORY_GREEN(6, 28, 10);
 
+    bn::optional<bn::sprite_palette_ptr> g_victory_green_palette;
+
     const bn::sprite_palette_ptr& victory_green_palette(const bn::sprite_ptr& sample)
     {
-        static bn::optional<bn::sprite_palette_ptr> palette;
-
-        if(!palette.has_value())
+        if(!g_victory_green_palette.has_value())
         {
             bn::array<bn::color, 16> green_colors;
             const bn::span<const bn::color> source = sample.palette().colors();
@@ -154,10 +154,41 @@ namespace
             const bn::sprite_palette_item item(
                 bn::span<const bn::color>(green_colors.data(), green_colors.size()), bn::bpp_mode::BPP_4,
                 bn::compression_type::NONE);
-            palette = bn::sprite_palette_ptr::create(item);
+
+            if(bn::optional<bn::sprite_palette_ptr> created = bn::sprite_palette_ptr::create_optional(item))
+            {
+                g_victory_green_palette = created;
+            }
+            else
+            {
+                return sample.palette();
+            }
         }
 
-        return *palette;
+        return *g_victory_green_palette;
+    }
+
+    void record_committed_round(GameSceneResult& scene_result, const CampaignUiContext& campaign_ui,
+                                int round_number, int round_score)
+    {
+        if(campaign_ui.mode == CampaignMode::NUMBER_NOW)
+        {
+            if(round_number == campaign_ui.number_now_scoring_round)
+            {
+                scene_result.last_round_score = round_score;
+                scene_result.last_round_number = round_number;
+            }
+            else if(scene_result.last_round_number != campaign_ui.number_now_scoring_round)
+            {
+                scene_result.last_round_score = 0;
+                scene_result.last_round_number = round_number;
+            }
+
+            return;
+        }
+
+        scene_result.last_round_score = round_score;
+        scene_result.last_round_number = round_number;
     }
 
     void apply_victory_green_tint(bn::span<bn::sprite_ptr> sprites)
@@ -197,6 +228,18 @@ namespace
         }
 
         return round_would_beat_goal(ctx, ctx.state.round.running, ctx.state.round.end_multiplier);
+    }
+
+    template<int MaxSize>
+    void release_sprite_list(bn::vector<bn::sprite_ptr, MaxSize>& sprites)
+    {
+        for(bn::sprite_ptr& sprite : sprites)
+        {
+            sprite.remove_affine_mat();
+            sprite.set_blending_enabled(false);
+        }
+
+        sprites.clear();
     }
 
     void apply_bones_gy_entry(GameState& state)
@@ -286,6 +329,11 @@ namespace
         increment_play_counters(state, card.type, context.source);
         maybe_draw_if_solo(state, card.type);
     }
+}
+
+void reset_victory_green_palette_cache()
+{
+    g_victory_green_palette.reset();
 }
 
 GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const BattleLaunch& launch) :
@@ -473,7 +521,7 @@ void GameContext::draw_total_score()
     const bool changed = _total_score_initialized && new_total != _cached_total_score;
     const bool green_changed = _total_score_initialized && victory_green != _cached_total_victory_green;
 
-    if(_total_score_initialized && !changed && !green_changed)
+    if(_total_score_initialized && !changed && !green_changed && !text_sprites.empty())
     {
         return;
     }
@@ -489,7 +537,7 @@ void GameContext::draw_total_score()
     }
 
     show_total_score_value(new_total);
-};
+}
 
 void GameContext::show_total_score_value(int value)
 {
@@ -761,6 +809,42 @@ void GameContext::tick_run_end_presentation()
 void GameContext::finish_finale_run()
 {
     state.finale_active = false;
+
+    // Clock Shop / Number Now: Finale is in the loaner deck. Ending the whole fight
+    // here skips remaining rounds and can drop a green scoring round on the floor.
+    if(campaign_ui.mode == CampaignMode::NUMBER_NOW)
+    {
+        while(!state.hand.empty())
+        {
+            graveyard_push(state, state.hand.back());
+            state.hand.pop_back();
+        }
+
+        skip_pending_combine = false;
+        release_idle_card_pools();
+        const bool turtle_preserve = state.turtle_rounds_remaining > 0;
+
+        if(!turtle_preserve)
+        {
+            commit_round_with_checks();
+            draw_total_score();
+        }
+
+        begin_keep_going_round_transfers(turtle_preserve);
+
+        if(!deferred_round_start_pending && !hand_draw_fx_blocking())
+        {
+            end_run_if_needed();
+        }
+
+        if(!run_finished)
+        {
+            state.waive_optional_ghost_plays = false;
+        }
+
+        return;
+    }
+
     state.round.reset();
     request_run_end();
 }
@@ -808,7 +892,7 @@ void GameContext::draw_round_score()
     const bn::string<48> new_text = format_round_score(state.round);
     const bool changed = _round_score_initialized && new_text != _cached_round_score_text;
 
-    if(_round_score_initialized && !changed)
+    if(_round_score_initialized && !changed && !round_text_sprites.empty())
     {
         return;
     }
@@ -824,7 +908,22 @@ void GameContext::draw_round_score()
     }
 
     show_round_score_running(state.round.running, state.round.end_multiplier);
-};
+}
+
+void GameContext::restore_score_readouts()
+{
+    if(score_swap_is_active(*this) || card_selection_ui_active() || inspecting)
+    {
+        return;
+    }
+
+    _total_score_initialized = false;
+    _round_score_initialized = false;
+    _cached_round_score_text = "";
+    _cached_total_score = state.total_score - 1;
+    show_total_score_value(state.total_score);
+    show_round_score_running(state.round.running, state.round.end_multiplier);
+}
 
 void GameContext::show_round_score_running(int running, int end_multiplier)
 {
@@ -993,26 +1092,15 @@ void GameContext::commit_round_with_checks()
     const int before = state.total_score;
     const int round_number = state.current_round;
 
-    if(state.build_a_number_active)
+        if(state.build_a_number_active)
     {
         const int round_score = state.build_a_number_commit_prebuild();
-
-        if(campaign_ui.mode == CampaignMode::NUMBER_NOW && round_number != campaign_ui.number_now_scoring_round)
-        {
-            scene_result.last_round_score = 0;
-            scene_result.last_round_number = round_number;
-        }
-        else
-        {
-            scene_result.last_round_score = round_score;
-            scene_result.last_round_number = round_number;
-        }
+        record_committed_round(scene_result, campaign_ui, round_number, round_score);
     }
     else if(state.poker_hand_active)
     {
         const int round_score = state.poker_hand_commit_round();
-        scene_result.last_round_score = round_score;
-        scene_result.last_round_number = round_number;
+        record_committed_round(scene_result, campaign_ui, round_number, round_score);
 
         if(state.poker_hand_last_rank >= 0)
         {
@@ -1023,16 +1111,14 @@ void GameContext::commit_round_with_checks()
     else if(campaign_ui.mode == CampaignMode::NUMBER_NOW &&
             round_number != campaign_ui.number_now_scoring_round)
     {
-        scene_result.last_round_score = 0;
-        scene_result.last_round_number = round_number;
+        record_committed_round(scene_result, campaign_ui, round_number, 0);
         state.flush_staircase_climb();
         state.round.reset();
     }
     else
     {
         const int round_score = state.round.committed();
-        scene_result.last_round_score = round_score;
-        scene_result.last_round_number = round_number;
+        record_committed_round(scene_result, campaign_ui, round_number, round_score);
         state.commit_round();
     }
 
@@ -1660,14 +1746,14 @@ void GameContext::retarget_selection_off_hidden_slot()
     }
 }
 
-void GameContext::begin_direct_removal(int start_x, int start_y, RemovalStyle style, bool is_discard,
+bool GameContext::begin_direct_removal(int start_x, int start_y, RemovalStyle style, bool is_discard,
                                       bool cycle_exile)
 {
     PlayFlight* flight = alloc_play_flight();
 
     if(!flight)
     {
-        return;
+        return false;
     }
 
     removal_start_x = start_x;
@@ -1764,6 +1850,8 @@ void GameContext::begin_direct_removal(int start_x, int start_y, RemovalStyle st
             commit_play_flight_destination(*flight);
         }
     }
+
+    return true;
 }
 
 void GameContext::begin_play_presentation(CardRef card, int start_x, int start_y, PlayPresentOrigin origin,
@@ -1884,14 +1972,19 @@ void GameContext::begin_play_presentation(CardRef card, int start_x, int start_y
     }
 }
 
-void GameContext::begin_discard_presentation(int hand_index)
+bool GameContext::begin_discard_presentation(int hand_index)
 {
+    if(hand_index < 0 || hand_index >= state.hand.size())
+    {
+        return false;
+    }
+
     capture_removal_start();
     PlayFlight* flight = alloc_play_flight();
 
     if(!flight)
     {
-        return;
+        return false;
     }
 
     flight->played_ref = state.hand[hand_index];
@@ -1928,6 +2021,7 @@ void GameContext::begin_discard_presentation(int hand_index)
     }
 
     update_target_scroll();
+    return true;
 }
 
 CardFlightSample GameContext::sample_play_flight(const PlayFlight& flight, int main_x, int dest_x, int dest_y) const
@@ -2436,6 +2530,12 @@ void GameContext::complete_play_flight(PlayFlight& flight)
         pending_cycle_draws = cycle_draws;
         draw_total_score();
         sync_hand_selection();
+
+        if(discard_resolved)
+        {
+            begin_next_pending_or_finish(true);
+        }
+
         return;
     }
 
@@ -3485,6 +3585,7 @@ void GameContext::begin_deck_search_resolve(CardRef played, int start_x, int sta
     target_row_scroll_x = 0;
     target_row_scroll_index = 0;
     sync_hand_selection();
+    restore_score_readouts();
 }
 
 void GameContext::finish_deck_search_resolve()
@@ -3578,8 +3679,7 @@ void GameContext::clear_inspect()
     inspect_shown_index = -1;
     last_inspect_sprite_offset = 0;
     hide_inspect_card(inspect_card);
-    draw_round_score();
-    draw_total_score();
+    restore_score_readouts();
 }
 
 void GameContext::draw_inspect(CardType type)
@@ -3591,7 +3691,7 @@ void GameContext::draw_inspect(CardType type)
     _total_score_initialized = false;
     score_count_cancel(*this, TrinketScoreField::ROUND);
     score_count_cancel(*this, TrinketScoreField::TOTAL);
-    score_pops.clear();
+    score_pop_shutdown_all(*this);
 
     release_card_display_tiles(inspect_card);
     const CardInstance* instance = nullptr;
@@ -3834,6 +3934,8 @@ void GameContext::cycle_side_panel(int direction)
     {
         return;
     }
+
+    release_idle_card_pools();
 
     constexpr SidePanel ORDER[] = {
         SidePanel::NONE,
@@ -4783,6 +4885,8 @@ void GameContext::finish_combo_cinematic()
     combo_resume_type = state.selection.type;
 
     state.combo_cinematic.active = false;
+    state.combo_cinematic.awaiting_score_choice = false;
+    combo_mul_sprites.clear();
     combo_remove_resolved_cards(state, selected_card);
     browse_cursor = clamp_graveyard_cursor(browse_cursor, state.graveyard.size());
     state.selection.cursor = clamp_graveyard_cursor(state.selection.cursor, state.graveyard.size());
@@ -4827,7 +4931,7 @@ void GameContext::resume_after_combo()
 void GameContext::shutdown_for_exit()
 {
     score_swap_fx = ScoreSwapFxState{};
-    score_swap_marker_sprites.clear();
+    release_sprite_list(score_swap_marker_sprites);
     reset_card_animation_state();
     hide_hand_display();
 
@@ -4851,18 +4955,39 @@ void GameContext::shutdown_for_exit()
         release_card_display_tiles(card);
     }
 
-    release_card_display_tiles(exclusive_fx_card());
+    for(PlayFlight& flight : play_flights)
+    {
+        release_card_display_tiles(flight.fx_card);
+    }
+
+    for(TransitFlight& flight : transit_flights)
+    {
+        release_card_display_tiles(flight.fx_card);
+    }
+
     release_card_display_tiles(inspect_card);
     release_card_display_tiles(echo_ghost_card);
-    clear_inspect();
-    score_pops.clear();
-    y2k_bust_sprites.clear();
-    inspect_sprites.clear();
-    text_sprites.clear();
-    round_text_sprites.clear();
+    inspecting = false;
+    inspect_shown_index = -1;
+    last_inspect_sprite_offset = 0;
+    hide_inspect_card(inspect_card);
+    score_pop_shutdown_all(*this);
+    score_count_cancel(*this, TrinketScoreField::ROUND);
+    score_count_cancel(*this, TrinketScoreField::TOTAL);
+    release_sprite_list(y2k_bust_sprites);
+    release_sprite_list(inspect_sprites);
+    release_sprite_list(text_sprites);
+    release_sprite_list(round_text_sprites);
+    release_sprite_list(details_sprites);
+    release_sprite_list(trinket_fx_sprites);
+    release_sprite_list(action_prompt_sprites);
+    release_sprite_list(combo_mul_sprites);
+    score_progress_bar.release_segments();
+    combo_progress_bars.release_segments();
     combo_progress_bars.set_visible(false);
-    details_sprites.clear();
     hud.set_visible(false);
+    _round_score_initialized = false;
+    _total_score_initialized = false;
 }
 
 void GameContext::release_idle_card_pools()
@@ -4928,12 +5053,17 @@ GameContext::RoundFinishResult GameContext::try_finish_round_after_empty_hand()
     round_end_pending = false;
     swivel_clear_wait_if_hand_empty(*this);
 
-    if(state.finale_active)
+    if(state.finale_active && campaign_ui.mode != CampaignMode::NUMBER_NOW)
     {
         state.waive_optional_ghost_plays = false;
         skip_pending_combine = false;
         finish_finale_run();
         return RoundFinishResult::EndedRun;
+    }
+
+    if(state.finale_active)
+    {
+        state.finale_active = false;
     }
 
     skip_pending_combine = false;
@@ -4945,14 +5075,6 @@ GameContext::RoundFinishResult GameContext::try_finish_round_after_empty_hand()
     {
         commit_round_with_checks();
         draw_total_score();
-
-        if(campaign_ui.mode == CampaignMode::NUMBER_NOW &&
-           state.current_round == campaign_ui.number_now_scoring_round)
-        {
-            state.waive_optional_ghost_plays = false;
-            request_run_end();
-            return RoundFinishResult::EndedRun;
-        }
     }
 
     begin_keep_going_round_transfers(turtle_preserve);
@@ -5067,10 +5189,12 @@ void GameContext::finish_empty_hand_round()
 void GameContext::tick_round_end_pending()
 {
     // Selection modes pop their pending action on entry; recover if auto-finish was skipped.
-    if(mode == GameMode::DISCARD_TARGET && state.hand.empty() && state.pending_actions.empty() &&
-       play_flight_count() == 0 && !hand_draw_fx_blocking())
+    // Remaining picks 0 with cards still in hand is Fishing Pole / Jacks after the cost
+    // discard: A is ignored, so we must advance to retrieve (or close) ourselves.
+    if(mode == GameMode::DISCARD_TARGET && play_flight_count() == 0 && !hand_draw_fx_blocking() &&
+       (state.hand.empty() || state.selection.remaining_picks <= 0))
     {
-        begin_next_pending_or_finish();
+        begin_next_pending_or_finish(true);
     }
     else if(score_swap_is_active(*this) && mode != GameMode::SCORE_SWAP &&
             state.pending_actions.empty() && play_flight_count() == 0 && !hand_draw_fx_blocking())

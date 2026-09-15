@@ -73,6 +73,8 @@ struct TransitFlight
     Card fx_card;
 };
 
+void reset_victory_green_palette_cache();
+
 class GameContext
 {
 public:
@@ -196,6 +198,7 @@ public:
     bn::sprite_text_generator details_text_generator;
     bn::vector<bn::sprite_ptr, 48> details_sprites;
     bn::vector<bn::sprite_ptr, 24> action_prompt_sprites;
+    bn::vector<bn::sprite_ptr, 8> combo_mul_sprites;
     PersistentHud hud;
 
     struct DeckSearchResolveFx
@@ -246,8 +249,8 @@ public:
     void begin_play_presentation(CardRef card, int start_x, int start_y, PlayPresentOrigin origin,
                                  PlayResolutionContext context, RemovalStyle style,
                                  bool miracle_bonus = false);
-    void begin_discard_presentation(int hand_index);
-    void begin_direct_removal(int start_x, int start_y, RemovalStyle style, bool is_discard,
+    [[nodiscard]] bool begin_discard_presentation(int hand_index);
+    [[nodiscard]] bool begin_direct_removal(int start_x, int start_y, RemovalStyle style, bool is_discard,
                               bool cycle_exile = false);
     PlayFlight* alloc_play_flight();
     PlayFlight* latest_play_flight();
@@ -284,6 +287,7 @@ public:
     void continue_opening_hand_deal();
     void draw_total_score();
     void draw_round_score();
+    void restore_score_readouts();
     void show_total_score_value(int value);
     void show_round_score_running(int running, int end_multiplier);
     void sync_score_digit_view(SwapScoreField field, int digit_index);
@@ -414,6 +418,9 @@ public:
     bool block_round_end_for_combo();
 
     void tick_combo();
+    void handle_combo_score_choice_input();
+    void resolve_combo_score_choice();
+    void render_combo_score_choice();
     void tick_y2k_bust();
     void render_y2k_bust_overlay();
     void finish_combo_cinematic();

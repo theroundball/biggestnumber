@@ -1,6 +1,7 @@
 #include "game_context.h"
 
 #include "bn_blending.h"
+#include "bn_sprite_shape_size.h"
 #include "bn_string.h"
 
 #include "combo_system.h"
@@ -344,6 +345,55 @@ void GameContext::render_combo_frame(int main_x)
                 combo_display[card_index].set_type(state.combo_cinematic.cards[card_index]);
                 combo_display[card_index].set_visible(true);
             }
+}
+
+void GameContext::render_combo_score_choice()
+{
+    combo_mul_sprites.clear();
+
+    if(!state.combo_cinematic.awaiting_score_choice)
+    {
+        return;
+    }
+
+    const int multiplier = combo_ready_multiplier(state.pending_combo.combo_id);
+
+    if(multiplier <= 0)
+    {
+        return;
+    }
+
+    const bool target_round = state.combo_cinematic.mul_targets_round;
+    const bn::ivector<bn::sprite_ptr>& score_sprites =
+        target_round ? round_text_sprites : text_sprites;
+    const int fallback_x = main_panel_offset_x() + 28;
+    int right_edge = fallback_x;
+    bool any_visible = false;
+
+    for(const bn::sprite_ptr& sprite : score_sprites)
+    {
+        if(!sprite.visible())
+        {
+            continue;
+        }
+
+        const int edge = sprite.x().right_shift_integer() + sprite.shape_size().width() / 2;
+
+        if(!any_visible || edge > right_edge)
+        {
+            right_edge = edge;
+            any_visible = true;
+        }
+    }
+
+    bn::string<8> mul_text = "x";
+    mul_text += bn::to_string<4>(multiplier);
+
+    const int label_x = (any_visible ? right_edge : fallback_x) + 6;
+    const int label_y = target_round ? 0 : -48;
+
+    round_text_generator.set_left_alignment();
+    round_text_generator.generate_optional(label_x, label_y, mul_text, combo_mul_sprites);
 }
 
 // Legacy graveyard pan path — kept for API compatibility; main-screen flight is in render_combo_frame.
@@ -1009,21 +1059,6 @@ void GameContext::render_frame()
         hide_hand_display();
         clear_card_border_palette_cache();
 
-        if(card_selection_ui_active())
-        {
-            if(!text_sprites.empty())
-            {
-                text_sprites.clear();
-                last_main_sprite_offset = 0;
-            }
-
-            if(!round_text_sprites.empty())
-            {
-                round_text_sprites.clear();
-                last_round_sprite_offset = 0;
-            }
-        }
-
         if (mode == GameMode::COMBO)
         {
             action_prompt_sprites.clear();
@@ -1202,6 +1237,12 @@ void GameContext::render_frame()
         score_pop_sync_positions(*this);
 
         const bool hide_main_scores = card_selection_ui_active() || inspecting;
+
+        if(!hide_main_scores && !score_swap_is_active(*this) &&
+           (text_sprites.empty() || round_text_sprites.empty()))
+        {
+            restore_score_readouts();
+        }
         const bool show_round_score = !hide_main_scores &&
             (mode != GameMode::COMBO || state.combo_cinematic.frame >= COMBO_GATHER_FRAMES);
 
@@ -1214,6 +1255,8 @@ void GameContext::render_frame()
         {
             sprite.set_visible(show_round_score);
         }
+
+        render_combo_score_choice();
 
         sync_score_progress_bar();
         sync_combo_progress_bars();

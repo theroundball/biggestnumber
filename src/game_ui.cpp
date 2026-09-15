@@ -550,6 +550,27 @@ void ComboProgressBars::sync(const bn::array<uint8_t, game_layout::COMBO_BAR_ROW
     }
 }
 
+void ComboProgressBars::release_segments()
+{
+    for(Row& row : _rows)
+    {
+        row.track_sprites.clear();
+        row.fill_sprites.clear();
+        row.last_length = -1;
+        row.last_filled = -1;
+    }
+}
+
+void ScoreProgressBar::release_segments()
+{
+    _track_sprites.clear();
+    _gold_sprites.clear();
+    _round_sprites.clear();
+    _last_total_px = -1;
+    _last_combined_px = -1;
+    _last_goal = -1;
+}
+
 void ComboProgressBars::set_visible(bool visible)
 {
     if(_visible == visible)

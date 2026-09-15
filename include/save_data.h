@@ -14,7 +14,7 @@
 #include "world_data.h"
 
 constexpr int SAVE_DATA_MAGIC = 0x424E554D; // 'BNUM'
-constexpr int SAVE_DATA_VERSION = 20;
+constexpr int SAVE_DATA_VERSION = 21;
 constexpr int MAX_SAVED_DECKS = 6;
 constexpr int LIBRARY_COPY_LIMIT = 5;
 constexpr int DECK_MIN_CARDS = 1;
@@ -71,6 +71,8 @@ struct SaveData
     // Remaining cards per NPC collection (Route A depletion).
     uint8_t npc_collections[WORLD_NPC_COUNT][int(CardType::COUNT)] = {};
     uint8_t npc_collections_initialized = 0;
+    // Best scoring-run against each overworld NPC. A win must beat this value.
+    int32_t npc_best_score[WORLD_NPC_COUNT] = {};
 };
 
 void save_data_init();

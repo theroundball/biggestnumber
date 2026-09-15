@@ -15,6 +15,12 @@
 #include "bn_tile.h"
 #include "bn_vector.h"
 
+#include <new>
+
+#ifndef BN_DATA_EWRAM_BSS
+    #define BN_DATA_EWRAM_BSS __attribute__((section(".sbss")))
+#endif
+
 #include "battle_backdrop.h"
 
 #include "campaign.h"
@@ -284,6 +290,56 @@ namespace
         bn::sprite_ptr _thumb;
     };
 
+    // Cards + SceneText pools are too large for the GBA's ~16KB stack. Nested under
+    // the overworld this used to clobber player/NPC sprite state (empty map, only BG).
+    struct DeckEditorSceneState
+    {
+        bn::sprite_text_generator title_generator;
+        bn::sprite_text_generator body_generator;
+        bn::sprite_text_generator count_generator;
+        SceneText scene_text;
+        SceneText header_text;
+        SceneText quantity_text;
+        SelectorGlyph actions_selector;
+        CatalogScrollRail scroll_rail;
+        bn::vector<bn::sprite_ptr, 64> inspect_sprites;
+        bn::array<Card, GRID_POOL_SIZE> catalog_cards;
+
+        DeckEditorSceneState() :
+            title_generator(common::variable_8x16_sprite_font),
+            body_generator(common::variable_8x8_sprite_font),
+            count_generator(common::variable_8x16_sprite_font),
+            scene_text(title_generator),
+            header_text(title_generator),
+            quantity_text(count_generator),
+            actions_selector(title_generator, ACTIONS_SELECTOR_X)
+        {}
+    };
+
+    alignas(DeckEditorSceneState) BN_DATA_EWRAM_BSS char g_deck_editor_storage[sizeof(DeckEditorSceneState)];
+    DeckEditorSceneState* g_deck_editor = nullptr;
+
+    DeckEditorSceneState& construct_deck_editor_state()
+    {
+        if(g_deck_editor)
+        {
+            g_deck_editor->~DeckEditorSceneState();
+            g_deck_editor = nullptr;
+        }
+
+        g_deck_editor = new(g_deck_editor_storage) DeckEditorSceneState();
+        return *g_deck_editor;
+    }
+
+    void destroy_deck_editor_state()
+    {
+        if(g_deck_editor)
+        {
+            g_deck_editor->~DeckEditorSceneState();
+            g_deck_editor = nullptr;
+        }
+    }
+
     int grid_left_x()
     {
         const int span = (GRID_COLS - 1) * GRID_COL_PITCH + game_layout::CARD_DISPLAY_WIDTH;
@@ -454,6 +510,26 @@ namespace
         return slot_count;
     }
 
+    void dismiss_deck_editor_scene(SceneText& scene_text, SceneText& header_text, SceneText& quantity_text,
+                                   SelectorGlyph& actions_selector, CatalogScrollRail& scroll_rail,
+                                   bn::vector<bn::sprite_ptr, 64>& inspect_sprites,
+                                   bn::array<Card, GRID_POOL_SIZE>& catalog_cards, Card& inspect_card_slot)
+    {
+        scene_text.clear();
+        header_text.clear();
+        quantity_text.clear();
+        actions_selector.set_visible(false);
+        scroll_rail.set_visible(false);
+        inspect_sprites.clear();
+        hide_inspect_card(inspect_card_slot);
+
+        for(Card& card : catalog_cards)
+        {
+            release_card_display_tiles(card);
+            card.set_visible(false);
+        }
+    }
+
     bool try_save_working_deck(SavedDeck& working, SaveData& save, int deck_index)
     {
         saved_deck_trim_to_max(working, DECK_MAX_CARDS);
@@ -540,18 +616,16 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck, b
     saved_deck_trim_to_max(working, DECK_MAX_CARDS);
     saved_deck_sanitize_name(working);
 
-    bn::sprite_text_generator title_generator(common::variable_8x16_sprite_font);
-    bn::sprite_text_generator body_generator(common::variable_8x8_sprite_font);
-    bn::sprite_text_generator count_generator(common::variable_8x16_sprite_font);
-
-    SceneText scene_text(title_generator);
-    SceneText header_text(title_generator);
-    SceneText quantity_text(count_generator);
-    SelectorGlyph actions_selector(title_generator, ACTIONS_SELECTOR_X);
-    CatalogScrollRail scroll_rail;
-
-    bn::vector<bn::sprite_ptr, 64> inspect_sprites;
-    bn::array<Card, GRID_POOL_SIZE> catalog_cards;
+    DeckEditorSceneState& editor = construct_deck_editor_state();
+    bn::sprite_text_generator& title_generator = editor.title_generator;
+    bn::sprite_text_generator& body_generator = editor.body_generator;
+    SceneText& scene_text = editor.scene_text;
+    SceneText& header_text = editor.header_text;
+    SceneText& quantity_text = editor.quantity_text;
+    SelectorGlyph& actions_selector = editor.actions_selector;
+    CatalogScrollRail& scroll_rail = editor.scroll_rail;
+    bn::vector<bn::sprite_ptr, 64>& inspect_sprites = editor.inspect_sprites;
+    bn::array<Card, GRID_POOL_SIZE>& catalog_cards = editor.catalog_cards;
 
     for(Card& card : catalog_cards)
     {
@@ -887,7 +961,7 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck, b
                 {
                     saved_deck_try_add_card(save, deck_index, working, selected);
                 }
-                else if(bn::keypad::b_pressed() && !overworld_session)
+                else if(bn::keypad::b_pressed())
                 {
                     saved_deck_try_remove_card(working, selected);
                 }
@@ -922,7 +996,12 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck, b
                 {
                     if(try_save_working_deck(working, save, deck_index))
                     {
-                        result.next = MenuSceneResult::MAIN_MENU;
+                        dismiss_deck_editor_scene(scene_text, header_text, quantity_text, actions_selector,
+                                                  scroll_rail, inspect_sprites, catalog_cards, catalog_cards[0]);
+                        result.next = overworld_session ? MenuSceneResult::RETURN_OVERWORLD
+                                                        : MenuSceneResult::MAIN_MENU;
+                        wait_for_keypad_clear();
+                        destroy_deck_editor_state();
                         return result;
                     }
 
@@ -981,16 +1060,14 @@ DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck, b
             }
         }
 
-        if(overworld_session && bn::keypad::b_pressed() && !inspecting && !panel_open_or_opening)
-        {
-            result.next = MenuSceneResult::RETURN_OVERWORLD;
-            return result;
-        }
-
-        // Start leaves without saving (B is used for removing copies).
+        // Start leaves without saving (B removes copies on the catalog grid).
         if(bn::keypad::start_pressed() && ! inspecting && ! panel_open_or_opening)
         {
+            dismiss_deck_editor_scene(scene_text, header_text, quantity_text, actions_selector, scroll_rail,
+                                      inspect_sprites, catalog_cards, catalog_cards[0]);
             result.next = overworld_session ? MenuSceneResult::RETURN_OVERWORLD : MenuSceneResult::MAIN_MENU;
+            wait_for_keypad_clear();
+            destroy_deck_editor_state();
             return result;
         }
 

@@ -66,7 +66,21 @@ void GameContext::prepare_transit_flight_visual(TransitFlight& flight)
 void GameContext::clear_transit_flight(TransitFlight& flight)
 {
     release_card_display_tiles(flight.fx_card);
-    flight = TransitFlight{};
+    flight.active = false;
+    flight.frame = 0;
+    flight.delay_frames = 0;
+    flight.kind = TransitKind::NONE;
+    flight.gy_kind = GraveyardExilePickKind::NONE;
+    flight.card = CardRef{};
+    flight.start_x = 0;
+    flight.start_y = 0;
+    flight.dest_x = 0;
+    flight.dest_y = 0;
+    flight.dest_hand_index = 0;
+    flight.graveyard_index = -1;
+    flight.style = RemovalStyle::TO_GRAVEYARD;
+    flight.state_applied = false;
+    flight.miracle_auto_play = false;
 }
 
 TransitFlight* GameContext::alloc_transit_flight()

@@ -840,8 +840,7 @@ namespace
                 }
 
                 ctx.sync_hand_selection();
-                ctx.draw_total_score();
-                ctx.draw_round_score();
+                ctx.restore_score_readouts();
                 return;
             }
         }
@@ -861,8 +860,7 @@ namespace
         }
 
         ctx.sync_hand_selection();
-        ctx.draw_total_score();
-        ctx.draw_round_score();
+        ctx.restore_score_readouts();
     }
 }
 

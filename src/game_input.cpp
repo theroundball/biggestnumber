@@ -93,18 +93,55 @@ void GameContext::tick_combo()
         return;
     }
 
+    if(state.combo_cinematic.awaiting_score_choice)
+    {
+        return;
+    }
+
     ++state.combo_cinematic.frame;
 
-    if(state.combo_cinematic.frame == COMBO_GATHER_FRAMES)
+    if(state.combo_cinematic.frame == COMBO_GATHER_FRAMES &&
+       !state.combo_cinematic.bonus_applied)
     {
-        combo_apply_score_bonus(state);
-        draw_total_score();
+        state.combo_cinematic.awaiting_score_choice = true;
+        return;
     }
 
     if(state.combo_cinematic.frame >= COMBO_TOTAL_FRAMES)
     {
         finish_combo_cinematic();
     }
+}
+
+void GameContext::handle_combo_score_choice_input()
+{
+    if(!state.combo_cinematic.awaiting_score_choice)
+    {
+        return;
+    }
+
+    if(bn::keypad::up_pressed())
+    {
+        state.combo_cinematic.mul_targets_round = false;
+    }
+    else if(bn::keypad::down_pressed())
+    {
+        state.combo_cinematic.mul_targets_round = true;
+    }
+    else if(confirm_input_armed && bn::keypad::a_pressed())
+    {
+        resolve_combo_score_choice();
+    }
+}
+
+void GameContext::resolve_combo_score_choice()
+{
+    combo_apply_score_bonus(state, state.combo_cinematic.mul_targets_round);
+    state.combo_cinematic.awaiting_score_choice = false;
+    state.combo_cinematic.bonus_applied = true;
+    combo_mul_sprites.clear();
+    draw_total_score();
+    draw_round_score();
 }
 
 bool GameContext::poll_direction(int& current_direction, bool scrolling, bool& direction_triggered,
@@ -145,6 +182,11 @@ void GameContext::handle_input()
     // so the player cannot scroll or close the view mid-cinematic.
     if(mode == GameMode::COMBO)
     {
+        if(state.combo_cinematic.awaiting_score_choice)
+        {
+            handle_combo_score_choice_input();
+        }
+
         handle_input_presentation();
     }
     else if(!panel_transition_active() && side_panel != SidePanel::NONE)
@@ -730,8 +772,6 @@ void GameContext::handle_input_discard_target(int current_direction, bool direct
             return;
         }
 
-        --state.selection.remaining_picks;
-
         if(state.selection.type == PendingActionType::PAPER_SWAP_HAND)
         {
             const int anchor = state.selection.multiply_factor;
@@ -742,12 +782,19 @@ void GameContext::handle_input_discard_target(int current_direction, bool direct
                 hand_swap_cards(state, anchor, selected_card);
             }
 
+            --state.selection.remaining_picks;
             begin_next_pending_or_finish(true);
         }
         else if(state.selection.type == PendingActionType::PUT_HAND_ON_DECK_TOP)
         {
             capture_removal_start();
-            begin_direct_removal(removal_start_x, removal_start_y, RemovalStyle::TO_DECK_TOP, false);
+
+            if(!begin_direct_removal(removal_start_x, removal_start_y, RemovalStyle::TO_DECK_TOP, false))
+            {
+                return;
+            }
+
+            --state.selection.remaining_picks;
         }
         else if(state.selection.type == PendingActionType::EXILE_FROM_HAND)
         {
@@ -755,16 +802,28 @@ void GameContext::handle_input_discard_target(int current_direction, bool direct
             hand_remove_at_exiled(state, removed, selected_card);
             shift_card_raise_after_remove(removed);
             draw_round_score();
+            --state.selection.remaining_picks;
             begin_next_pending_or_finish(true);
         }
         else if(card_has_discard_effect(state.hand[selected_card].type))
         {
-            begin_discard_presentation(selected_card);
+            if(!begin_discard_presentation(selected_card))
+            {
+                return;
+            }
+
+            --state.selection.remaining_picks;
         }
         else
         {
             capture_removal_start();
-            begin_direct_removal(removal_start_x, removal_start_y, RemovalStyle::TO_GRAVEYARD, true);
+
+            if(!begin_direct_removal(removal_start_x, removal_start_y, RemovalStyle::TO_GRAVEYARD, true))
+            {
+                return;
+            }
+
+            --state.selection.remaining_picks;
         }
     }
 }
@@ -961,6 +1020,7 @@ void GameContext::handle_input_deck_search(int current_direction, bool direction
         target_row_scroll_x = 0;
         target_row_scroll_index = 0;
         sync_hand_selection();
+        restore_score_readouts();
     }
 }
 
@@ -1122,6 +1182,7 @@ void GameContext::handle_input_scry(int current_direction, bool direction_trigge
         target_row_scroll_x = 0;
         target_row_scroll_index = 0;
         sync_hand_selection();
+        restore_score_readouts();
     }
 }
 

@@ -6,6 +6,7 @@
 #include "bn_core.h"
 #include "bn_keypad.h"
 #include "bn_optional.h"
+#include "bn_sprite_item.h"
 #include "bn_sprite_palette_item.h"
 #include "bn_sprite_palette_ptr.h"
 #include "bn_sprite_shape_size.h"
@@ -14,6 +15,25 @@
 #include "bn_utility.h"
 
 #include "battle_backdrop.h"
+
+bool apply_sprite_item_optional(bn::sprite_ptr& sprite, const bn::sprite_item& item)
+{
+    bn::optional<bn::sprite_tiles_ptr> tiles = item.tiles_item().create_tiles_optional();
+    bn::optional<bn::sprite_palette_ptr> palette = item.palette_item().create_palette_optional();
+
+    if(tiles.has_value() && palette.has_value())
+    {
+        sprite.set_tiles_and_palette(*tiles, *palette);
+        return true;
+    }
+
+    if(tiles.has_value())
+    {
+        sprite.set_tiles(*tiles);
+    }
+
+    return false;
+}
 
 void move_toward_int(int& value, int target, int max_step)
 {
@@ -140,7 +160,7 @@ namespace
             const bn::sprite_palette_item palette_item(
                 bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4,
                 bn::compression_type::NONE);
-            palette = bn::sprite_palette_ptr::create(palette_item);
+            palette = bn::sprite_palette_ptr::create_optional(palette_item);
         }
     };
 

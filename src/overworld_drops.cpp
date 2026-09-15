@@ -28,6 +28,7 @@
 #include "common_variable_8x8_sprite_font.h"
 #include "game_types.h"
 #include "overworld_scene.h"
+#include "prize_system.h"
 #include "save_data.h"
 #include "ui_inspect.h"
 #include "world_data.h"
@@ -47,9 +48,12 @@ namespace
     constexpr bn::fixed DROP_UNSELECTED_ALPHA = bn::fixed(55) / 100;
     constexpr int MAP_PIXEL_W = 256;
     constexpr int MAP_PIXEL_H = 256;
-    constexpr bn::fixed MAP_MARGIN = 20;
-    constexpr bn::fixed DROP_MIN_SEPARATION = 40;
+    constexpr bn::fixed MAP_MARGIN = 24;
+    constexpr bn::fixed DROP_LABEL_MIN_Y = 40;
+    constexpr bn::fixed DROP_MIN_SEPARATION = 32;
     constexpr bn::fixed DROP_ENTITY_PADDING = 10;
+    constexpr int SCREEN_W = 240;
+    constexpr int SCREEN_H = 160;
 
     constexpr int PAL_TRANSPARENT = 0;
     constexpr int PAL_CARD_MARKER = 1;
@@ -494,8 +498,7 @@ namespace
             const bn::sprite_palette_item item(
                 bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4,
                 bn::compression_type::NONE);
-            palette = bn::sprite_palette_ptr::create(item);
-
+            palette = bn::sprite_palette_ptr::create_optional(item);
             ready = true;
         }
     };
@@ -528,16 +531,23 @@ namespace
 
     bn::string_view drop_label_for_card(CardType type, bn::string<18>& storage)
     {
+        storage.clear();
+
         if(type == CardType::COUNT)
         {
-            return "";
+            return storage;
         }
 
-        storage = card_data(type).name;
+        const bn::string_view name = card_data(type).name;
+        const int copy_count = name.size() > 14 ? 12 : name.size();
 
-        if(storage.size() > 14)
+        for(int index = 0; index < copy_count; ++index)
         {
-            storage.resize(12);
+            storage.push_back(name[index]);
+        }
+
+        if(name.size() > 14)
+        {
             storage.append("..");
         }
 
@@ -575,6 +585,7 @@ namespace
     {
         clear_inspect();
         clear_drop_visuals();
+        bn::blending::set_transparency_alpha(bn::fixed(1));
 
         g_session.active = false;
         g_session.spawn_x = 0;
@@ -675,6 +686,12 @@ namespace
         }
 
         DropVisualAssets& assets = drop_visual_assets();
+
+        if(!assets.palette.has_value())
+        {
+            return;
+        }
+
         int y = 0;
 
         while(y < height)
@@ -734,7 +751,7 @@ namespace
 
         bn::string<18> label_storage;
         const bn::string_view text =
-            is_paper ? bn::string_view("Paper") : drop_label_for_card(card_type, label_storage);
+            is_paper ? bn::string_view("Sticker paper") : drop_label_for_card(card_type, label_storage);
 
         LabelTextPalettes& text_palettes = label_text_palettes();
         bn::sprite_text_generator& label_generator =
@@ -743,7 +760,7 @@ namespace
 
         bn::vector<bn::sprite_ptr, 24> generated_text;
         label_generator.set_center_alignment();
-        label_generator.generate(anchor_x, text_y, text, generated_text);
+        label_generator.generate_optional(anchor_x, text_y, text, generated_text);
         label_generator.set_left_alignment();
 
         if(generated_text.empty())
@@ -917,6 +934,11 @@ namespace
             const bool marker_visible = !drop.poofing || (drop.poof_frame % 2) == 0;
             const bool is_paper = drop.kind == DropKind::PAPER;
 
+            if(!assets.palette.has_value())
+            {
+                continue;
+            }
+
             if(drop.poofing)
             {
                 release_label_visuals(slot);
@@ -1075,6 +1097,16 @@ namespace
         }
     }
 
+    bool grant_dropped_card(SaveData& save, CardType type)
+    {
+        if(g_session.npc_index >= 0 && campaign_apply_npc_card_take(save, g_session.npc_index, type))
+        {
+            return true;
+        }
+
+        return campaign_apply_prize_card(save, type);
+    }
+
     bool try_pickup(int index)
     {
         if(index < 0 || index >= g_session.drop_count)
@@ -1109,23 +1141,9 @@ namespace
             return true;
         }
 
-        bool added = false;
+        bool added = grant_dropped_card(save, type);
 
-        if(g_session.npc_index >= 0)
-        {
-            added = campaign_apply_npc_card_take(save, g_session.npc_index, type);
-        }
-        else if(!campaign_apply_prize_card(save, type))
-        {
-            campaign_grant_sticker_paper(save, 1);
-            added = true;
-        }
-        else
-        {
-            added = true;
-        }
-
-        if(g_session.npc_index >= 0 && !added)
+        if(!added)
         {
             campaign_grant_sticker_paper(save, 1);
         }
@@ -1190,10 +1208,71 @@ namespace
         }
     }
 
+    bn::fixed clamp_fixed(bn::fixed value, bn::fixed min_value, bn::fixed max_value)
+    {
+        if(value < min_value)
+        {
+            return min_value;
+        }
+
+        if(value > max_value)
+        {
+            return max_value;
+        }
+
+        return value;
+    }
+
+    void drop_reachable_bounds(bn::fixed& min_x, bn::fixed& max_x, bn::fixed& min_y, bn::fixed& max_y)
+    {
+        const bn::fixed walk_min_x = MAP_MARGIN;
+        const bn::fixed walk_max_x = bn::fixed(MAP_PIXEL_W) - MAP_MARGIN;
+        const bn::fixed walk_min_y = DROP_LABEL_MIN_Y;
+        const bn::fixed walk_max_y = bn::fixed(MAP_PIXEL_H) - MAP_MARGIN;
+
+        bn::fixed camera_x = g_session.spawn_x - bn::fixed(SCREEN_W / 2);
+        bn::fixed camera_y = g_session.spawn_y - bn::fixed(SCREEN_H / 2);
+        const bn::fixed max_camera_x = bn::fixed(MAP_PIXEL_W - SCREEN_W);
+        const bn::fixed max_camera_y = bn::fixed(MAP_PIXEL_H - SCREEN_H);
+
+        camera_x = clamp_fixed(camera_x, 0, max_camera_x);
+        camera_y = clamp_fixed(camera_y, 0, max_camera_y);
+
+        constexpr bn::fixed screen_inset_x = 20;
+        constexpr bn::fixed screen_inset_bottom = 20;
+        constexpr bn::fixed screen_inset_top = 32;
+
+        min_x = camera_x + screen_inset_x;
+        max_x = camera_x + bn::fixed(SCREEN_W) - screen_inset_x;
+        min_y = camera_y + screen_inset_top;
+        max_y = camera_y + bn::fixed(SCREEN_H) - screen_inset_bottom;
+
+        min_x = clamp_fixed(min_x, walk_min_x, walk_max_x);
+        max_x = clamp_fixed(max_x, walk_min_x, walk_max_x);
+        min_y = clamp_fixed(min_y, walk_min_y, walk_max_y);
+        max_y = clamp_fixed(max_y, walk_min_y, walk_max_y);
+
+        if(min_x > max_x)
+        {
+            min_x = walk_min_x;
+            max_x = walk_max_x;
+        }
+
+        if(min_y > max_y)
+        {
+            min_y = walk_min_y;
+            max_y = walk_max_y;
+        }
+    }
+
     bool drop_position_in_bounds(bn::fixed x, bn::fixed y)
     {
-        return x >= MAP_MARGIN && x <= bn::fixed(MAP_PIXEL_W) - MAP_MARGIN &&
-               y >= MAP_MARGIN && y <= bn::fixed(MAP_PIXEL_H) - MAP_MARGIN;
+        bn::fixed min_x;
+        bn::fixed max_x;
+        bn::fixed min_y;
+        bn::fixed max_y;
+        drop_reachable_bounds(min_x, max_x, min_y, max_y);
+        return x >= min_x && x <= max_x && y >= min_y && y <= max_y;
     }
 
     bool drop_position_blocked(bn::fixed x, bn::fixed y)
@@ -1212,16 +1291,22 @@ namespace
         return false;
     }
 
-    bool drop_position_far_enough(bn::fixed x, bn::fixed y, int placed_count)
+    bool drop_position_far_enough(bn::fixed x, bn::fixed y, bn::fixed min_separation)
     {
-        for(int index = 0; index < placed_count; ++index)
+        for(int index = 0; index < g_session.drop_count; ++index)
         {
             const DropEntry& placed = g_session.drops[index];
+
+            if(!placed.active)
+            {
+                continue;
+            }
+
             const bn::fixed dx = x - placed.world_x;
             const bn::fixed dy = y - placed.landing_y;
             const bn::fixed distance = bn::sqrt(dx * dx + dy * dy);
 
-            if(distance < DROP_MIN_SEPARATION)
+            if(distance < min_separation)
             {
                 return false;
             }
@@ -1230,40 +1315,98 @@ namespace
         return true;
     }
 
-    bool drop_position_valid(bn::fixed x, bn::fixed y, int placed_count)
+    bool drop_position_valid(bn::fixed x, bn::fixed y, bn::fixed min_separation, bool avoid_entities)
     {
-        return drop_position_in_bounds(x, y) && !drop_position_blocked(x, y) &&
-               drop_position_far_enough(x, y, placed_count);
+        return drop_position_in_bounds(x, y) &&
+               (!avoid_entities || !drop_position_blocked(x, y)) &&
+               drop_position_far_enough(x, y, min_separation);
     }
 
-    bn::fixed_point pick_drop_offset(bn::seed_random& rng, int slot_index, int slot_count)
+    bool try_drop_landing(bn::fixed x, bn::fixed y, bn::fixed min_separation, bool avoid_entities,
+                            bn::fixed_point& out_landing)
     {
-        constexpr bn::fixed BASE_RADIUS = 44;
-        constexpr bn::fixed EXTRA_RADIUS = 12;
-        constexpr int MAX_ATTEMPTS = 24;
+        bn::fixed min_x;
+        bn::fixed max_x;
+        bn::fixed min_y;
+        bn::fixed max_y;
+        drop_reachable_bounds(min_x, max_x, min_y, max_y);
+        x = clamp_fixed(x, min_x, max_x);
+        y = clamp_fixed(y, min_y, max_y);
 
-        for(int attempt = 0; attempt < MAX_ATTEMPTS; ++attempt)
+        if(!drop_position_valid(x, y, min_separation, avoid_entities))
         {
-            const int angle_step = 360 / (slot_count > 0 ? slot_count : 1);
-            const int angle_deg =
-                slot_index * angle_step + rng.get_int(angle_step) - angle_step / 2;
-            const bn::fixed angle = bn::fixed(angle_deg);
-            const bn::fixed radius =
-                BASE_RADIUS + bn::fixed(slot_index % 2) * EXTRA_RADIUS + bn::fixed(rng.get_int(8));
-            const bn::fixed offset_x = bn::degrees_lut_cos_safe(angle) * radius;
-            const bn::fixed offset_y = bn::degrees_lut_sin_safe(angle) * radius;
-            const bn::fixed world_x = g_session.spawn_x + offset_x;
-            const bn::fixed world_y = g_session.spawn_y + offset_y;
+            return false;
+        }
 
-            if(drop_position_valid(world_x, world_y, slot_index))
+        out_landing = bn::fixed_point(x, y);
+        return true;
+    }
+
+    bn::fixed_point pick_drop_landing(bn::seed_random& rng, int slot_index, int slot_count)
+    {
+        bn::fixed min_x;
+        bn::fixed max_x;
+        bn::fixed min_y;
+        bn::fixed max_y;
+        drop_reachable_bounds(min_x, max_x, min_y, max_y);
+
+        const bn::fixed origin_x = clamp_fixed(g_session.spawn_x, min_x, max_x);
+        const bn::fixed origin_y = clamp_fixed(g_session.spawn_y, min_y, max_y);
+        const int angle_count = slot_count > 0 ? slot_count : 1;
+        const int angle_step = 360 / angle_count;
+        const bn::fixed seps[] = { DROP_MIN_SEPARATION, 24, 16, 8, 0 };
+        const bool avoid_flags[] = { true, false };
+
+        bn::fixed_point landing(origin_x, origin_y);
+
+        for(bool avoid_entities : avoid_flags)
+        {
+            for(bn::fixed min_sep : seps)
             {
-                return bn::fixed_point(offset_x, offset_y);
+                for(int attempt = 0; attempt < 16; ++attempt)
+                {
+                    const int angle_deg =
+                        slot_index * angle_step + rng.get_int(angle_step) - angle_step / 2;
+                    const bn::fixed radius = bn::fixed(20 + (attempt % 6) * 8 + rng.get_int(8));
+                    const bn::fixed world_x =
+                        origin_x + bn::degrees_lut_cos_safe(bn::fixed(angle_deg)) * radius;
+                    const bn::fixed world_y =
+                        origin_y + bn::degrees_lut_sin_safe(bn::fixed(angle_deg)) * radius;
+
+                    if(try_drop_landing(world_x, world_y, min_sep, avoid_entities, landing))
+                    {
+                        return landing;
+                    }
+                }
+
+                for(int ring = 1; ring <= 8; ++ring)
+                {
+                    const bn::fixed step = bn::fixed(ring * 16);
+
+                    const bn::fixed_point ring_points[] = {
+                        bn::fixed_point(origin_x + step, origin_y),
+                        bn::fixed_point(origin_x - step, origin_y),
+                        bn::fixed_point(origin_x, origin_y + step),
+                        bn::fixed_point(origin_x, origin_y - step),
+                        bn::fixed_point(origin_x + step, origin_y + step),
+                        bn::fixed_point(origin_x - step, origin_y + step),
+                        bn::fixed_point(origin_x + step, origin_y - step),
+                        bn::fixed_point(origin_x - step, origin_y - step),
+                    };
+
+                    for(const bn::fixed_point& point : ring_points)
+                    {
+                        if(try_drop_landing(point.x(), point.y(), min_sep, avoid_entities, landing))
+                        {
+                            return landing;
+                        }
+                    }
+                }
             }
         }
 
-        const bn::fixed fallback_x = bn::fixed((slot_index - 1)) * DROP_MIN_SEPARATION;
-        const bn::fixed fallback_y = bn::fixed(36 + slot_index * 8);
-        return bn::fixed_point(fallback_x, fallback_y);
+        try_drop_landing(origin_x, origin_y, 0, false, landing);
+        return landing;
     }
 
     void add_card_drop(const PrizeOffer& offer, bn::fixed world_x, bn::fixed landing_y,
@@ -1332,10 +1475,6 @@ void overworld_drops_add_entity_block(bn::fixed world_x, bn::fixed world_y, bn::
 void overworld_drops_queue_from_battle(CampaignMode mode, bool won, int peak_before, int band_score,
                                        bn::seed_random& rng, int npc_index)
 {
-    (void)mode;
-    (void)peak_before;
-    (void)band_score;
-
     const bn::fixed spawn_x = g_session.spawn_x;
     const bn::fixed spawn_y = g_session.spawn_y;
     const bn::vector<EntityBlock, 16> saved_blocks = g_entity_blocks;
@@ -1352,15 +1491,11 @@ void overworld_drops_queue_from_battle(CampaignMode mode, bool won, int peak_bef
 
     const SaveData& save = save_data_get();
     bn::vector<CardType, NPC_MAX_COLLECTION_CARDS> npc_cards;
+    PrizeOffer prize_offers[CAMPAIGN_PRIZE_SLOT_COUNT];
+    int prize_slots = 0;
     int card_slots = 0;
-    bool unrestricted_deck = false;
 
-    if(save.deck_count > 0 && save.active_deck_index < save.deck_count)
-    {
-        unrestricted_deck = saved_deck_unrestricted_build(save.decks[save.active_deck_index]);
-    }
-
-    if(won && npc_index >= 0 && !unrestricted_deck)
+    if(won && npc_index >= 0)
     {
         card_slots = campaign_npc_collectible_cards(save, npc_index, npc_cards);
 
@@ -1370,10 +1505,29 @@ void overworld_drops_queue_from_battle(CampaignMode mode, bool won, int peak_bef
         }
     }
 
+    if(won && card_slots == 0)
+    {
+        PrizeOffer built_offers[CAMPAIGN_PRIZE_SLOT_COUNT];
+
+        if(prize_build_offers(save, mode, peak_before, band_score, rng, built_offers))
+        {
+            for(int slot = 0; slot < CAMPAIGN_PRIZE_SLOT_COUNT && prize_slots < MAX_CARD_DROPS; ++slot)
+            {
+                if(offer_card_type(built_offers[slot]) == CardType::COUNT)
+                {
+                    continue;
+                }
+
+                prize_offers[prize_slots] = built_offers[slot];
+                ++prize_slots;
+            }
+        }
+    }
+
     g_session.active = true;
     g_session.drop_count = 0;
 
-    const int total_drop_slots = card_slots + 1;
+    const int total_drop_slots = card_slots + prize_slots + 1;
     int placed_cards = 0;
 
     for(int card_index = 0; card_index < card_slots && g_session.drop_count < MAX_CARD_DROPS; ++card_index)
@@ -1382,17 +1536,23 @@ void overworld_drops_queue_from_battle(CampaignMode mode, bool won, int peak_bef
         offer.kind = PrizeOfferKind::CARD;
         offer.card = npc_cards[card_index];
 
-        const bn::fixed_point offset = pick_drop_offset(rng, placed_cards, total_drop_slots);
-        add_card_drop(offer, g_session.spawn_x + offset.x(), g_session.spawn_y + offset.y(),
+        const bn::fixed_point landing = pick_drop_landing(rng, placed_cards, total_drop_slots);
+        add_card_drop(offer, landing.x(), landing.y(), placed_cards * TOSS_STAGGER_FRAMES);
+        ++placed_cards;
+    }
+
+    for(int prize_index = 0; prize_index < prize_slots && g_session.drop_count < MAX_CARD_DROPS; ++prize_index)
+    {
+        const bn::fixed_point landing = pick_drop_landing(rng, placed_cards, total_drop_slots);
+        add_card_drop(prize_offers[prize_index], landing.x(), landing.y(),
                       placed_cards * TOSS_STAGGER_FRAMES);
         ++placed_cards;
     }
 
     if(g_session.drop_count < MAX_DROPS)
     {
-        const bn::fixed_point paper_offset = pick_drop_offset(rng, placed_cards, total_drop_slots);
-        add_paper_drop(g_session.spawn_x + paper_offset.x(), g_session.spawn_y + paper_offset.y(),
-                       placed_cards * TOSS_STAGGER_FRAMES);
+        const bn::fixed_point paper_landing = pick_drop_landing(rng, placed_cards, total_drop_slots);
+        add_paper_drop(paper_landing.x(), paper_landing.y(), placed_cards * TOSS_STAGGER_FRAMES);
     }
 
     g_session.selected_index = -1;
@@ -1460,5 +1620,61 @@ bool overworld_drops_tick(bn::fixed player_x, bn::fixed player_y, const bn::fixe
 void overworld_drops_clear()
 {
     reset_drop_session();
-            hide_inspect_card(inspect_card());
+    hide_inspect_card(inspect_card());
+}
+
+void overworld_drops_hide_inspect_card()
+{
+    if(g_inspect_card.has_value())
+    {
+        hide_inspect_card(*g_inspect_card);
+        g_inspect_card.reset();
+    }
+}
+
+void overworld_drops_finalize_for_dialogue()
+{
+    if(!g_session.active)
+    {
+        return;
+    }
+
+    SaveData& save = save_data_mut();
+
+    for(int index = 0; index < g_session.drop_count; ++index)
+    {
+        DropEntry& drop = g_session.drops[index];
+
+        if(!drop.active || drop.poofing)
+        {
+            continue;
+        }
+
+        if(drop.kind == DropKind::PAPER)
+        {
+            campaign_grant_sticker_paper(save, 1);
+            drop.active = false;
+            continue;
+        }
+
+        const CardType type = offer_card_type(drop.offer);
+
+        if(type == CardType::COUNT)
+        {
+            campaign_grant_sticker_paper(save, 1);
+            drop.active = false;
+            continue;
+        }
+
+        bool added = grant_dropped_card(save, type);
+
+        if(!added)
+        {
+            campaign_grant_sticker_paper(save, 1);
+        }
+
+        drop.active = false;
+    }
+
+    reset_drop_session();
 }

@@ -141,6 +141,12 @@ void battle_backdrop_init()
     g_bg->set_visible(true);
 }
 
+void battle_backdrop_reinit()
+{
+    g_bg.reset();
+    battle_backdrop_init();
+}
+
 void battle_backdrop_tick()
 {
     if(! g_bg)

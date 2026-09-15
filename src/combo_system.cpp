@@ -781,6 +781,9 @@ void combo_cinematic_begin(GameState& state)
     const PendingCombo& match = state.pending_combo;
 
     state.combo_cinematic.frame = 0;
+    state.combo_cinematic.awaiting_score_choice = false;
+    state.combo_cinematic.bonus_applied = false;
+    state.combo_cinematic.mul_targets_round = false;
     state.combo_cinematic.cards.clear();
 
     for(int index = 0; index < match.length; ++index)
@@ -866,12 +869,18 @@ void combo_cinematic_begin(GameState& state)
     state.combo_cinematic.card_count = match.length;
 }
 
-void combo_apply_score_bonus(GameState& state)
+void combo_apply_score_bonus(GameState& state, bool apply_to_round)
 {
     const ComboDef* combo = combo_by_id(state.pending_combo.combo_id);
 
     if(!combo)
     {
+        return;
+    }
+
+    if(apply_to_round)
+    {
+        state.mul_from_card(combo->total_score_multiplier);
         return;
     }
 

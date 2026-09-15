@@ -255,21 +255,21 @@ DeckListResult run_deck_list_build_scene(bool overworld_session)
                 }
 
                 dismiss_scene_ui(scene_text, selector);
-                run_deck_editor_scene(-1, false, overworld_session);
+                result.next = run_deck_editor_scene(-1, false, overworld_session).next;
                 return result;
             }
 
             if(show_debug_deck_row && cursor == 1)
             {
                 dismiss_scene_ui(scene_text, selector);
-                run_deck_editor_scene(-1, true, overworld_session);
+                result.next = run_deck_editor_scene(-1, true, overworld_session).next;
                 return result;
             }
 
             dismiss_scene_ui(scene_text, selector);
             campaign_set_active_deck(save_data_mut(), cursor - header_row_count);
             save_data_write();
-            run_deck_editor_scene(cursor - header_row_count, false, overworld_session);
+            result.next = run_deck_editor_scene(cursor - header_row_count, false, overworld_session).next;
             return result;
         }
 

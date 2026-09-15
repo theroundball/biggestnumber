@@ -115,5 +115,9 @@ void release_card_display_tiles(Card& card);
 // Drop cached rarity-border palettes that are not held by live sprites (call after
 // releasing idle card display pools each frame).
 void clear_card_border_palette_cache();
+// Reset shared text-card tiles and palettes after scene transitions (deck editor, battle).
+void reset_card_shared_tile_caches();
+// Release shared text-card + border palette caches once no live Card sprites reference them.
+void reclaim_scene_graphics_state();
 
 #endif

@@ -2,12 +2,16 @@
 #define UI_COMMON_H
 
 #include "bn_optional.h"
+#include "bn_sprite_item.h"
 #include "bn_sprite_ptr.h"
 #include "bn_sprite_text_generator.h"
 #include "bn_string.h"
 #include "bn_vector.h"
 
 #include "game_types.h"
+
+// Find-or-create tiles/palette without Butano's set_item create_new (which crashes at 16 palettes).
+bool apply_sprite_item_optional(bn::sprite_ptr& sprite, const bn::sprite_item& item);
 
 void move_toward_int(int& value, int target, int max_step);
 void move_toward_raise(int& value, int target);

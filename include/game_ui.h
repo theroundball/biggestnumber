@@ -97,6 +97,7 @@ public:
     void sync(int total, int round_committed, int goal);
     void set_visible(bool visible);
     void set_x_offset(int panel_offset);
+    void release_segments();
 
 private:
     bn::sprite_tiles_ptr _track_tile;
@@ -127,6 +128,7 @@ public:
     void sync(const bn::array<uint8_t, game_layout::COMBO_BAR_ROW_COUNT>& lengths,
               const bn::array<uint8_t, game_layout::COMBO_BAR_ROW_COUNT>& filled);
     void set_visible(bool visible);
+    void release_segments();
 
 private:
     struct Row

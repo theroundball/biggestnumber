@@ -36,7 +36,7 @@ CardType combo_ready_display_type(uint8_t combo_id);
 bool combo_start_player_triggered(GameState& state, uint8_t combo_id);
 bool combo_would_complete_in_graveyard_with(const GameState& state, uint8_t combo_id, CardType incoming);
 void combo_cinematic_begin(GameState& state);
-void combo_apply_score_bonus(GameState& state);
+void combo_apply_score_bonus(GameState& state, bool apply_to_round = false);
 void combo_remove_resolved_cards(GameState& state, int& selected_card);
 void combo_resolve(GameState& state, int& selected_card);
 bool combo_resolves_to_exile(ComboZone zone);

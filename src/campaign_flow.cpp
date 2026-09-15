@@ -3,6 +3,12 @@
 #include "bn_core.h"
 #include "bn_keypad.h"
 
+#include <new>
+
+#ifndef BN_DATA_EWRAM_BSS
+    #define BN_DATA_EWRAM_BSS __attribute__((section(".sbss")))
+#endif
+
 #include "battle_backdrop.h"
 #include "campaign.h"
 #include "campaign_scenes.h"
@@ -18,6 +24,25 @@
 
 namespace
 {
+    alignas(BattleLaunch) BN_DATA_EWRAM_BSS char battle_launch_storage[sizeof(BattleLaunch)];
+    bool battle_launch_ready = false;
+
+    BattleLaunch& battle_launch()
+    {
+        if(!battle_launch_ready)
+        {
+            new(reinterpret_cast<BattleLaunch*>(battle_launch_storage)) BattleLaunch();
+            battle_launch_ready = true;
+        }
+
+        return *reinterpret_cast<BattleLaunch*>(battle_launch_storage);
+    }
+
+    void reset_battle_launch()
+    {
+        battle_launch() = BattleLaunch{};
+    }
+
     void campaign_load_trinkets(const SavedDeck& deck, bn::array<TrinketType, 3>& out_trinkets)
     {
         out_trinkets[0] = static_cast<TrinketType>(deck.trinkets[0]);
@@ -29,14 +54,18 @@ namespace
                             BattleLaunch& launch)
     {
         launch.campaign_ui.mode = mode;
-        launch.campaign_ui.biggest_number_record = save.biggest_number_record;
+        launch.campaign_ui.biggest_number_record =
+            mode == CampaignMode::BIGGEST_NUMBER ? setup.peak_before : save.biggest_number_record;
         launch.campaign_ui.same_number_target = setup.same_number_target;
         launch.campaign_ui.number_now_scoring_round = setup.number_now_scoring_round;
         launch.campaign_ui.number_now_round_peak = setup.number_now_round_peak;
-        launch.campaign_ui.aint_got_time_record = save.aint_got_time_record;
-        launch.campaign_ui.sharing_is_caring_record = save.sharing_is_caring_record;
-        launch.campaign_ui.poker_hand_record = save.poker_hand_record;
-        launch.campaign_ui.y2k_record = save.y2k_record;
+        launch.campaign_ui.aint_got_time_record =
+            mode == CampaignMode::AINT_GOT_TIME ? setup.peak_before : save.aint_got_time_record;
+        launch.campaign_ui.sharing_is_caring_record =
+            mode == CampaignMode::SHARING_IS_CARING ? setup.peak_before : save.sharing_is_caring_record;
+        launch.campaign_ui.poker_hand_record =
+            mode == CampaignMode::POKER_HAND ? setup.peak_before : save.poker_hand_record;
+        launch.campaign_ui.y2k_record = mode == CampaignMode::Y2K ? setup.peak_before : save.y2k_record;
     }
 
     bool campaign_ensure_starter_setup(bn::seed_random& rng)
@@ -95,6 +124,7 @@ namespace
 
         if(save.deck_count <= 0)
         {
+            campaign_show_message_scene("No deck found", "Finish starter setup");
             return;
         }
 
@@ -108,9 +138,17 @@ namespace
             npc_index = -1;
         }
 
-        if(use_loaner_deck && (npc_index < 0 || campaign_npc_total_cards(save, npc_index) <= 0))
+        const bool loaner_battle = use_loaner_deck && npc_index >= 0;
+
+        if(loaner_battle && campaign_npc_total_cards(save, npc_index) <= 0)
         {
+            campaign_show_message_scene("Loaner deck empty", "");
             return;
+        }
+
+        if(!loaner_battle)
+        {
+            campaign_repair_active_deck_from_library(save);
         }
 
         if(mode == CampaignMode::SAME_NUMBER)
@@ -118,27 +156,7 @@ namespace
             campaign_prepare_same_number_target(save, rng);
         }
 
-        const CampaignBattleSetup setup = campaign_battle_setup(save, mode, rng);
-
-        CampaignUiContext intro_ctx;
-        intro_ctx.mode = mode;
-        intro_ctx.biggest_number_record = save.biggest_number_record;
-        intro_ctx.same_number_target = setup.same_number_target;
-        intro_ctx.number_now_scoring_round = setup.number_now_scoring_round;
-        intro_ctx.number_now_round_peak = setup.number_now_round_peak;
-        intro_ctx.aint_got_time_record = save.aint_got_time_record;
-        intro_ctx.sharing_is_caring_record = save.sharing_is_caring_record;
-        intro_ctx.poker_hand_record = save.poker_hand_record;
-        intro_ctx.y2k_record = save.y2k_record;
-
-        if(run_mode_intro_scene(mode, intro_ctx) == MenuSceneResult::MAIN_MENU)
-        {
-            return;
-        }
-
         SavedDeck battle_deck_state = save.decks[save.active_deck_index];
-        const bool loaner_battle = use_loaner_deck && npc_index >= 0;
-
         bn::vector<CardRef, 50> battle_deck;
 
         if(loaner_battle)
@@ -156,8 +174,31 @@ namespace
             return;
         }
 
-        BattleLaunch launch;
-        launch.deck_index = save.active_deck_index;
+        const CampaignBattleSetup setup =
+            campaign_battle_setup(save, mode, rng, battle_deck.size(), npc_index);
+
+        if(!overworld_drops)
+        {
+            CampaignUiContext intro_ctx;
+            intro_ctx.mode = mode;
+            intro_ctx.biggest_number_record = setup.peak_before;
+            intro_ctx.same_number_target = setup.same_number_target;
+            intro_ctx.number_now_scoring_round = setup.number_now_scoring_round;
+            intro_ctx.number_now_round_peak = setup.number_now_round_peak;
+            intro_ctx.aint_got_time_record = setup.peak_before;
+            intro_ctx.sharing_is_caring_record = setup.peak_before;
+            intro_ctx.poker_hand_record = setup.peak_before;
+            intro_ctx.y2k_record = setup.peak_before;
+
+            if(run_mode_intro_scene(mode, intro_ctx) == MenuSceneResult::MAIN_MENU)
+            {
+                return;
+            }
+        }
+
+        reset_battle_launch();
+        BattleLaunch& launch = battle_launch();
+        launch.deck_index = loaner_battle ? -1 : save.active_deck_index;
         launch.score_to_beat = setup.peak_before;
         populate_launch_ui(save, mode, setup, launch);
         launch.campaign_ui.number_now_round_count =
@@ -168,10 +209,23 @@ namespace
         launch.same_number_target = setup.same_number_target;
         launch.number_now_scoring_round = setup.number_now_scoring_round;
         launch.number_now_round_peak = setup.number_now_round_peak;
-        instance_pool_clamp(save.instance_pool);
-        launch.instance_pool = save.instance_pool;
-        campaign_load_trinkets(battle_deck_state, launch.trinkets);
-        saved_deck_resolve_longsleeve_cards(battle_deck_state, save.instance_pool, launch.longsleeve_cards);
+
+        if(loaner_battle)
+        {
+            launch.instance_pool = InstancePool{};
+            launch.trinkets[0] = TrinketType::NONE;
+            launch.trinkets[1] = TrinketType::NONE;
+            launch.trinkets[2] = TrinketType::NONE;
+            launch.longsleeve_cards[0] = CardRef{};
+            launch.longsleeve_cards[1] = CardRef{};
+        }
+        else
+        {
+            instance_pool_clamp(save.instance_pool);
+            launch.instance_pool = save.instance_pool;
+            campaign_load_trinkets(battle_deck_state, launch.trinkets);
+            saved_deck_resolve_longsleeve_cards(battle_deck_state, save.instance_pool, launch.longsleeve_cards);
+        }
 
         const GameSceneResult game = run_game_scene(battle_deck, launch);
 
@@ -189,10 +243,6 @@ namespace
             campaign_evaluate_win(save, mode, game, setup.peak_before, setup.same_number_target,
                                   setup.number_now_round_peak, setup.number_now_scoring_round);
 
-        bool to_prize = false;
-        run_campaign_battle_results_scene(mode, game, won, setup.same_number_target, to_prize,
-                                          !overworld_drops);
-
         if(overworld_drops)
         {
             bool continue_to_overworld = false;
@@ -204,7 +254,7 @@ namespace
 
             if(counts_for_progress)
             {
-                campaign_apply_win(save, mode, game, setup.number_now_scoring_round, rng);
+                campaign_apply_win(save, mode, game, setup.number_now_scoring_round, rng, npc_index);
             }
 
             const int band_score =
@@ -213,6 +263,10 @@ namespace
             battle_backdrop_set_visible(true);
             return;
         }
+
+        bool to_prize = false;
+        run_campaign_battle_results_scene(mode, game, won, setup.same_number_target, to_prize,
+                                          !overworld_drops);
 
         if(!won || !to_prize)
         {

@@ -34,6 +34,9 @@ struct ComboCinematicState
     int frame = 0;
     bn::vector<CardType, 4> cards;
     int card_count = 0;
+    bool awaiting_score_choice = false;
+    bool bonus_applied = false;
+    bool mul_targets_round = false;
 };
 
 // Camera choreography for graveyard combos: the view slides to the graveyard row,
