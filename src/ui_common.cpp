@@ -27,11 +27,7 @@ bool apply_sprite_item_optional(bn::sprite_ptr& sprite, const bn::sprite_item& i
         return true;
     }
 
-    if(tiles.has_value())
-    {
-        sprite.set_tiles(*tiles);
-    }
-
+    // Never apply tiles without a palette — mismatched VRAM reads show as garbage sprites.
     return false;
 }
 
@@ -77,6 +73,15 @@ int first_visible_index(int cursor, int count, int window)
 void wait_for_keypad_clear()
 {
     while(bn::keypad::any_held())
+    {
+        battle_backdrop_tick();
+        bn::core::update();
+    }
+}
+
+void wait_for_confirm_key_clear()
+{
+    while(bn::keypad::a_held() || bn::keypad::b_held() || bn::keypad::start_held())
     {
         battle_backdrop_tick();
         bn::core::update();
@@ -197,6 +202,15 @@ namespace
         static TextBoxAssets assets;
         return assets;
     }
+}
+
+void reset_text_box_palette_cache()
+{
+    text_box_assets().palette.reset();
+}
+
+namespace
+{
 
     int align_down_8(int value)
     {
@@ -384,7 +398,9 @@ void SceneText::draw_centered_line(int x, int y, const bn::string_view& text)
 {
     const int first_index = _sprites.size();
     _generator.set_center_alignment();
-    _generator.generate(x, y, text, _sprites);
+    // Dropping a line of UI text is recoverable; BN_ERROR from the non-optional
+    // generate() is not.
+    (void)_generator.generate_optional(x, y, text, _sprites);
     _generator.set_left_alignment();
     apply_depth_to_range(first_index);
 }
@@ -392,7 +408,7 @@ void SceneText::draw_centered_line(int x, int y, const bn::string_view& text)
 void SceneText::draw_left_line(int x, int y, const bn::string_view& text)
 {
     const int first_index = _sprites.size();
-    _generator.generate(x, y, text, _sprites);
+    (void)_generator.generate_optional(x, y, text, _sprites);
     apply_depth_to_range(first_index);
 }
 
@@ -478,16 +494,33 @@ void TextBoxPanel::draw_around_lines(int center_x, int top_y, int bottom_y, int 
 
                 const bn::sprite_shape_size shape_size(tile_width, tile_height);
                 const int tiles_count = shape_size.tiles_count(bn::bpp_mode::BPP_4);
-                bn::sprite_tiles_ptr piece_tiles =
-                    bn::sprite_tiles_ptr::allocate(tiles_count, bn::bpp_mode::BPP_4);
-                paint_solid_tiles(piece_tiles, color_index);
 
-                bn::sprite_ptr sprite = bn::sprite_ptr::create(
-                    origin_x + x + tile_width / 2, origin_y + y + tile_height / 2, shape_size, piece_tiles,
-                    palette);
-                sprite.set_z_order(z_order);
-                sprite.set_bg_priority(bg_priority);
-                _sprites.push_back(bn::move(sprite));
+                // A panel re-allocates every piece each time it is drawn, so this
+                // runs far more often than the one-off allocations at startup.
+                // Bail out of the panel rather than stopping the game: a partly
+                // drawn box still leaves the text on top readable.
+                bn::optional<bn::sprite_tiles_ptr> piece_tiles =
+                    bn::sprite_tiles_ptr::allocate_optional(tiles_count, bn::bpp_mode::BPP_4);
+
+                if(!piece_tiles)
+                {
+                    return;
+                }
+
+                paint_solid_tiles(*piece_tiles, color_index);
+
+                bn::optional<bn::sprite_ptr> sprite = bn::sprite_ptr::create_optional(
+                    origin_x + x + tile_width / 2, origin_y + y + tile_height / 2, shape_size,
+                    *piece_tiles, palette);
+
+                if(!sprite)
+                {
+                    return;
+                }
+
+                sprite->set_z_order(z_order);
+                sprite->set_bg_priority(bg_priority);
+                _sprites.push_back(bn::move(*sprite));
                 x += tile_width;
             }
 
@@ -523,7 +556,7 @@ void TextBoxPanel::draw_full_width_top(int bottom_y)
 SelectorGlyph::SelectorGlyph(bn::sprite_text_generator& generator, int anchor_x) :
     _anchor_x(anchor_x)
 {
-    generator.generate(_anchor_x, 0, ">", _sprites);
+    (void)generator.generate_optional(_anchor_x, 0, ">", _sprites);
 
     for(bn::sprite_ptr& sprite : _sprites)
     {

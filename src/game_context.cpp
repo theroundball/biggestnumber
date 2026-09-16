@@ -32,6 +32,7 @@
 #include "trinket_system.h"
 #include "ui_common.h"
 #include "ui_inspect.h"
+#include "scene_graphics.h"
 
 namespace
 {
@@ -562,7 +563,7 @@ void GameContext::show_total_score_value(int value)
     text_sprites.clear();
     last_main_sprite_offset = 0;
     text_generator.set_center_alignment();
-    text_generator.generate_optional(0, -48, display_text, text_sprites);
+    (void)text_generator.generate_optional(0, -48, display_text, text_sprites);
     text_generator.set_left_alignment();
 
     // Green when this run/fight has beaten the score-to-beat baseline, or the
@@ -822,7 +823,7 @@ void GameContext::finish_finale_run()
         }
 
         skip_pending_combine = false;
-        release_idle_card_pools();
+        hide_idle_card_pools();
         const bool turtle_preserve = state.turtle_rounds_remaining > 0;
 
         if(!turtle_preserve)
@@ -974,7 +975,7 @@ void GameContext::show_round_score_running(int running, int end_multiplier)
         round_text_sprites.clear();
         last_round_sprite_offset = 0;
         round_text_generator.set_center_alignment();
-        round_text_generator.generate_optional(0, 0, builder_text, round_text_sprites);
+        (void)round_text_generator.generate_optional(0, 0, builder_text, round_text_sprites);
         round_text_generator.set_left_alignment();
         sync_score_progress_bar();
         return;
@@ -1005,7 +1006,7 @@ void GameContext::show_round_score_running(int running, int end_multiplier)
     round_text_sprites.clear();
     last_round_sprite_offset = 0;
     round_text_generator.set_center_alignment();
-    round_text_generator.generate_optional(0, 0, display_text, round_text_sprites);
+    (void)round_text_generator.generate_optional(0, 0, display_text, round_text_sprites);
     round_text_generator.set_left_alignment();
 
     if(end_multiplier != 1)
@@ -1413,7 +1414,9 @@ void GameContext::clear_play_flight(PlayFlight& flight)
     flight.start_x = 0;
     flight.start_y = 0;
     flight.fx_card.set_visible(false);
-    release_card_display_tiles(flight.fx_card);
+    flight.fx_card.clear_visual();
+    flight.fx_card.set_blending_enabled(false);
+    flight.fx_card.set_draw_on_top(false);
 }
 
 void GameContext::sync_removing_card()
@@ -1961,7 +1964,6 @@ void GameContext::begin_play_presentation(CardRef card, int start_x, int start_y
     {
         resolve_play_flight_effects(*flight);
         commit_play_flight_destination(*flight);
-        begin_next_pending_or_finish();
     }
 
     retarget_selection_off_hidden_slot();
@@ -3360,6 +3362,8 @@ bool GameContext::presentation_fx_blocking() const
 bool GameContext::card_resolution_blocking_round_end() const
 {
     return selection_blocks_pending_finish() ||
+           removing_card ||
+           play_flight_count() > 0 ||
            graveyard_card_fx_active ||
            deferred_round_start_pending ||
            deck_search_resolve_active() ||
@@ -3472,8 +3476,8 @@ bool GameContext::try_drain_echo_replay()
         return false;
     }
 
-    if(!state.pending_actions.empty() || state.swivel_waiting || presentation_fx_blocking() ||
-       deck_search_resolve_active())
+    if(play_flight_count() > 0 || removing_card || !state.pending_actions.empty() ||
+       state.swivel_waiting || presentation_fx_blocking() || deck_search_resolve_active())
     {
         return false;
     }
@@ -3936,7 +3940,7 @@ void GameContext::cycle_side_panel(int direction)
         return;
     }
 
-    release_idle_card_pools();
+    hide_idle_card_pools();
 
     constexpr SidePanel ORDER[] = {
         SidePanel::NONE,
@@ -4426,10 +4430,7 @@ void GameContext::sync_details_panel(bool force)
 
 void GameContext::hide_hand_display()
 {
-    for(Card& card : hand_display)
-    {
-        release_card_display_tiles(card);
-    }
+    hide_card_display_pool(hand_display);
 }
 
 void GameContext::position_details_sprites()
@@ -4826,7 +4827,7 @@ void GameContext::hide_combo_focus_row_cards()
 
         if(slot >= 0 && slot < grave_row_display.size())
         {
-            release_card_display_tiles(grave_row_display[slot]);
+            grave_row_display[slot].set_visible(false);
         }
     }
 }
@@ -4890,6 +4891,7 @@ void GameContext::finish_combo_cinematic()
     state.combo_cinematic.active = false;
     state.combo_cinematic.awaiting_score_choice = false;
     combo_mul_sprites.clear();
+    combo_mul_cached_text.clear();
     combo_remove_resolved_cards(state, selected_card);
     browse_cursor = clamp_graveyard_cursor(browse_cursor, state.graveyard.size());
     state.selection.cursor = clamp_graveyard_cursor(state.selection.cursor, state.graveyard.size());
@@ -4991,42 +4993,36 @@ void GameContext::shutdown_for_exit()
     hud.set_visible(false);
     _round_score_initialized = false;
     _total_score_initialized = false;
+    scene_graphics_reclaim_all();
 }
 
-void GameContext::release_idle_card_pools()
+void GameContext::hide_idle_card_pools()
 {
+    // Never tear down card tiles while play/removal FX are live — exclusive_fx_card()
+    // is play_flights[0].fx_card and releasing it mid-flight corrupts sprite lists.
+    if(removing_card || play_flight_count() > 0)
+    {
+        return;
+    }
+
     if(mode != GameMode::SCRY)
     {
-        for(Card& card : scry_display)
-        {
-            release_card_display_tiles(card);
-        }
+        hide_card_display_pool(scry_display);
     }
 
     if(mode != GameMode::COMBO)
     {
-        for(Card& card : combo_display)
-        {
-            release_card_display_tiles(card);
-        }
+        hide_card_display_pool(combo_display);
     }
 
-    for(Card& card : swivel_display)
-    {
-        release_card_display_tiles(card);
-    }
+    hide_card_display_pool(swivel_display);
 
     if(side_panel != SidePanel::GRAVEYARD && side_panel != SidePanel::EXILE &&
        mode != GameMode::GRAVEYARD_TARGET &&
        mode != GameMode::GRAVEYARD_PICK && mode != GameMode::DECK_SEARCH)
     {
-        for(Card& card : grave_row_display)
-        {
-            release_card_display_tiles(card);
-        }
+        hide_card_display_pool(grave_row_display);
     }
-
-    release_card_display_tiles(exclusive_fx_card());
 }
 
 GameContext::RoundFinishResult GameContext::try_finish_round_after_empty_hand()
@@ -5071,7 +5067,7 @@ GameContext::RoundFinishResult GameContext::try_finish_round_after_empty_hand()
 
     skip_pending_combine = false;
 
-    release_idle_card_pools();
+    hide_idle_card_pools();
     const bool turtle_preserve = state.turtle_rounds_remaining > 0;
 
     if(!turtle_preserve)

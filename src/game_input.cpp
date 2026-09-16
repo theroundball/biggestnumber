@@ -140,6 +140,7 @@ void GameContext::resolve_combo_score_choice()
     state.combo_cinematic.awaiting_score_choice = false;
     state.combo_cinematic.bonus_applied = true;
     combo_mul_sprites.clear();
+    combo_mul_cached_text.clear();
     draw_total_score();
     draw_round_score();
 }

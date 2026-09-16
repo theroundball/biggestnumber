@@ -3,6 +3,7 @@
 
 #include "bn_fixed.h"
 #include "bn_optional.h"
+#include "bn_span.h"
 #include "bn_sprite_affine_mat_ptr.h"
 #include "bn_sprite_ptr.h"
 #include "bn_sprite_text_generator.h"
@@ -34,6 +35,17 @@ public:
 
     // Active card constructor.
     Card(CardType type, bn::fixed x, bn::fixed y);
+
+    ~Card();
+
+    // A Card is a slot in a fixed display pool, and it contributes to the global
+    // count of cards holding shared art. Copying or moving one would double-count
+    // that, so both are rejected at compile time rather than silently corrupting
+    // the count that gates cache reclaim.
+    Card(const Card&) = delete;
+    Card& operator=(const Card&) = delete;
+    Card(Card&&) = delete;
+    Card& operator=(Card&&) = delete;
 
     // Resolve this card's effect against the game state.
     void play(GameState& state) const;
@@ -112,12 +124,19 @@ private:
 // Shared placeholder graphics so idle display slots drop unique card tile refs.
 constexpr CardType CARD_DISPLAY_PLACEHOLDER = CardType::SIPS;
 void release_card_display_tiles(Card& card);
-// Drop cached rarity-border palettes that are not held by live sprites (call after
-// releasing idle card display pools each frame).
+// Hide pooled cards without swapping them back to placeholder tiles.
+void hide_card_display_pool(bn::span<Card> cards);
+// Drop cached rarity-border palettes (scene transitions only).
 void clear_card_border_palette_cache();
 // Reset shared text-card tiles and palettes after scene transitions (deck editor, battle).
 void reset_card_shared_tile_caches();
-// Release shared text-card + border palette caches once no live Card sprites reference them.
+// Release all shared card/UI palette caches once no live sprites reference them.
+// Call when leaving any scene that used Card display pools or TextBoxPanel.
+// Self-gating: does nothing while card_art_is_live(), so callers no longer have
+// to get the ordering right by hand.
 void reclaim_scene_graphics_state();
+// True while at least one Card still displays real card art. Reclaiming shared
+// caches in this state orphans entries and causes duplicate allocations.
+bool card_art_is_live();
 
 #endif

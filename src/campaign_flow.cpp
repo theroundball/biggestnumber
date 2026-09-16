@@ -24,8 +24,29 @@
 
 namespace
 {
+    struct CampaignBattleWorkspace
+    {
+        SavedDeck battle_deck_state;
+        bn::vector<CardRef, 50> battle_deck;
+    };
+
     alignas(BattleLaunch) BN_DATA_EWRAM_BSS char battle_launch_storage[sizeof(BattleLaunch)];
+    alignas(CampaignBattleWorkspace) BN_DATA_EWRAM_BSS char campaign_battle_workspace_storage[
+        sizeof(CampaignBattleWorkspace)];
     bool battle_launch_ready = false;
+    bool campaign_battle_workspace_ready = false;
+
+    CampaignBattleWorkspace& campaign_battle_workspace()
+    {
+        if(!campaign_battle_workspace_ready)
+        {
+            new(reinterpret_cast<CampaignBattleWorkspace*>(campaign_battle_workspace_storage))
+                CampaignBattleWorkspace();
+            campaign_battle_workspace_ready = true;
+        }
+
+        return *reinterpret_cast<CampaignBattleWorkspace*>(campaign_battle_workspace_storage);
+    }
 
     BattleLaunch& battle_launch()
     {
@@ -156,26 +177,27 @@ namespace
             campaign_prepare_same_number_target(save, rng);
         }
 
-        SavedDeck battle_deck_state = save.decks[save.active_deck_index];
-        bn::vector<CardRef, 50> battle_deck;
+        CampaignBattleWorkspace& workspace = campaign_battle_workspace();
+        workspace.battle_deck_state = save.decks[save.active_deck_index];
+        workspace.battle_deck.clear();
 
         if(loaner_battle)
         {
-            campaign_flatten_npc_loaner(save, npc_index, battle_deck);
+            campaign_flatten_npc_loaner(save, npc_index, workspace.battle_deck);
         }
         else
         {
-            campaign_flatten_saved_deck(save, battle_deck_state, battle_deck);
+            campaign_flatten_saved_deck(save, workspace.battle_deck_state, workspace.battle_deck);
         }
 
-        if(battle_deck.empty())
+        if(workspace.battle_deck.empty())
         {
             campaign_show_message_scene("Deck has no cards", "Build a deck first");
             return;
         }
 
         const CampaignBattleSetup setup =
-            campaign_battle_setup(save, mode, rng, battle_deck.size(), npc_index);
+            campaign_battle_setup(save, mode, rng, workspace.battle_deck.size(), npc_index);
 
         if(overworld_drops && npc_index >= 0)
         {
@@ -214,8 +236,8 @@ namespace
         launch.score_to_beat = setup.peak_before;
         populate_launch_ui(save, mode, setup, launch);
         launch.campaign_ui.number_now_round_count =
-            loaner_battle ? campaign_number_now_round_count(battle_deck.size())
-                          : campaign_number_now_round_count(saved_deck_total_cards(battle_deck_state));
+            loaner_battle ? campaign_number_now_round_count(workspace.battle_deck.size())
+                          : campaign_number_now_round_count(saved_deck_total_cards(workspace.battle_deck_state));
 
         launch.campaign_mode = mode;
         launch.npc_index = npc_index;
@@ -236,11 +258,12 @@ namespace
         {
             instance_pool_clamp(save.instance_pool);
             launch.instance_pool = save.instance_pool;
-            campaign_load_trinkets(battle_deck_state, launch.trinkets);
-            saved_deck_resolve_longsleeve_cards(battle_deck_state, save.instance_pool, launch.longsleeve_cards);
+            campaign_load_trinkets(workspace.battle_deck_state, launch.trinkets);
+            saved_deck_resolve_longsleeve_cards(workspace.battle_deck_state, save.instance_pool,
+                                                launch.longsleeve_cards);
         }
 
-        const GameSceneResult game = run_game_scene(battle_deck, launch);
+        const GameSceneResult game = run_game_scene(workspace.battle_deck, launch);
 
         if(game.exited_early)
         {
@@ -267,7 +290,7 @@ namespace
                                               false, true, benchmark_rung, next_benchmark_rung);
 
             const bool counts_for_progress =
-                won && !(loaner_battle ? false : saved_deck_unrestricted_build(battle_deck_state));
+                won && !(loaner_battle ? false : saved_deck_unrestricted_build(workspace.battle_deck_state));
 
             if(counts_for_progress)
             {
@@ -289,7 +312,7 @@ namespace
             return;
         }
 
-        if(saved_deck_unrestricted_build(battle_deck_state))
+        if(saved_deck_unrestricted_build(workspace.battle_deck_state))
         {
             return;
         }

@@ -13,6 +13,7 @@
 #include "common_variable_8x8_sprite_font.h"
 #include "game_helpers.h"
 #include "game_types.h"
+#include "scene_graphics.h"
 #include "ui_common.h"
 #include "ui_inspect.h"
 
@@ -27,6 +28,14 @@ namespace
     constexpr int GRID_BOTTOM = GRID_TOP + GRID_FULL_ROWS * GRID_ROW_PITCH;
     constexpr int GRID_POOL_SIZE = GRID_COLS * GRID_FULL_ROWS;
     constexpr int HEADER_Y = -72;
+
+    alignas(CardDisplayPool<GRID_POOL_SIZE>) BN_DATA_EWRAM_BSS char g_library_grid_card_pool_storage[
+        sizeof(CardDisplayPool<GRID_POOL_SIZE>)];
+
+    CardDisplayPool<GRID_POOL_SIZE>& library_grid_card_pool()
+    {
+        return *reinterpret_cast<CardDisplayPool<GRID_POOL_SIZE>*>(g_library_grid_card_pool_storage);
+    }
 
     int grid_left_x()
     {
@@ -133,14 +142,6 @@ namespace
 
         update_grid_scroll_target(cursor, slot_count, target_scroll_y);
     }
-
-    void release_card_pool(bn::span<Card> pool)
-    {
-        for(Card& card : pool)
-        {
-            release_card_display_tiles(card);
-        }
-    }
 }
 
 LibraryGridPickResult run_library_grid_pick_scene(const char* title, const char* confirm_hint,
@@ -157,13 +158,8 @@ LibraryGridPickResult run_library_grid_pick_scene(const char* title, const char*
 
     const int slot_count = types.size();
     const int grid_left = grid_left_x();
-
-    bn::array<Card, GRID_POOL_SIZE> catalog_cards;
-
-    for(Card& card : catalog_cards)
-    {
-        card.set_visible(false);
-    }
+    CardDisplayPool<GRID_POOL_SIZE>& catalog_cards = library_grid_card_pool();
+    catalog_cards.construct_cards();
 
     bn::sprite_text_generator title_generator(common::variable_8x16_sprite_font);
     bn::sprite_text_generator body_generator(common::variable_8x8_sprite_font);
@@ -191,7 +187,7 @@ LibraryGridPickResult run_library_grid_pick_scene(const char* title, const char*
 
         if(inspecting)
         {
-            release_card_pool(bn::span<Card>(catalog_cards.data(), catalog_cards.size()));
+            scene_graphics_release_card_pool(catalog_cards.span());
             show_inspect_card(catalog_cards[0], types[cursor], nullptr, &body_generator);
 
             if(inspect_shown_for != cursor)
@@ -293,7 +289,8 @@ LibraryGridPickResult run_library_grid_pick_scene(const char* title, const char*
 
         if(!inspecting && bn::keypad::a_pressed())
         {
-            release_card_pool(bn::span<Card>(catalog_cards.data(), catalog_cards.size()));
+            catalog_cards.destroy_cards();
+            scene_graphics_leave_card_scene();
             battle_backdrop_set_visible(true);
             result.picked = true;
             result.card = types[cursor];
@@ -311,7 +308,8 @@ LibraryGridPickResult run_library_grid_pick_scene(const char* title, const char*
             }
             else
             {
-                release_card_pool(bn::span<Card>(catalog_cards.data(), catalog_cards.size()));
+                catalog_cards.destroy_cards();
+                scene_graphics_leave_card_scene();
                 battle_backdrop_set_visible(true);
                 return result;
             }

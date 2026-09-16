@@ -6,6 +6,7 @@
 #include "bn_bpp_mode.h"
 #include "bn_color.h"
 #include "bn_compression_type.h"
+#include "bn_log.h"
 #include "bn_math.h"
 #include "bn_optional.h"
 #include "bn_span.h"
@@ -88,9 +89,63 @@ namespace
         return bn::sprite_palette_ptr::create_optional(item);
     }
 
+    // Number of Cards currently displaying real card art rather than the shared
+    // placeholder.
+    //
+    // Butano refcounts the tile and palette handles it hands out, and a sprite
+    // keeps its own reference once set_tiles/set_palette is called. So dropping a
+    // cache entry while a sprite still uses it does not free any VRAM -- it only
+    // makes the cache forget the entry exists, and the next lookup allocates a
+    // second copy of the same data. Repeat that across a few scene transitions
+    // and the duplicates exhaust OBJ VRAM or the 16 palette banks, surfacing as
+    // a Butano BN_ERROR far away from the code that caused it.
+    //
+    // Reclaim is therefore gated on this reaching zero.
+    int g_live_card_art_count = 0;
+
+    void note_card_art_transition(CardType from, CardType to)
+    {
+        const bool was_real = from != CARD_DISPLAY_PLACEHOLDER;
+        const bool is_real = to != CARD_DISPLAY_PLACEHOLDER;
+
+        if(was_real == is_real)
+        {
+            return;
+        }
+
+        g_live_card_art_count += is_real ? 1 : -1;
+    }
+
+    struct BorderPaletteCacheKey
+    {
+        CardType type = CardType::COUNT;
+        int8_t border_index = -1;
+    };
+
+    // GBA exposes 16 OBJ palette banks in 4bpp, and card borders are not the only
+    // claimant: the three text-card rarity palettes, the shared UI palette, one
+    // palette per text generator, the stat green/gold pair, score-pop gold,
+    // victory green and the placeholder palette all come out of the same 16.
+    // Caching 16 border variants would take every bank and starve them, which
+    // shows up as silently miscoloured text rather than an error, because most
+    // of those callers use create_optional and degrade quietly.
+    constexpr int MAX_BORDER_PALETTE_CACHE = 8;
+
+    bn::array<BorderPaletteCacheKey, MAX_BORDER_PALETTE_CACHE> g_border_palette_keys;
+    bn::array<bn::optional<bn::sprite_palette_ptr>, MAX_BORDER_PALETTE_CACHE> g_border_palettes;
+    int g_border_palette_cache_size = 0;
+
     bn::optional<bn::sprite_palette_ptr> card_border_palette_for(CardType type, int border_index,
                                                                    bn::span<const bn::color> source_colors)
     {
+        for(int index = 0; index < g_border_palette_cache_size; ++index)
+        {
+            if(g_border_palette_keys[index].type == type &&
+               g_border_palette_keys[index].border_index == int8_t(border_index))
+            {
+                return g_border_palettes[index];
+            }
+        }
 
         bn::array<bn::color, 16> colors;
 
@@ -99,12 +154,26 @@ namespace
             colors[index] = index < source_colors.size() ? source_colors[index] : bn::color();
         }
 
+        if(g_border_palette_cache_size >= MAX_BORDER_PALETTE_CACHE)
+        {
+            return bn::nullopt;
+        }
+
         colors[border_index] = border_color_for(card_meta(type).rarity);
 
         const bn::sprite_palette_item item(
             bn::span<const bn::color>(colors.data(), colors.size()), bn::bpp_mode::BPP_4,
             bn::compression_type::NONE);
-        return create_palette_optional(item);
+        bn::optional<bn::sprite_palette_ptr> created = create_palette_optional(item);
+
+        if(created)
+        {
+            g_border_palette_keys[g_border_palette_cache_size] = {type, int8_t(border_index)};
+            g_border_palettes[g_border_palette_cache_size] = created;
+            ++g_border_palette_cache_size;
+        }
+
+        return created;
     }
 
     void apply_rarity_border_palette(bn::sprite_ptr& body,
@@ -252,22 +321,45 @@ namespace
         }
     }
 
-    void ensure_text_card_tiles()
+    bool ensure_text_card_tiles()
     {
         if(g_text_card_tiles_ready)
         {
-            return;
+            return true;
         }
 
-        g_text_card_tiles_ptr = bn::sprite_tiles_ptr::allocate(TEXT_CARD_TILE_COUNT, bn::bpp_mode::BPP_4);
-        bn::span<bn::tile> tiles_vram = g_text_card_tiles_ptr->vram().value();
-        write_text_card_tiles(tiles_vram);
+        // allocate_optional rather than allocate: the non-optional form calls
+        // BN_ERROR on exhaustion, which stops the game on whichever card happens
+        // to be drawn first instead of letting the caller keep the art it already
+        // has.
+        bn::optional<bn::sprite_tiles_ptr> tiles =
+            bn::sprite_tiles_ptr::allocate_optional(TEXT_CARD_TILE_COUNT, bn::bpp_mode::BPP_4);
+
+        if(!tiles)
+        {
+            return false;
+        }
+
+        bn::optional<bn::span<bn::tile>> tiles_vram = tiles->vram();
+
+        if(!tiles_vram)
+        {
+            return false;
+        }
+
+        write_text_card_tiles(*tiles_vram);
+        g_text_card_tiles_ptr = bn::move(tiles);
         g_text_card_tiles_ready = true;
+        return true;
     }
 
-    void apply_text_card_body_tiles(bn::sprite_ptr& body, CardType type)
+    bool apply_text_card_body_tiles(bn::sprite_ptr& body, CardType type)
     {
-        ensure_text_card_tiles();
+        if(!ensure_text_card_tiles())
+        {
+            return false;
+        }
+
         body.remove_affine_mat();
 
         if(bn::optional<bn::sprite_palette_ptr> palette = text_card_palette_for(card_meta(type).rarity))
@@ -279,6 +371,8 @@ namespace
         {
             body.set_tiles(bn::sprite_shape_size(32, 64), g_text_card_tiles_ptr.value());
         }
+
+        return true;
     }
 
     int face_line_char_limit()
@@ -378,8 +472,15 @@ namespace
 
     void reset_card_stat_palette_caches()
     {
-        g_card_stat_green_palette.reset();
-        g_card_stat_gold_palette.reset();
+        if(g_card_stat_green_palette.has_value())
+        {
+            g_card_stat_green_palette.reset();
+        }
+
+        if(g_card_stat_gold_palette.has_value())
+        {
+            g_card_stat_gold_palette.reset();
+        }
     }
 
     const bn::sprite_palette_ptr& card_stat_green_palette(const bn::sprite_ptr& sample)
@@ -505,7 +606,8 @@ namespace
 
             const int before = output_sprites.size();
             generator.set_left_alignment();
-            generator.generate_optional(cursor_x, center_y, segment.text, output_sprites);
+            // Failure is handled by the added == 0 check below.
+            (void)generator.generate_optional(cursor_x, center_y, segment.text, output_sprites);
             generator.set_center_alignment();
 
             const int added = output_sprites.size() - before;
@@ -555,6 +657,20 @@ namespace
 
     void reset_card_border_palette_cache()
     {
+        for(int index = 0; index < g_border_palette_cache_size; ++index)
+        {
+            g_border_palettes[index].reset();
+        }
+
+        g_border_palette_cache_size = 0;
+    }
+
+    void reset_placeholder_palette_cache()
+    {
+        if(g_placeholder_palette.has_value())
+        {
+            g_placeholder_palette.reset();
+        }
     }
 }
 
@@ -582,8 +698,14 @@ Card::Card(CardType type, bn::fixed x, bn::fixed y) :
     _accent_bottom(card_data(type).accent_bottom_item->create_sprite(x + BODY_W + ACCENT_W / 2,
                                                                      y + BODY_H - ACCENT_H / 2))
 {
+    note_card_art_transition(CARD_DISPLAY_PLACEHOLDER, _type);
     apply_rarity_border_palette(_body, _accent_top, _accent_bottom, _type);
     apply_draw_layering();
+}
+
+Card::~Card()
+{
+    note_card_art_transition(_type, CARD_DISPLAY_PLACEHOLDER);
 }
 
 void apply_card_play(GameState& state, CardType type)
@@ -776,39 +898,53 @@ void Card::set_type(CardType type)
 
     if(!render_mode_changes)
     {
-        if(data.text_only)
-        {
-            apply_text_card_body_tiles(_body, _type);
-        }
-        else if(type == CARD_DISPLAY_PLACEHOLDER)
-        {
-            apply_placeholder_palette(_body, _accent_top, _accent_bottom);
-        }
-
         apply_draw_layering();
         return;
     }
 
+    const CardType previous_type = _type;
     _type = type;
     clear_face_labels();
+    bool applied = true;
 
     if(data.text_only)
     {
-        apply_text_card_body_tiles(_body, _type);
+        applied = apply_text_card_body_tiles(_body, _type);
     }
     else
     {
-        apply_sprite_item_optional(_body, *data.body_item);
-        apply_sprite_item_optional(_accent_top, *data.accent_top_item);
-        apply_sprite_item_optional(_accent_bottom, *data.accent_bottom_item);
-        apply_rarity_border_palette(_body, _accent_top, _accent_bottom, _type);
+        // All three parts have to land or none of them do. A partial swap leaves
+        // one card's body wearing another card's accents, and because the sprite
+        // keeps whatever it had before, the result is a card that reads as the
+        // wrong card to the player while the game state says otherwise.
+        applied = apply_sprite_item_optional(_body, *data.body_item) &&
+                  apply_sprite_item_optional(_accent_top, *data.accent_top_item) &&
+                  apply_sprite_item_optional(_accent_bottom, *data.accent_bottom_item);
 
-        if(type == CARD_DISPLAY_PLACEHOLDER)
+        if(applied)
         {
-            apply_placeholder_palette(_body, _accent_top, _accent_bottom);
+            apply_rarity_border_palette(_body, _accent_top, _accent_bottom, _type);
+
+            if(type == CARD_DISPLAY_PLACEHOLDER)
+            {
+                apply_placeholder_palette(_body, _accent_top, _accent_bottom);
+            }
         }
     }
 
+    if(!applied)
+    {
+        // Out of VRAM or palettes. _type has to stay truthful about what is
+        // actually on screen, otherwise the next set_type sees a matching type
+        // and takes the early-out, making the wrong art permanent.
+        _type = previous_type;
+        BN_LOG("[gfx] card art unavailable for type ", int(type), ", kept ", int(previous_type));
+        reposition_parts();
+        apply_draw_layering();
+        return;
+    }
+
+    note_card_art_transition(previous_type, _type);
     reposition_parts();
     apply_draw_layering();
 }
@@ -1009,15 +1145,24 @@ void Card::sync_face_labels(bn::sprite_text_generator* generator, const GameStat
 
     generator->set_center_alignment();
 
+    // generate_optional rather than generate throughout: a card label is the
+    // least important thing on screen, so running out of tiles should cost the
+    // label, not the frame. The non-optional form calls BN_ERROR, and text cards
+    // draw labels for every card in hand, which makes this the densest
+    // allocation site in a battle.
+    bool labels_generated = true;
+
     if(!line_a.empty())
     {
-        generator->generate(_x.integer() + BODY_W.integer() / 2, _y.integer() + 12, line_a, _face_name_sprites);
+        labels_generated = generator->generate_optional(_x.integer() + BODY_W.integer() / 2,
+                                                        _y.integer() + 12, line_a, _face_name_sprites);
     }
 
-    if(!line_b.empty())
+    if(labels_generated && !line_b.empty())
     {
         bn::vector<bn::sprite_ptr, 12> second_line;
-        generator->generate(_x.integer() + BODY_W.integer() / 2, _y.integer() + 22, line_b, second_line);
+        labels_generated = generator->generate_optional(_x.integer() + BODY_W.integer() / 2,
+                                                        _y.integer() + 22, line_b, second_line);
 
         for(bn::sprite_ptr& sprite : second_line)
         {
@@ -1028,6 +1173,14 @@ void Card::sync_face_labels(bn::sprite_text_generator* generator, const GameStat
 
             _face_name_sprites.push_back(sprite);
         }
+    }
+
+    if(!labels_generated)
+    {
+        // Forget the cached text so the next frame retries instead of treating
+        // the empty label as up to date.
+        _face_name_sprites.clear();
+        _face_name_text.clear();
     }
 
     if(!stat_segments.empty())
@@ -1071,7 +1224,13 @@ void Card::set_amount_overlay(bn::sprite_text_generator* generator, const bn::st
     _amount_anchor_x = _x + 4;
     _amount_anchor_y = _y + 48;
     generator->set_left_alignment();
-    generator->generate(_amount_anchor_x.integer(), _amount_anchor_y.integer(), text, _amount_overlay);
+
+    if(!generator->generate_optional(_amount_anchor_x.integer(), _amount_anchor_y.integer(), text,
+                                     _amount_overlay))
+    {
+        _amount_overlay.clear();
+        _amount_overlay_text.clear();
+    }
 
     sync_amount_overlay_visibility();
     apply_draw_layering();
@@ -1117,7 +1276,13 @@ void Card::set_upgrade_pips(bn::sprite_text_generator* generator, const CardInst
     _pip_anchor_x = _x + 2;
     _pip_anchor_y = _y + 2;
     generator->set_left_alignment();
-    generator->generate(_pip_anchor_x.integer(), _pip_anchor_y.integer(), pips, _upgrade_pips);
+
+    if(!generator->generate_optional(_pip_anchor_x.integer(), _pip_anchor_y.integer(), pips,
+                                     _upgrade_pips))
+    {
+        _upgrade_pips.clear();
+        _upgrade_pip_text.clear();
+    }
 
     sync_upgrade_pip_visibility();
     apply_draw_layering();
@@ -1287,7 +1452,16 @@ void Card::apply_visual_transform()
     {
         if(!_affine_mat.has_value())
         {
-            _affine_mat = bn::sprite_affine_mat_ptr::create();
+            bn::affine_mat_attributes attrs;
+            attrs.set_scale(_visual_scale);
+            _affine_mat = bn::sprite_affine_mat_ptr::create_optional(attrs);
+        }
+
+        if(!_affine_mat.has_value())
+        {
+            reposition_parts();
+            sync_part_visibility();
+            return;
         }
 
         bn::affine_mat_attributes attrs;
@@ -1336,7 +1510,17 @@ void Card::apply_visual_transform()
 
     if(!_affine_mat.has_value())
     {
-        _affine_mat = bn::sprite_affine_mat_ptr::create();
+        bn::affine_mat_attributes attrs;
+        attrs.set_scale(_visual_scale);
+        attrs.set_rotation_angle(_visual_rotation);
+        _affine_mat = bn::sprite_affine_mat_ptr::create_optional(attrs);
+    }
+
+    if(!_affine_mat.has_value())
+    {
+        reposition_parts();
+        sync_part_visibility();
+        return;
     }
 
     bn::affine_mat_attributes attrs;
@@ -1414,6 +1598,16 @@ void release_card_display_tiles(Card& card)
     card.set_type(CARD_DISPLAY_PLACEHOLDER);
 }
 
+void hide_card_display_pool(bn::span<Card> cards)
+{
+    for(Card& card : cards)
+    {
+        card.set_visible(false);
+        card.set_draw_on_top(false);
+        card.set_blending_enabled(false);
+    }
+}
+
 void clear_card_border_palette_cache()
 {
     reset_card_border_palette_cache();
@@ -1421,18 +1615,39 @@ void clear_card_border_palette_cache()
 
 void reset_card_shared_tile_caches()
 {
-    g_text_card_tiles_ready = false;
-    g_text_card_tiles_ptr.reset();
-
+    // The 32-tile text-card body block is deliberately kept for the lifetime of
+    // the program. Every text-only card in every scene draws from this one
+    // block, so releasing it buys back 32 of 1024 tiles while creating the
+    // duplicate-allocation hazard described at g_live_card_art_count.
     for(bn::optional<bn::sprite_palette_ptr>& palette : g_text_card_palettes_by_rarity)
     {
-        palette.reset();
+        if(palette.has_value())
+        {
+            palette.reset();
+        }
     }
+}
+
+bool card_art_is_live()
+{
+    return g_live_card_art_count > 0;
 }
 
 void reclaim_scene_graphics_state()
 {
+    if(card_art_is_live())
+    {
+        // Reclaiming now would orphan the cache entries these cards are still
+        // drawing with, and the next scene would allocate duplicates of all of
+        // them. Skipping is always safe: the caches are bounded and idempotent,
+        // so the worst case is that they stay warm for one scene too long.
+        BN_LOG("[gfx] reclaim skipped, ", g_live_card_art_count, " cards still hold card art");
+        return;
+    }
+
     reset_card_shared_tile_caches();
     clear_card_border_palette_cache();
     reset_card_stat_palette_caches();
+    reset_placeholder_palette_cache();
+    reset_text_box_palette_cache();
 }

@@ -288,7 +288,9 @@ void GameContext::render_combo_frame(int main_x)
             const int gy_origin_x = card_target_x_for_hud_icon(game_layout::HUD_GRAVEYARD_X, main_x);
             const int gy_origin_y = card_target_y_for_hud_icon(game_layout::HUD_GRAVEYARD_Y);
 
-            for (int card_index = 0; card_index < count; ++card_index)
+            const int visible_count = count < int(combo_display.size()) ? count : int(combo_display.size());
+
+            for(int card_index = 0; card_index < visible_count; ++card_index)
             {
                 const int gather_x = row_start + card_index * spacing + main_x;
                 const int gather_y = gy_combo ? center_y : game_layout::HAND_Y;
@@ -345,14 +347,20 @@ void GameContext::render_combo_frame(int main_x)
                 combo_display[card_index].set_type(state.combo_cinematic.cards[card_index]);
                 combo_display[card_index].set_visible(true);
             }
+
+            for(int card_index = visible_count; card_index < int(combo_display.size()); ++card_index)
+            {
+                combo_display[card_index].set_visible(false);
+                combo_display[card_index].clear_visual();
+            }
 }
 
 void GameContext::render_combo_score_choice()
 {
-    combo_mul_sprites.clear();
-
     if(!state.combo_cinematic.awaiting_score_choice)
     {
+        combo_mul_sprites.clear();
+        combo_mul_cached_text.clear();
         return;
     }
 
@@ -360,6 +368,8 @@ void GameContext::render_combo_score_choice()
 
     if(multiplier <= 0)
     {
+        combo_mul_sprites.clear();
+        combo_mul_cached_text.clear();
         return;
     }
 
@@ -391,6 +401,18 @@ void GameContext::render_combo_score_choice()
 
     const int label_x = (any_visible ? right_edge : fallback_x) + 6;
     const int label_y = target_round ? 0 : -48;
+
+    if(mul_text == combo_mul_cached_text && target_round == combo_mul_cached_round &&
+       label_x == combo_mul_cached_x && label_y == combo_mul_cached_y && !combo_mul_sprites.empty())
+    {
+        return;
+    }
+
+    combo_mul_sprites.clear();
+    combo_mul_cached_text = mul_text;
+    combo_mul_cached_round = target_round;
+    combo_mul_cached_x = label_x;
+    combo_mul_cached_y = label_y;
 
     round_text_generator.set_left_alignment();
     round_text_generator.generate_optional(label_x, label_y, mul_text, combo_mul_sprites);
@@ -864,7 +886,7 @@ void GameContext::render_hand_frame(int main_x, int swap_shift, int removal_shif
 
             for(int slot = pool_slot; slot < hand_display.size(); ++slot)
             {
-                release_card_display_tiles(hand_display[slot]);
+                hand_display[slot].set_visible(false);
             }
         }
 }
@@ -1039,25 +1061,11 @@ void GameContext::render_frame()
         {
             marker.set_visible(false);
         }
-        for (Card &card : grave_row_display)
-        {
-            release_card_display_tiles(card);
-        }
-        for (Card &card : scry_display)
-        {
-            release_card_display_tiles(card);
-        }
-        for (Card &card : combo_display)
-        {
-            release_card_display_tiles(card);
-        }
-        for (Card &card : swivel_display)
-        {
-            release_card_display_tiles(card);
-        }
-
+        hide_card_display_pool(grave_row_display);
+        hide_card_display_pool(scry_display);
+        hide_card_display_pool(combo_display);
+        hide_card_display_pool(swivel_display);
         hide_hand_display();
-        clear_card_border_palette_cache();
 
         if (mode == GameMode::COMBO)
         {
@@ -1228,9 +1236,9 @@ void GameContext::render_frame()
                 exclusive_fx_card().set_blending_enabled(false);
             }
         }
-        else if(!removing_card)
+        else if(!removing_card && !deck_search_resolve_fx.active)
         {
-            release_card_display_tiles(exclusive_fx_card());
+            exclusive_fx_card().set_visible(false);
         }
 
         position_main_score_sprites();
@@ -1270,7 +1278,11 @@ void GameContext::render_frame()
 
         score_pop_render(*this, !inspecting);
         sync_score_sprite_depth();
-        render_play_presentation_overlay(main_x);
+
+        if(mode != GameMode::COMBO || !state.combo_cinematic.active)
+        {
+            render_play_presentation_overlay(main_x);
+        }
 
         if(show_details_layer() && !inspecting)
         {
@@ -1291,7 +1303,8 @@ void GameContext::render_frame()
         }
 
         if(show_graveyard_layer() && !inspecting && mode != GameMode::GRAVEYARD_TARGET &&
-           mode != GameMode::GRAVEYARD_PICK)
+           mode != GameMode::GRAVEYARD_PICK &&
+           !(mode == GameMode::COMBO && state.combo_cinematic.active))
         {
             render_graveyard_browse(graveyard_panel_offset_x());
         }

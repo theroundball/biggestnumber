@@ -3,11 +3,23 @@
 
 #include "bn_fixed.h"
 
+#include "campaign_types.h"
+
 enum class OverworldSceneResult
 {
     STAY,
     OPEN_PLAY_MENU,
+    START_NPC_BATTLE,
 };
+
+struct OverworldNpcBattleRequest
+{
+    CampaignMode mode = CampaignMode::NONE;
+    int npc_index = -1;
+    bool use_loaner_deck = false;
+};
+
+bool overworld_take_pending_npc_battle(OverworldNpcBattleRequest& out_request);
 
 // Lower on screen (larger world Y) sorts in front for top-down overlap.
 // Butano draws higher z_order first (behind), so larger Y must map to lower z.

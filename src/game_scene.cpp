@@ -13,7 +13,8 @@
 #include "battle_backdrop.h"
 #include "card.h"
 #include "card_instance.h"
-#include "overworld_drops.h"
+#include "diagnostics.h"
+#include "scene_graphics.h"
 #include "common_variable_8x16_sprite_font.h"
 #include "game_context.h"
 #include "game_events.h"
@@ -88,13 +89,15 @@ GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const 
         active_game_context = nullptr;
     }
 
-    overworld_drops_hide_inspect_card();
-    reclaim_scene_graphics_state();
-    reset_score_pop_palette_cache();
-    reset_victory_green_palette_cache();
+    scene_graphics_prepare_battle();
     active_game_context = new(game_context_storage) GameContext(collection, launch);
     GameContext& ctx = *active_game_context;
     bool shutdown_done = false;
+
+    // Battle is the heaviest scene for both sprites and state machinery, so both
+    // meters start clean here to keep their readings attributable to this fight.
+    diag::reset_resource_peak();
+    diag::ProgressWatchdog watchdog;
 
     while(! ctx.run_finished)
     {
@@ -130,10 +133,7 @@ GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const 
         score_count_tick(ctx);
         score_swap_tick(ctx);
         ctx.tick_run_end_presentation();
-        if(ctx.removing_card)
-        {
-            ctx.tick_removal_fx();
-        }
+        ctx.tick_removal_fx();
         ctx.tick_round_end_pending();
         ctx.tick_roll_over_pending();
         ctx.tick_echo_pending();
@@ -154,6 +154,12 @@ GameSceneResult run_game_scene(const bn::vector<CardRef, 50>& collection, const 
         ctx.hud.update(ctx.state, deck_hud_display_count(ctx.state, ctx.in_flight_deck_draw_count()));
 
         battle_backdrop_tick();
+
+        // Sampled after every sprite for this frame exists but before the commit
+        // that would trip Butano's hardware limit.
+        diag::track_resource_peak("battle");
+        watchdog.tick(diag::battle_fingerprint(ctx), diag::battle_stall_reason(ctx));
+
         bn::core::update();
     }
 

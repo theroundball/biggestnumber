@@ -13,10 +13,34 @@
 #include "common_variable_8x8_sprite_font.h"
 #include "game_helpers.h"
 #include "ui_common.h"
+#include "scene_graphics.h"
 #include "ui_inspect.h"
+
+#ifndef BN_DATA_EWRAM_BSS
+    #define BN_DATA_EWRAM_BSS __attribute__((section(".sbss")))
+#endif
 
 namespace
 {
+    struct PrizeRowCardPool
+    {
+        bn::array<Card, CAMPAIGN_PRIZE_SLOT_COUNT> cards;
+    };
+
+    alignas(PrizeRowCardPool) BN_DATA_EWRAM_BSS char prize_row_card_pool_storage[sizeof(PrizeRowCardPool)];
+    bool prize_row_card_pool_ready = false;
+
+    bn::array<Card, CAMPAIGN_PRIZE_SLOT_COUNT>& prize_row_card_pool()
+    {
+        if(!prize_row_card_pool_ready)
+        {
+            new(reinterpret_cast<PrizeRowCardPool*>(prize_row_card_pool_storage)) PrizeRowCardPool();
+            prize_row_card_pool_ready = true;
+        }
+
+        return reinterpret_cast<PrizeRowCardPool*>(prize_row_card_pool_storage)->cards;
+    }
+
     constexpr int DROP_SPACING = game_layout::HAND_SPACING;
     constexpr int DROP_Y = game_layout::GRAVE_Y;
     constexpr int DROP_RAISE = game_layout::GRAVE_SELECTED_RAISE;
@@ -148,7 +172,7 @@ PrizeRowResult run_prize_row_scene(const char* title, const PrizeOffer* offers, 
     }
 
     bn::array<CardRef, CAMPAIGN_PRIZE_SLOT_COUNT> offer_refs;
-    bn::array<Card, CAMPAIGN_PRIZE_SLOT_COUNT> card_pool;
+    bn::array<Card, CAMPAIGN_PRIZE_SLOT_COUNT>& card_pool = prize_row_card_pool();
     bn::array<int, CAMPAIGN_PRIZE_SLOT_COUNT> raise_offsets{};
 
     for(int index = 0; index < offer_count; ++index)
@@ -251,6 +275,7 @@ PrizeRowResult run_prize_row_scene(const char* title, const PrizeOffer* offers, 
         if(!inspecting && bn::keypad::a_pressed())
         {
             release_card_pool(bn::span<Card>(card_pool.data(), card_pool.size()));
+            scene_graphics_leave_card_scene();
             battle_backdrop_set_visible(true);
 
             result.picked = true;
@@ -270,6 +295,7 @@ PrizeRowResult run_prize_row_scene(const char* title, const PrizeOffer* offers, 
             else
             {
                 release_card_pool(bn::span<Card>(card_pool.data(), card_pool.size()));
+                scene_graphics_leave_card_scene();
                 battle_backdrop_set_visible(true);
                 return result;
             }

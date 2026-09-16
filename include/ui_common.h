@@ -13,6 +13,9 @@
 // Find-or-create tiles/palette without Butano's set_item create_new (which crashes at 16 palettes).
 bool apply_sprite_item_optional(bn::sprite_ptr& sprite, const bn::sprite_item& item);
 
+// Drop cached TextBoxPanel palette after scene transitions.
+void reset_text_box_palette_cache();
+
 void move_toward_int(int& value, int target, int max_step);
 void move_toward_raise(int& value, int target);
 
@@ -24,6 +27,10 @@ int first_visible_index(int cursor, int count, int window);
 // confirming press from the previous screen (e.g. A on "Build Deck" opening
 // "+ New Deck" immediately).
 void wait_for_keypad_clear();
+
+// Like wait_for_keypad_clear, but ignores held D-pad / L / R so list navigation
+// doesn't block the next scene from opening.
+void wait_for_confirm_key_clear();
 
 enum class DirectionAxis
 {

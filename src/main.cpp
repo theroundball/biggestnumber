@@ -39,6 +39,20 @@ int main()
             campaign_run_overworld_play_flow(rng);
             break;
 
+        case OverworldSceneResult::START_NPC_BATTLE:
+        {
+            OverworldNpcBattleRequest battle_request;
+
+            if(overworld_take_pending_npc_battle(battle_request))
+            {
+                bn::seed_random battle_rng(bn::core::current_cpu_ticks() | 1u);
+                campaign_run_overworld_battle(battle_rng, battle_request.mode, battle_request.npc_index,
+                                              battle_request.use_loaner_deck);
+            }
+
+            break;
+        }
+
         default:
             break;
         }

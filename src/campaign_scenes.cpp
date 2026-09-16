@@ -19,8 +19,42 @@
 #include "library_grid_pick_scene.h"
 #include "ui_common.h"
 
+#include <new>
+
+#ifndef BN_DATA_EWRAM_BSS
+    #define BN_DATA_EWRAM_BSS __attribute__((section(".sbss")))
+#endif
+
 namespace
 {
+    struct BenchmarkPreBattleUi
+    {
+        bn::sprite_text_generator text_generator;
+        SceneText scene_text;
+        TextBoxPanel panel;
+        SelectorGlyph selector;
+
+        BenchmarkPreBattleUi()
+        : text_generator(common::variable_8x16_sprite_font),
+          scene_text(text_generator),
+          selector(text_generator, -100)
+        {}
+    };
+
+    alignas(BenchmarkPreBattleUi) BN_DATA_EWRAM_BSS char benchmark_pre_battle_ui_storage[sizeof(BenchmarkPreBattleUi)];
+    bool benchmark_pre_battle_ui_ready = false;
+
+    BenchmarkPreBattleUi& benchmark_pre_battle_ui()
+    {
+        if(!benchmark_pre_battle_ui_ready)
+        {
+            new(reinterpret_cast<BenchmarkPreBattleUi*>(benchmark_pre_battle_ui_storage)) BenchmarkPreBattleUi();
+            benchmark_pre_battle_ui_ready = true;
+        }
+
+        return *reinterpret_cast<BenchmarkPreBattleUi*>(benchmark_pre_battle_ui_storage);
+    }
+
     constexpr int LIST_LINE_HEIGHT = 16;
     constexpr int LIST_START_Y = -20;
     constexpr int STATUS_TITLE_Y = -68;
@@ -204,16 +238,16 @@ MenuSceneResult run_benchmark_pre_battle_scene(CampaignMode mode, int current_ru
     battle_backdrop_set_visible(false);
     bn::backdrop::set_color(bn::color(0, 0, 0));
 
-    bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
-    SceneText scene_text(text_generator);
-    TextBoxPanel panel;
-    SelectorGlyph selector(text_generator, -100);
-    panel.set_z_order(game_layout::TEXT_BOX_Z);
-    panel.set_bg_priority(game_layout::TEXT_BOX_BG_PRIORITY);
-    scene_text.set_z_order(game_layout::OVERLAY_TEXT_Z);
-    scene_text.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
-    selector.set_z_order(game_layout::OVERLAY_TEXT_Z);
-    selector.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
+    BenchmarkPreBattleUi& ui = benchmark_pre_battle_ui();
+    ui.panel.clear();
+    ui.scene_text.clear();
+    ui.selector.set_visible(false);
+    ui.panel.set_z_order(game_layout::TEXT_BOX_Z);
+    ui.panel.set_bg_priority(game_layout::TEXT_BOX_BG_PRIORITY);
+    ui.scene_text.set_z_order(game_layout::OVERLAY_TEXT_Z);
+    ui.scene_text.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
+    ui.selector.set_z_order(game_layout::OVERLAY_TEXT_Z);
+    ui.selector.set_bg_priority(game_layout::OVERLAY_TEXT_BG_PRIORITY);
 
     bn::string<32> line0;
     line0.append(bn::to_string<8>(current_rung));
@@ -223,24 +257,24 @@ MenuSceneResult run_benchmark_pre_battle_scene(CampaignMode mode, int current_ru
     constexpr int prompt_y_1 = -48;
     constexpr int bottom_y = -20;
 
-    panel.draw_full_width_top(bottom_y);
-    scene_text.draw_centered_line(prompt_y_0, line0);
-    scene_text.draw_centered_line(prompt_y_1, "Can you prove it?");
-    selector.set_visible(false);
+    ui.panel.draw_full_width_top(bottom_y);
+    ui.scene_text.draw_centered_line(prompt_y_0, line0);
+    ui.scene_text.draw_centered_line(prompt_y_1, "Can you prove it?");
+    ui.selector.set_visible(false);
 
     while(true)
     {
         if(bn::keypad::a_pressed())
         {
-            panel.clear();
-            scene_text.clear();
+            ui.panel.clear();
+            ui.scene_text.clear();
             return MenuSceneResult::STAY;
         }
 
         if(bn::keypad::b_pressed())
         {
-            panel.clear();
-            scene_text.clear();
+            ui.panel.clear();
+            ui.scene_text.clear();
             return MenuSceneResult::MAIN_MENU;
         }
 
@@ -291,6 +325,7 @@ MenuSceneResult run_campaign_battle_results_scene(CampaignMode mode, const GameS
         }
         else
         {
+            line0 = "You scored ";
             line0.append(bn::to_string<8>(overworld_benchmark_rung));
             line0.append(overworld_next_benchmark_rung >= 0 ? "! It's real," : "! It's real.");
 
@@ -304,7 +339,7 @@ MenuSceneResult run_campaign_battle_results_scene(CampaignMode mode, const GameS
 
         constexpr int prompt_y_0 = -64;
         constexpr int prompt_y_1 = -48;
-        constexpr int bottom_y = overworld_next_benchmark_rung >= 0 ? -20 : -36;
+        const int bottom_y = overworld_next_benchmark_rung >= 0 ? -20 : -36;
 
         panel.draw_full_width_top(bottom_y);
         scene_text.draw_centered_line(prompt_y_0, line0);

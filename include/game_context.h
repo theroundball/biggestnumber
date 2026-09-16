@@ -200,6 +200,10 @@ public:
     bn::vector<bn::sprite_ptr, 48> details_sprites;
     bn::vector<bn::sprite_ptr, 24> action_prompt_sprites;
     bn::vector<bn::sprite_ptr, 8> combo_mul_sprites;
+    bn::string<8> combo_mul_cached_text;
+    bool combo_mul_cached_round = false;
+    int combo_mul_cached_x = 0;
+    int combo_mul_cached_y = 0;
     PersistentHud hud;
 
     struct DeckSearchResolveFx
@@ -386,7 +390,7 @@ public:
     void apply_sprite_offset_delta(bn::span<bn::sprite_ptr> sprites, int target_offset, int& last_offset);
     void position_main_score_sprites();
     void hide_hand_display();
-    void release_idle_card_pools();
+    void hide_idle_card_pools();
     void position_inspect_sprites();
     CardRowResult render_graveyard_view(int panel_x, int cursor);
     void render_graveyard_browse(int panel_x);

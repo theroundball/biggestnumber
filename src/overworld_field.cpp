@@ -27,7 +27,8 @@ namespace
 
     void init_palette_colors()
     {
-        g_palette_colors[0] = bn::color(0, 0, 0);
+        // Index 0 is transparent on BG layers — match the field green so gaps never read as black.
+        g_palette_colors[0] = bn::color(8, 20, 8);
         g_palette_colors[1] = bn::color(8, 20, 8);
     }
 

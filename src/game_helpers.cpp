@@ -2008,7 +2008,7 @@ CardRowResult render_card_row(bn::span<Card> pool, bn::span<const CardRef> sourc
 
         if(index < 0 || index >= count)
         {
-            release_card_display_tiles(pool[slot]);
+            pool[slot].set_visible(false);
             continue;
         }
 

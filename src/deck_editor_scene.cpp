@@ -25,6 +25,7 @@
 
 #include "campaign.h"
 #include "card.h"
+#include "scene_graphics.h"
 #include "card_data.h"
 #include "card_instance.h"
 #include "common_variable_8x8_sprite_font.h"
@@ -253,23 +254,37 @@ namespace
     {
     public:
         CatalogScrollRail() :
-            _thumb_tiles(bn::sprite_tiles_ptr::allocate(2, bn::bpp_mode::BPP_4)),
-            _palette(bn::sprite_palette_ptr::create(SCROLL_RAIL_PALETTE)),
-            _thumb(bn::sprite_ptr::create(SCROLL_RAIL_X, 0, bn::sprite_shape_size(8, 16),
-                                          _thumb_tiles, _palette))
+            _thumb_tiles(bn::sprite_tiles_ptr::allocate(2, bn::bpp_mode::BPP_4))
         {
             paint_solid_tiles(_thumb_tiles, 2);
-            _thumb.set_z_order(-1);
+
+            if(bn::optional<bn::sprite_palette_ptr> palette =
+                   bn::sprite_palette_ptr::create_optional(SCROLL_RAIL_PALETTE))
+            {
+                _palette = *palette;
+                _thumb = bn::sprite_ptr::create(SCROLL_RAIL_X, 0, bn::sprite_shape_size(8, 16),
+                                                _thumb_tiles, *_palette);
+                _thumb->set_z_order(-1);
+            }
+
             set_visible(false);
         }
 
         void set_visible(bool visible)
         {
-            _thumb.set_visible(visible);
+            if(_thumb.has_value())
+            {
+                _thumb->set_visible(visible);
+            }
         }
 
         void update(int scroll_y, int max_scroll, int track_top, int track_height)
         {
+            if(!_thumb.has_value())
+            {
+                return;
+            }
+
             if(max_scroll <= 0 || track_height < 16)
             {
                 set_visible(false);
@@ -281,13 +296,13 @@ namespace
             constexpr int thumb_h = 16;
             const int travel = track_height - thumb_h;
             const int thumb_top = track_top + (scroll_y * travel) / max_scroll;
-            _thumb.set_position(SCROLL_RAIL_X, thumb_top + thumb_h / 2);
+            _thumb->set_position(SCROLL_RAIL_X, thumb_top + thumb_h / 2);
         }
 
     private:
         bn::sprite_tiles_ptr _thumb_tiles;
-        bn::sprite_palette_ptr _palette;
-        bn::sprite_ptr _thumb;
+        bn::optional<bn::sprite_palette_ptr> _palette;
+        bn::optional<bn::sprite_ptr> _thumb;
     };
 
     // Cards + SceneText pools are too large for the GBA's ~16KB stack. Nested under
@@ -323,8 +338,10 @@ namespace
     {
         if(g_deck_editor)
         {
+            scene_graphics_release_card_pool(g_deck_editor->catalog_cards);
             g_deck_editor->~DeckEditorSceneState();
             g_deck_editor = nullptr;
+            scene_graphics_leave_card_scene();
         }
 
         g_deck_editor = new(g_deck_editor_storage) DeckEditorSceneState();
@@ -335,8 +352,10 @@ namespace
     {
         if(g_deck_editor)
         {
+            scene_graphics_release_card_pool(g_deck_editor->catalog_cards);
             g_deck_editor->~DeckEditorSceneState();
             g_deck_editor = nullptr;
+            scene_graphics_leave_card_scene();
         }
     }
 
@@ -522,12 +541,7 @@ namespace
         scroll_rail.set_visible(false);
         inspect_sprites.clear();
         hide_inspect_card(inspect_card_slot);
-
-        for(Card& card : catalog_cards)
-        {
-            release_card_display_tiles(card);
-            card.set_visible(false);
-        }
+        scene_graphics_release_card_pool(catalog_cards);
     }
 
     bool try_save_working_deck(SavedDeck& working, SaveData& save, int deck_index)
@@ -591,7 +605,8 @@ namespace
 
 DeckEditorResult run_deck_editor_scene(int deck_index, bool create_debug_deck, bool overworld_session)
 {
-    wait_for_keypad_clear();
+    wait_for_confirm_key_clear();
+    scene_graphics_reclaim_all();
 
     DeckEditorResult result;
 
