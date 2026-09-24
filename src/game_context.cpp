@@ -338,7 +338,7 @@ void reset_victory_green_palette_cache()
 }
 
 GameContext::GameContext(const bn::vector<CardRef, 50>& collection, const BattleLaunch& launch) :
-    random_engine(make_battle_random_seed(collection)),
+    random_engine(make_battle_random_seed(collection, launch.shuffle_entropy)),
     deck(build_battle_deck(collection, random_engine, launch.instance_pool)),
     state(deck, random_engine),
     deck_high_score(launch.deck_index >= 0 && launch.deck_index < save_data_get().deck_count
@@ -2584,6 +2584,13 @@ void GameContext::complete_play_flight(PlayFlight& flight)
         // Do not drain queued follow-ups (e.g. Jacks retrieve) while an earlier
         // interactive step (discard target) is still open.
         begin_next_pending_or_finish(discard_resolved);
+    }
+    else if(empty_hand_triggers_round_end(state))
+    {
+        // Early hand commit can queue follow-ups (Overclock, Big Kurosawa, etc.)
+        // while an interactive selection is still open. Once the hand is empty,
+        // close or drain so round-end is not stuck behind a stale pick mode.
+        begin_next_pending_or_finish(true);
     }
 }
 
@@ -4875,10 +4882,21 @@ bool GameContext::block_round_end_for_combo()
         return false;
     }
 
+    combo_check_zone(state, ComboZone::GRAVEYARD);
+
     if(state.pending_combo.length > 0)
     {
-        round_end_pending = true;
-        return true;
+        if(try_start_pending_combo())
+        {
+            round_end_pending = true;
+            return true;
+        }
+
+        if(state.pending_combo.length > 0)
+        {
+            round_end_pending = true;
+            return true;
+        }
     }
 
     return false;
@@ -5034,6 +5052,8 @@ GameContext::RoundFinishResult GameContext::try_finish_round_after_empty_hand()
         return RoundFinishResult::Blocked;
     }
 
+    swivel_clear_wait_if_hand_empty(*this);
+
     // Empty hand/deck is only meaningful after the played card has completely
     // resolved. A deferred round-end can otherwise race an action started on the
     // final removal frame (Necromancy's GY shuffle is the clearest example).
@@ -5050,7 +5070,6 @@ GameContext::RoundFinishResult GameContext::try_finish_round_after_empty_hand()
     }
 
     round_end_pending = false;
-    swivel_clear_wait_if_hand_empty(*this);
 
     if(state.finale_active && campaign_ui.mode != CampaignMode::NUMBER_NOW)
     {
@@ -5201,6 +5220,25 @@ void GameContext::tick_round_end_pending()
         mode = GameMode::SCORE_SWAP;
     }
 
+    if(empty_hand_triggers_round_end(state) && play_flight_count() == 0 && !removing_card &&
+       !hand_draw_fx_blocking())
+    {
+        if((mode == GameMode::DECK_SEARCH && state.selection.deck_search_buffer.empty()) ||
+           (mode == GameMode::SCRY && state.selection.scry_buffer.empty()))
+        {
+            begin_next_pending_or_finish(true);
+        }
+        else if(mode == GameMode::NORMAL && !state.pending_actions.empty())
+        {
+            begin_next_pending_or_finish();
+        }
+
+        if(state.effect_draw_remaining > 0)
+        {
+            continue_effect_draw_batch();
+        }
+    }
+
     if(mode == GameMode::NORMAL && state.pending_actions.empty() && play_flight_count() == 0 &&
        !removing_card && state.hand.empty() && hand_draw_fx_blocking())
     {
@@ -5209,10 +5247,20 @@ void GameContext::tick_round_end_pending()
 
     if(!round_end_pending)
     {
-        if(mode != GameMode::NORMAL || !state.pending_actions.empty() || removing_card ||
-           play_flight_count() > 0 || !state.hand.empty() || !empty_hand_triggers_round_end(state))
+        if(mode != GameMode::NORMAL || removing_card || play_flight_count() > 0 ||
+           !state.hand.empty() || !empty_hand_triggers_round_end(state))
         {
             return;
+        }
+
+        if(!state.pending_actions.empty())
+        {
+            begin_next_pending_or_finish();
+
+            if(!state.pending_actions.empty() || mode != GameMode::NORMAL)
+            {
+                return;
+            }
         }
 
         if(card_resolution_blocking_round_end())

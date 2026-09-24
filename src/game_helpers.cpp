@@ -2131,10 +2131,41 @@ void deal_next_hand(Deck &deck, GameState &state, int &selected_card)
 // Each Biggest Number game plays on this disposable copy; in-battle effects
 // (draw, graveyard, RECLAIM's exile) mutate only the copy, so the collection is
 // never touched and every owned card returns for the next game instance.
-unsigned make_battle_random_seed(const bn::vector<CardType, 50>& collection)
+namespace
+{
+    unsigned mix_battle_seed_entropy(unsigned seed, unsigned extra_entropy)
+    {
+        static unsigned battle_counter = 0;
+
+        seed ^= extra_entropy;
+        seed ^= ++battle_counter * 0x9E3779B9u;
+        return seed;
+    }
+
+    unsigned finalize_battle_random_seed(unsigned seed)
+    {
+        bn::seed_random mixer(seed);
+
+        for(int index = 0; index < 4; ++index)
+        {
+            mixer.update();
+            seed ^= mixer.get();
+        }
+
+        if(seed == 0)
+        {
+            seed = 1;
+        }
+
+        return seed;
+    }
+}
+
+unsigned make_battle_random_seed(const bn::vector<CardType, 50>& collection, unsigned extra_entropy)
 {
     unsigned seed = static_cast<unsigned>(bn::core::current_cpu_ticks());
     seed ^= static_cast<unsigned>(bn::core::last_cpu_ticks()) << 16;
+    seed = mix_battle_seed_entropy(seed, extra_entropy);
     seed ^= static_cast<unsigned>(collection.size()) * 2654435761u;
 
     for(int index = 0; index < collection.size(); ++index)
@@ -2143,32 +2174,26 @@ unsigned make_battle_random_seed(const bn::vector<CardType, 50>& collection)
         seed = (seed << 5) | (seed >> 27);
     }
 
-    bn::seed_random mixer(seed);
-
-    for(int index = 0; index < 4; ++index)
-    {
-        mixer.update();
-        seed ^= mixer.get();
-    }
-
-    if(seed == 0)
-    {
-        seed = 1;
-    }
-
-    return seed;
+    return finalize_battle_random_seed(seed);
 }
 
-unsigned make_battle_random_seed(const bn::vector<CardRef, 50>& collection)
+unsigned make_battle_random_seed(const bn::vector<CardRef, 50>& collection, unsigned extra_entropy)
 {
-    bn::vector<CardType, 50> types;
+    unsigned seed = static_cast<unsigned>(bn::core::current_cpu_ticks());
+    seed ^= static_cast<unsigned>(bn::core::last_cpu_ticks()) << 16;
+    seed = mix_battle_seed_entropy(seed, extra_entropy);
+    seed ^= static_cast<unsigned>(collection.size()) * 2654435761u;
 
     for(int index = 0; index < collection.size(); ++index)
     {
-        types.push_back(collection[index].type);
+        const CardRef& card = collection[index];
+        seed ^= static_cast<unsigned>(card.type) * (index + 1u);
+        seed ^= static_cast<unsigned>(card.instance_id) * (index + 11u);
+        seed ^= static_cast<unsigned>(card.bounty_id) * (index + 23u);
+        seed = (seed << 5) | (seed >> 27);
     }
 
-    return make_battle_random_seed(types);
+    return finalize_battle_random_seed(seed);
 }
 
 Deck build_battle_deck(const bn::vector<CardRef, 50>& collection, bn::seed_random& random_engine,

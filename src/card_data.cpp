@@ -40,6 +40,9 @@
 #include "bn_sprite_items_bike_body.h"
 #include "bn_sprite_items_bike_accent_top.h"
 #include "bn_sprite_items_bike_accent_bottom.h"
+#include "bn_sprite_items_bounty_body.h"
+#include "bn_sprite_items_bounty_accent_top.h"
+#include "bn_sprite_items_bounty_accent_bottom.h"
 #include "bn_sprite_items_clover_body.h"
 #include "bn_sprite_items_clover_accent_top.h"
 #include "bn_sprite_items_clover_accent_bottom.h"
@@ -851,7 +854,7 @@ const CardData& card_data(CardType type)
         make_card("Dead Rising", "Exile this. At the start of each of the next 3 rounds, put 2 random cards from your graveyard on top of your deck.",
                   0, 0, {}, {}, {}, effect_dead_rising, nullptr, false, true, nullptr, nullptr, nullptr, false, false, 0, nullptr, true),
         make_card("Bounty", "+n when this copy is played (n starts at 0 and increases by 1 on play, so the first play is +1). While in your graveyard, this copy returns to hand when this round rises by its bounty (starts at 10; when this copy's n reaches 10, bounty becomes 100).",
-                  0, 0, {}, {}, {}, effect_bounty_play, nullptr, false, false, CARD_SPRITES(clover)),
+                  0, 0, {}, {}, {}, effect_bounty_play, nullptr, false, false, CARD_SPRITES(bounty)),
         make_card("Overclock", "Multiply this round by 2. You may discard cards from your hand. Each time you do, multiply again by 3, then 4, then 5, and so on. Stop when you like.",
                   0, 0, {}, {}, {}, effect_overclock_play, nullptr, false, false, CARD_SPRITES(hacker)),
         make_card("Evaluate", "Apply the next scheduled round modifier now (+ then x). That round still gets it later. Ghost: apply all three scheduled modifiers in order, clear them, and end Turtle Mode (round score stays until this turn ends).",

@@ -48,6 +48,9 @@ struct BattleLaunch
     int same_number_target = 0;
     int number_now_scoring_round = 1;
     int number_now_round_peak = 0;
+    // Mixed into battle deck shuffle seed so repeated runs with the same deck do not
+    // draw in a fixed order. Set from the session RNG before each battle.
+    unsigned shuffle_entropy = 0;
 };
 
 struct PendingScoreCheck

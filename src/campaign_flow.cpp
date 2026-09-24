@@ -263,6 +263,9 @@ namespace
                                                 launch.longsleeve_cards);
         }
 
+        launch.shuffle_entropy = rng.get();
+        rng.update();
+
         const GameSceneResult game = run_game_scene(workspace.battle_deck, launch);
 
         if(game.exited_early)

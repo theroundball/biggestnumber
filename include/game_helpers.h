@@ -138,8 +138,8 @@ bool graveyard_cursor_screen_position(int cursor, int graveyard_size, int spacin
                                       int scroll_x, int main_x, int& out_x, int& out_y);
 
 void deal_next_hand(Deck& deck, GameState& state, int& selected_card);
-unsigned make_battle_random_seed(const bn::vector<CardType, 50>& collection);
-unsigned make_battle_random_seed(const bn::vector<CardRef, 50>& collection);
+unsigned make_battle_random_seed(const bn::vector<CardType, 50>& collection, unsigned extra_entropy = 0);
+unsigned make_battle_random_seed(const bn::vector<CardRef, 50>& collection, unsigned extra_entropy = 0);
 Deck build_battle_deck(const bn::vector<CardRef, 50>& collection, bn::seed_random& random_engine,
                        const InstancePool& pool);
 Deck build_battle_deck(const bn::vector<CardType, 50>& collection, bn::seed_random& random_engine);
